@@ -51,7 +51,9 @@ curl -s -X POST http://127.0.0.1:8000/api/auth/change-password \
 | `LOG_DIR` | `./logs` | | 日志目录；自动创建 |
 | `UPLOAD_DIR` | `./uploads` | | 文件上传目录；自动创建；前端 `/uploads/*` 由此托管 |
 | `CORS_ORIGIN` | `""` | | 公网部署必填，逗号分隔白名单（或含 `*` 则全部放行）；未配置仅本地/私网 |
-| `SEED_ADMIN_PASSWORD` | `admin123` | | migrate 自动建 admin 时用 |
+| `SEED_ADMIN_USERNAME` | `admin` | | 首次 migrate 自动建的超级管理员用户名（业务超管 + 后台超管共用）；已存在则跳过 |
+| `SEED_ADMIN_EMAIL` | `admin@example.com` | | 后台超管邮箱 |
+| `SEED_ADMIN_PASSWORD` | `admin123` | | 首次 migrate 自动建的超级管理员密码；生产务必改强密码 |
 | `JWT_ISSUER` | `gipfel-competition` | | JWT iss |
 | `JWT_AUDIENCE` | `gipfel-competition-client` | | JWT aud |
 | `JWT_EXPIRES_IN` | `24h` | | 支持 `Nh/Nm/Ns/Nd` |
@@ -140,11 +142,11 @@ emit_permissions_changed(u.id, u.permission_version)
 ### 访问与账号
 
 - 访问地址：`http://<host>:8000/admin/`（与 API、Socket.IO 同源同端口）
-- 超级管理员账号：
+- 超级管理员账号（首次 `migrate` 自动从 `.env` 的 `SEED_ADMIN_*` 创建；业务超管与后台超管共用同一凭据，**已存在则跳过、不覆盖**）：
 
   | 用户名 | 密码 | 说明 |
   | --- | --- | --- |
-  | `admin` | `GipfelAdmin2026!` | 通过 `createsuperuser` 创建；**建议首次登录后立即改密** |
+  | `admin` | 见 `.env`（`SEED_ADMIN_PASSWORD`，默认 `admin123`） | 生产务必改用强密码；**建议首次登录后立即改密** |
 
 - 登录后可见 39 个业务模型（公司 / 比赛 / 合同 / 股票 / 原料 / 零件 / 产品 / 地图节点 / 基础设施 / 燃料 / 车辆 / 仓库 / 生产线 / 行业类型 / 区域 / 消费需求 / 消息 / 技术树 / 审计等）+ Django 内置的 用户 / 组。
 
@@ -178,3 +180,4 @@ set DJANGO_SUPERUSER_PASSWORD=YourNewPass!
 
 1. **`backend/urls.py`** 挂载了 `path("admin/", admin.site.urls)`，并额外用 `re_path` 无条件托管 `STATIC_ROOT`，使 `DEBUG=False` 时后台样式与脚本也能加载（`django.conf.urls.static.static` 仅在 `DEBUG=True` 时挂载）。
 2. **`apps/common/middleware.py`** 的 `SecurityHeadersMiddleware` 对 `/admin` 路径跳过 CSP 等安全头——否则全局 `default-src 'none'; form-action 'none'` 会直接拦截登录与所有表单提交。该豁免仅作用于 `/admin`，`/api` 等接口的安全头保持不变。
+3. **`apps/auth/bootstrap.py`** 的 `seed_default_admin` 在 `post_migrate` 信号中自动建超管：写入业务 `users` 表（`role=SUPER_ADMIN`，前端 JWT 登录用）+ 后台 `auth_user` 表（`is_staff/is_superuser=True`，`/admin` 登录用），凭据均来自 `.env` 的 `SEED_ADMIN_*`，幂等（已存在则跳过）。

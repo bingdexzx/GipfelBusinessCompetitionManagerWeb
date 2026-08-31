@@ -193,11 +193,13 @@ powershell -ExecutionPolicy Bypass -File scripts\deploy-windows.ps1 `
 
 ## 7. 默认账号与权限
 
-首次 `migrate` 完成后，若 `users` 表为空，自动写入：
+首次 `migrate` 完成后自动写入默认超管（凭据由 `.env` 的 `SEED_ADMIN_*` 驱动，可覆盖；库里已有该用户名则跳过）：
 
 | 用户名 | 初始密码 | 角色 | 权限 |
 | --- | --- | --- | --- |
 | `admin` | `admin123` | SUPER_ADMIN | 全部 31 项 + 所有比赛域 |
+
+> 同一套凭据也会在 `migrate` 时一并创建 Django 后台（`/admin`）超级管理员（见下方「Django 管理后台」一节）。
 
 **强制改密**：首次登录成功后返回的 JWT 仍能通过鉴权，但调用受 `must_change_password` 守卫的接口（如 `/auth/me`、全部业务接口）会返回 **401 `initial_password_must_be_changed`**，前端立即跳转到改密页。改密成功后 JWT 不变，`must_change_password` 置为 False，正常使用。
 
@@ -214,7 +216,7 @@ powershell -ExecutionPolicy Bypass -File scripts\deploy-windows.ps1 `
 除前端 Vue 界面外，后端还完整启用了 Django 自带管理后台，可直接在网页上查看 / 增删改查全部业务数据。仅建议运维临时排查与修数，详细说明（账号、警示、命令、技术改动）见 [backend/README.md](backend/README.md) 的「Django 管理后台（Admin）」一节：
 
 - 访问：`http://<host>:8000/admin/`
-- 账号：`admin` / `GipfelAdmin2026!`（建议首次登录后立即改密）
+- 账号：`admin` / 见 `.env`（`SEED_ADMIN_PASSWORD`，默认 `admin123`）；首次 `migrate` 自动创建，已存在则跳过（建议立即改密）
 - **⚠️ 警示**：后台直接写库会绕过业务校验（合同引擎 / 股票计算 / 权限派生等），可能导致账实不符；常规管理请走前端界面。
 
 ---

@@ -39,6 +39,11 @@ PORT = int(os.environ.get("PORT", "8000"))
 JWT_ISSUER = os.environ.get("JWT_ISSUER", "gipfel-competition")
 JWT_AUDIENCE = os.environ.get("JWT_AUDIENCE", "gipfel-competition-client")
 JWT_EXPIRES_IN = os.environ.get("JWT_EXPIRES_IN", "24h")
+# 默认超级管理员（首次 migrate 自动写入；可经 .env 覆盖）
+# · 业务超管：apps.users.User（前端 JWT 登录用，role=SUPER_ADMIN）
+# · 后台超管：django.contrib.auth.User（/admin 登录用，is_staff/is_superuser）
+SEED_ADMIN_USERNAME = os.environ.get("SEED_ADMIN_USERNAME", "admin")
+SEED_ADMIN_EMAIL = os.environ.get("SEED_ADMIN_EMAIL", "admin@example.com")
 SEED_ADMIN_PASSWORD = os.environ.get("SEED_ADMIN_PASSWORD", "admin123")
 
 # 日志
