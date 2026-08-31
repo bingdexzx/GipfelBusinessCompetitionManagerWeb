@@ -1,8 +1,0 @@
-实现 Web 版财年定时器，对齐 NestJS applyFiscalYearTimer
-
-- 新增 backend/apps/company_fields/timer.py：财年开始/结束时把本比赛内
-  timer_enabled && timer_trigger 匹配的产业字段自动写入设定值（按字段类型序列化，
-  支持 field:<key> 引用其它字段当前值），覆盖该产业类型全部公司。
-- 财年 create(FY_START) / update(非ACTIVE→ACTIVE=FY_START、非CLOSED→CLOSED=FY_END)
-  触发定时器，并广播 company-field:changed 让前端刷新。
-- 文档标记该迁移缺口已补齐，附实测验证。
