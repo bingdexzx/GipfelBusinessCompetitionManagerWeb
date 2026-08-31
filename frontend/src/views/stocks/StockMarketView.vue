@@ -11,9 +11,35 @@
     <div class="market-body">
       <!-- 左：股票列表 + K线 -->
       <div class="market-main">
+        <!-- 行情头部：选中股票大报价 + 关键指标（模仿真实股票 App） -->
+        <el-card v-if="selectedStock" shadow="never" class="block-card quote-header-card">
+          <div class="quote-header">
+            <div class="qh-main">
+              <div class="qh-name">{{ selectedStock.name }}<span class="qh-code">{{ selectedStock.code }}</span></div>
+              <div class="qh-price-row">
+                <span class="qh-price" :class="changeClass(selectedStock.changePct)">¥{{ fmt(selectedStock.currentPrice) }}</span>
+                <span class="qh-change" :class="changeClass(selectedStock.changePct)">
+                  {{ selectedStock.changePrice > 0 ? "+" : "" }}{{ fmt(selectedStock.changePrice) }}
+                  {{ selectedStock.changePct > 0 ? "+" : "" }}{{ fmt(selectedStock.changePct) }}%
+                </span>
+              </div>
+            </div>
+            <div class="qh-stats" v-if="quoteStats">
+              <div class="qh-stat"><span class="qh-stat-label">今开</span><b :class="cmpClass(quoteStats.prevClose, quoteStats.open)">{{ fmt(quoteStats.open) }}</b></div>
+              <div class="qh-stat"><span class="qh-stat-label">昨收</span><b>{{ fmt(quoteStats.prevClose) }}</b></div>
+              <div class="qh-stat"><span class="qh-stat-label">最高</span><b class="up">{{ fmt(quoteStats.high) }}</b></div>
+              <div class="qh-stat"><span class="qh-stat-label">最低</span><b class="down">{{ fmt(quoteStats.low) }}</b></div>
+              <div class="qh-stat"><span class="qh-stat-label">成交量</span><b>{{ fmt(quoteStats.volume) }}</b></div>
+              <div class="qh-stat"><span class="qh-stat-label">成交额</span><b>{{ fmt(quoteStats.amount) }}</b></div>
+              <div class="qh-stat"><span class="qh-stat-label">振幅</span><b>{{ fmt(quoteStats.amplitude) }}%</b></div>
+              <div class="qh-stat"><span class="qh-stat-label">市盈率</span><b>{{ fmt(quoteStats.pe) }}</b></div>
+            </div>
+          </div>
+        </el-card>
+
         <el-card shadow="never" class="block-card">
           <template #header>
-            <span class="card-title">股票列表</span>
+            <span class="card-title">自选列表</span>
           </template>
           <div v-loading="loadingStocks" class="stock-grid">
             <div
@@ -41,13 +67,12 @@
 
         <el-card shadow="never" class="block-card chart-card" :body-style="{ padding: '0' }">
           <template #header>
-            <div v-if="selectedStock" class="chart-header">
-              <span class="card-title">{{ selectedStock.name }}</span>
-              <span class="chart-code">{{ selectedStock.code }}</span>
-              <span class="chart-price" :class="changeClass(selectedStock.changePct)">¥{{ fmt(selectedStock.currentPrice) }}</span>
-              <span class="chart-change" :class="changeClass(selectedStock.changePct)">
-                {{ selectedStock.changePct > 0 ? "+" : "" }}{{ fmt(selectedStock.changePct) }}%
-              </span>
+            <div class="chart-header">
+              <el-radio-group v-model="chartTab" size="small" @change="onChartTabChange">
+                <el-radio-button value="time">分时</el-radio-button>
+                <el-radio-button value="kline">日K</el-radio-button>
+              </el-radio-group>
+              <span v-if="selectedStock" class="chart-code">{{ selectedStock.code }}</span>
               <span class="chart-ma-legend">
                 <span class="ma-tag ma5">MA5</span>
                 <span class="ma-tag ma10">MA10</span>
@@ -127,7 +152,8 @@
             </div>
 
             <el-button
-              type="primary"
+              class="trade-submit"
+              :class="trade.side === 'BUY' ? 'is-buy' : 'is-sell'"
               style="width: 100%"
               :disabled="!canTrade"
               @click="submitOrder"
@@ -246,6 +272,43 @@ const loadingCandles = ref(false);
 const trade = ref({ side: "BUY", price: 0, quantity: 100 });
 const maxRound = computed(() => stocks.value.reduce((m, s) => Math.max(m, s.round), 0));
 
+// 行情图切换：分时 / 日K
+const chartTab = ref<'time' | 'kline'>('kline');
+function onChartTabChange() {
+  if (selectedStock.value) drawChart();
+}
+// 今开相对昨收的涨跌色（>昨收红，<昨收绿）
+function cmpClass(prev: number, cur: number): string {
+  if (cur > prev) return 'up';
+  if (cur < prev) return 'down';
+  return '';
+}
+// 选中股票的行情头部关键指标（由 candles 派生；无新增 API）
+const quoteStats = computed(() => {
+  if (!selectedStock.value) return null;
+  const cs = candles.value;
+  if (!cs.length) return null;
+  const last = cs[cs.length - 1];
+  const prev = cs.length > 1 ? cs[cs.length - 2] : last;
+  const prevClose = prev.close;
+  const vol = cs.reduce((s, c) => s + (Math.abs(c.close - c.open) > 0 ? Math.round(c.close * 100) : 0), 0);
+  const amount = cs.reduce(
+    (s, c) => s + c.close * (Math.abs(c.close - c.open) > 0 ? Math.round(c.close * 100) : 0),
+    0,
+  );
+  const amplitude = prevClose > 0 ? ((last.high - last.low) / prevClose) * 100 : 0;
+  return {
+    open: last.open,
+    prevClose,
+    high: last.high,
+    low: last.low,
+    volume: vol,
+    amount: Math.round(amount),
+    amplitude: Math.round(amplitude * 100) / 100,
+    pe: selectedStock.value.industryPE,
+  };
+});
+
 const myHoldingShares = computed(() => {
   if (!selectedStockId.value) return 0;
   const h = holdings.value.find((x) => x.stock && x.stock.id === selectedStockId.value);
@@ -331,10 +394,86 @@ async function loadCandles(id: number) {
     const res = await stockApi.candles(id);
     candles.value = res.candles || [];
     await nextTick();
-    renderChart();
+    drawChart();
   } finally {
     loadingCandles.value = false;
   }
+}
+
+// 行情图分发：按当前标签页渲染 分时 / 日K
+function drawChart() {
+  if (chartTab.value === 'time') renderTimeShare();
+  else renderChart();
+}
+
+// 分时图：以「轮次」为横轴的价格走势线，昨收为基准虚线，红涨绿跌
+function renderTimeShare() {
+  if (!chartRef.value) return;
+  if (!chart) chart = echarts.init(chartRef.value);
+  const cs = candles.value;
+  const labels = cs.map((c) => `R${c.round}`);
+  const closes = cs.map((c) => c.close);
+  const prevClose = cs.length > 1 ? cs[cs.length - 2].close : cs[0]?.open ?? 0;
+  const last = cs.length ? cs[cs.length - 1].close : 0;
+  const isUp = last >= prevClose;
+  const lineColor = isUp ? '#ec0000' : '#00a800';
+  const areaTop = isUp ? 'rgba(236,0,0,0.25)' : 'rgba(0,168,0,0.25)';
+  chart.setOption(
+    {
+      backgroundColor: '#1a1a2e',
+      animation: false,
+      grid: { left: 60, right: 30, top: 30, bottom: 40 },
+      xAxis: {
+        type: 'category',
+        data: labels,
+        boundaryGap: false,
+        axisLine: { lineStyle: { color: '#2a2a3e' } },
+        axisLabel: { color: '#8a8a9a', fontSize: 11 },
+        splitLine: { show: false },
+      },
+      yAxis: {
+        scale: true,
+        position: 'right',
+        axisLine: { lineStyle: { color: '#2a2a3e' } },
+        axisLabel: { color: '#8a8a9a', fontSize: 11, formatter: (v: number) => v.toFixed(2) },
+        splitLine: { lineStyle: { color: '#2a2a3e', type: 'dashed' } },
+      },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: 'rgba(30,30,50,0.95)',
+        borderColor: '#3a3a4e',
+        textStyle: { color: '#e0e0e0', fontSize: 12 },
+        formatter: (p: any) => {
+          const it = Array.isArray(p) ? p[0] : p;
+          return `${it.axisValue}<br/>价：¥${fmt(it.value)}`;
+        },
+      },
+      series: [
+        {
+          type: 'line',
+          data: closes,
+          smooth: false,
+          showSymbol: false,
+          lineStyle: { color: lineColor, width: 1.5 },
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: areaTop },
+              { offset: 1, color: 'rgba(0,0,0,0)' },
+            ]),
+          },
+          markLine: {
+            silent: true,
+            symbol: 'none',
+            lineStyle: { color: '#888', type: 'dashed' },
+            data: [{ yAxis: prevClose }],
+            label: { color: '#aaa', formatter: `昨收 ${fmt(prevClose)}`, position: 'insideEndTop' },
+          },
+        },
+      ],
+    },
+    true,
+  );
+  chart.resize();
 }
 
 function selectStock(id: number) {
@@ -577,7 +716,7 @@ function renderChart() {
         barMinWidth: 4,
       },
     ],
-  });
+  }, true);
   chart.resize();
 }
 
@@ -950,5 +1089,111 @@ onBeforeUnmount(() => {
   text-align: right;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+/* ===== 行情头部（模仿真实股票 App） ===== */
+.quote-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px 28px;
+}
+.qh-main {
+  min-width: 0;
+}
+.qh-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-text-primary, #303133);
+}
+.qh-code {
+  font-size: 13px;
+  color: var(--color-text-tertiary, #92969e);
+  margin-left: 8px;
+}
+.qh-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 6px;
+}
+.qh-price {
+  font-size: 30px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.qh-change {
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.qh-stats {
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+  gap: 8px 28px;
+  margin-left: auto;
+}
+.qh-stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 56px;
+}
+.qh-stat-label {
+  font-size: 12px;
+  color: var(--color-text-tertiary, #92969e);
+}
+.qh-stat b {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-primary, #303133);
+}
+
+/* ===== 交易按钮：红涨绿跌（中国股票惯例） ===== */
+.el-button.trade-submit.is-buy {
+  background-color: #ec0000 !important;
+  border-color: #ec0000 !important;
+  color: #fff !important;
+}
+.el-button.trade-submit.is-buy:hover {
+  background-color: #d40000 !important;
+  border-color: #d40000 !important;
+}
+.el-button.trade-submit.is-sell {
+  background-color: #00a800 !important;
+  border-color: #00a800 !important;
+  color: #fff !important;
+}
+.el-button.trade-submit.is-sell:hover {
+  background-color: #009000 !important;
+  border-color: #009000 !important;
+}
+.el-button.trade-submit.is-buy:disabled,
+.el-button.trade-submit.is-sell:disabled {
+  opacity: 0.5;
+}
+
+/* ===== 响应式：平板/手机堆叠，交易面板置顶取消吸顶 ===== */
+@media (max-width: 1100px) {
+  .market-body {
+    grid-template-columns: 1fr;
+  }
+  .market-side {
+    position: static;
+  }
+}
+@media (max-width: 640px) {
+  .qh-price {
+    font-size: 24px;
+  }
+  .qh-stats {
+    grid-template-columns: repeat(2, 1fr);
+    width: 100%;
+    margin-left: 0;
+  }
+  .qh-stat b {
+    font-size: 13px;
+  }
 }
 </style>

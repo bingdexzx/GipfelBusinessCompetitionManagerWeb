@@ -11,6 +11,7 @@
 
       <el-table
         :key="tableKey"
+        v-if="!isPhone"
         v-loading="loading"
         :data="competitions"
         row-key="id"
@@ -69,6 +70,52 @@
           </template>
         </el-table-column>
       </el-table>
+      <!-- 手机端：比赛列表改为堆叠卡片 -->
+      <MobileCards
+        v-else
+        :data="competitions"
+        :columns="competitionColumns"
+        :loading="loading"
+        title-key="name"
+      >
+        <template #status="{ row }">
+          <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'danger'">{{
+            row.status === "ACTIVE" ? "进行中" : "已关闭"
+          }}</el-tag>
+        </template>
+        <template #fiscal="{ row }">{{ getCurrentFiscalYear(row) ?? "-" }}</template>
+        <template #users="{ row }">{{ row._count?.users || 0 }}</template>
+        <template #companies="{ row }">{{ row._count?.companies || 0 }}</template>
+        <template #actions="{ row }">
+          <template v-if="!isOwnedCompetition">
+            <el-button
+              size="small"
+              :type="compStore.competitionId === row.id ? 'warning' : 'success'"
+              @click.stop="selectCompetition(row)"
+              >{{ compStore.competitionId === row.id ? "取消选择" : "选择" }}</el-button
+            >
+          </template>
+          <el-tag v-else-if="compStore.competitionId === row.id" type="info" size="small"
+            >已自动锁定</el-tag
+          >
+          <span v-else style="color: #c0c4cc; font-size: 12px">不可切换</span>
+          <el-button v-if="isSuperAdmin" size="small" @click.stop="openEdit(row)">编辑</el-button>
+          <el-button
+            v-if="isSuperAdmin"
+            size="small"
+            :type="row.status === 'ACTIVE' ? 'warning' : 'success'"
+            @click.stop="toggleStatus(row)"
+            >{{ row.status === "ACTIVE" ? "关闭" : "开启" }}</el-button
+          >
+          <el-button
+            v-if="isSuperAdmin"
+            size="small"
+            type="danger"
+            @click.stop="handleDelete(row)"
+            >删除</el-button
+          >
+        </template>
+      </MobileCards>
     </div>
 
     <!-- ========== 下半部分：财年管理 ========== -->
@@ -96,7 +143,7 @@
         <p>请先在上方选择一个比赛</p>
       </div>
 
-      <el-table v-else :data="fiscalYears" border stripe size="small" style="width: 100%">
+      <el-table v-else-if="!isPhone" :data="fiscalYears" border stripe size="small" style="width: 100%">
         <el-table-column label="财年">
           <template #default="{ row }">第 {{ row.year }} 财年</template>
         </el-table-column>
@@ -126,6 +173,33 @@
           </template>
         </el-table-column>
       </el-table>
+      <!-- 手机端：财年列表改为堆叠卡片 -->
+      <MobileCards
+        v-else
+        :data="fiscalYears"
+        :columns="fiscalYearColumns"
+        title-key="name"
+      >
+        <template #status="{ row }">
+          <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'danger'" size="small">{{
+            row.status === "ACTIVE" ? "进行中" : "已结束"
+          }}</el-tag>
+        </template>
+        <template #created="{ row }">{{ $formatTime(row.createdAt) }}</template>
+        <template #updated="{ row }">{{ $formatTime(row.updatedAt) }}</template>
+        <template #actions="{ row }">
+          <el-button
+            v-if="isSuperAdmin && row.status === 'ACTIVE'"
+            size="small"
+            type="warning"
+            @click="endFiscalYear(row)"
+            >结束财年</el-button
+          >
+          <span v-else-if="!isSuperAdmin && row.status !== 'ACTIVE'" style="color: #c0c4cc"
+            >已结束</span
+          >
+        </template>
+      </MobileCards>
     </div>
 
     <el-dialog append-to-body
@@ -161,9 +235,12 @@ import { useAuthStore } from "@/stores/auth";
 import { useCompetitionStore } from "@/stores/competition";
 import { onRealtime, offRealtime } from "@/realtime/socket";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import { useBreakpoint } from "@/composables/useBreakpoint";
+import MobileCards from "@/components/common/MobileCards.vue";
 
 const authStore = useAuthStore();
 const compStore = useCompetitionStore();
+const { isPhone } = useBreakpoint();
 const isSuperAdmin = computed(() => authStore.can("competition:manage"));
 // 归属比赛的账号（competitionId 非空）其比赛已被自动锁定，禁止在比赛管理页手动切换。
 const isOwnedCompetition = computed(() => authStore.user?.competitionId != null);
@@ -183,6 +260,21 @@ const formRules = { name: [{ required: true, message: "请输入比赛名称", t
 const hasActiveFiscalYear = computed(() =>
   fiscalYears.value.some((f: any) => f.status === "ACTIVE"),
 );
+
+// 手机端卡片列配置（桌面保持 el-table 不变）
+const competitionColumns = [
+  { prop: "name", label: "名称" },
+  { label: "状态", slot: "status" },
+  { label: "当前财年", slot: "fiscal" },
+  { label: "用户", slot: "users" },
+  { label: "公司", slot: "companies" },
+];
+const fiscalYearColumns = [
+  { prop: "year", label: "财年", formatter: (r: any) => `第 ${r.year} 财年` },
+  { label: "状态", slot: "status" },
+  { label: "开始时间", slot: "created" },
+  { label: "更新时间", slot: "updated" },
+];
 
 onMounted(() => {
   refreshAll();

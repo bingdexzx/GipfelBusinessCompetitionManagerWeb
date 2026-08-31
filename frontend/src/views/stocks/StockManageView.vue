@@ -18,49 +18,55 @@
           </div>
         </div>
       </template>
-      <el-table :data="stocks" size="small" v-loading="loadingStocks">
-        <el-table-column prop="code" label="代码" width="90" />
-        <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip />
-        <el-table-column label="当前价" min-width="95" align="right">
-          <template #default="{ row }">{{ fmt(row.currentPrice) }}</template>
-        </el-table-column>
-        <el-table-column label="初始价" min-width="95" align="right">
-          <template #default="{ row }">{{ fmt(row.initPrice) }}</template>
-        </el-table-column>
-        <el-table-column prop="round" label="轮次" width="64" align="center" />
-        <el-table-column prop="totalShares" label="总股本(万)" min-width="100" align="right" />
-        <el-table-column label="有效PE" min-width="110" align="right">
-          <template #default="{ row }">
-            <span>{{ fmt(row.effectivePb ?? row.industryPE) }}</span>
-            <el-tag v-if="row.pbMode === 'linked'" size="small" type="success" effect="plain" class="bind-tag">联动</el-tag>
-            <el-tag v-else size="small" type="info" effect="plain" class="bind-tag">随机</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="幸福度" min-width="95" align="right">
-          <template #default="{ row }">
-            <span>{{ fmt(row.effectiveHappiness ?? row.happiness) }}</span>
-            <el-tag v-if="row.happinessFieldRef" size="small" type="success" effect="plain" class="bind-tag">联动</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="碳排" min-width="95" align="right">
-          <template #default="{ row }">
-            <span>{{ fmt(row.effectiveCurrentCarbon ?? row.currentCarbon) }}</span>
-            <el-tag v-if="row.carbonFieldRef" size="small" type="success" effect="plain" class="bind-tag">联动</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="行业碳排均值" min-width="120" align="right">
-          <template #default="{ row }">
-            <span>{{ fmt(row.effectiveIndustryAvgCarbon ?? row.industryAvgCarbon) }}</span>
-            <el-tag v-if="row.industryAvgCarbonRefs" size="small" type="success" effect="plain" class="bind-tag">联动</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="130" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" text @click="openStockDialog(row)">编辑</el-button>
-            <el-button size="small" text type="danger" @click="removeStock(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <!-- 股票列表：行情式卡片栅格（模仿真实股票 App 的自选/行情列表） -->
+      <div v-loading="loadingStocks" class="stock-screener">
+        <div v-for="s in stocks" :key="s.id" class="ss-card">
+          <div class="ss-head">
+            <div class="ss-name">{{ s.name }}</div>
+            <div class="ss-code">{{ s.code }}</div>
+          </div>
+          <div class="ss-price" :class="s.currentPrice >= s.initPrice ? 'up' : 'down'">¥{{ fmt(s.currentPrice) }}</div>
+          <div class="ss-meta">
+            <div class="ss-row"><span>初始价</span><b>{{ fmt(s.initPrice) }}</b></div>
+            <div class="ss-row"><span>总股本(万)</span><b>{{ fmt(s.totalShares) }}</b></div>
+            <div class="ss-row"><span>轮次</span><b>{{ s.round }}</b></div>
+            <div class="ss-row">
+              <span>有效PE</span>
+              <b class="ss-val">
+                {{ fmt(s.effectivePb ?? s.industryPE) }}
+                <el-tag v-if="s.pbMode === 'linked'" size="small" type="success" effect="plain" class="bind-tag">联动</el-tag>
+                <el-tag v-else size="small" type="info" effect="plain" class="bind-tag">随机</el-tag>
+              </b>
+            </div>
+            <div class="ss-row">
+              <span>幸福度</span>
+              <b class="ss-val">
+                {{ fmt(s.effectiveHappiness ?? s.happiness) }}
+                <el-tag v-if="s.happinessFieldRef" size="small" type="success" effect="plain" class="bind-tag">联动</el-tag>
+              </b>
+            </div>
+            <div class="ss-row">
+              <span>碳排</span>
+              <b class="ss-val">
+                {{ fmt(s.effectiveCurrentCarbon ?? s.currentCarbon) }}
+                <el-tag v-if="s.carbonFieldRef" size="small" type="success" effect="plain" class="bind-tag">联动</el-tag>
+              </b>
+            </div>
+            <div class="ss-row">
+              <span>行业碳排均值</span>
+              <b class="ss-val">
+                {{ fmt(s.effectiveIndustryAvgCarbon ?? s.industryAvgCarbon) }}
+                <el-tag v-if="s.industryAvgCarbonRefs" size="small" type="success" effect="plain" class="bind-tag">联动</el-tag>
+              </b>
+            </div>
+          </div>
+          <div class="ss-actions">
+            <el-button size="small" text @click="openStockDialog(s)">编辑</el-button>
+            <el-button size="small" text type="danger" @click="removeStock(s)">删除</el-button>
+          </div>
+        </div>
+        <div v-if="!loadingStocks && stocks.length === 0" class="empty-hint">暂无股票</div>
+      </div>
     </el-card>
 
     <!-- 资金账户管理（低级 / 高级） -->
@@ -1046,6 +1052,95 @@ onBeforeUnmount(() => {
 .field-link-tag {
   margin-left: 6px;
   vertical-align: middle;
+}
+/* 股票行情式卡片栅格（模仿真实股票 App 自选/行情列表） */
+.stock-screener {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.ss-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #ebeef5);
+  border-radius: var(--radius-md, 10px);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.04));
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.ss-card:hover {
+  border-color: var(--color-primary, #409eff);
+  box-shadow: 0 2px 10px rgba(64, 158, 255, 0.12);
+}
+.ss-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ss-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1f1f1f);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ss-code {
+  flex: none;
+  font-size: 12px;
+  color: var(--color-text-tertiary, #92969e);
+  font-variant-numeric: tabular-nums;
+}
+.ss-price {
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.ss-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 16px;
+  margin-top: 2px;
+}
+.ss-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+.ss-row > span {
+  color: var(--color-text-tertiary, #92969e);
+  white-space: nowrap;
+}
+.ss-row > b {
+  color: var(--color-text-primary, #1f1f1f);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ss-val {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ss-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--color-border, #ebeef5);
+}
+.empty-hint {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: var(--color-text-tertiary, #92969e);
+  padding: 24px 0;
+  font-size: 13px;
 }
 /* 账户总览：红涨绿跌（中国股票惯例） */
 .up {

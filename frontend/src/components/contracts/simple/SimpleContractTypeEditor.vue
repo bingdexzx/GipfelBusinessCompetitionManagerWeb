@@ -18,7 +18,7 @@
 
       <!-- 参与方角色 -->
       <el-divider>参与方角色</el-divider>
-      <el-table :data="form.partyRoles" border size="small">
+      <el-table v-if="!isPhone" :data="form.partyRoles" border size="small">
         <el-table-column prop="role" label="角色标识" width="120">
           <template #default="{ row }">
             <el-input v-model="row.role" size="small" />
@@ -40,11 +40,27 @@
           </template>
         </el-table-column>
       </el-table>
+      <!-- 手机端：参与方角色改为卡片式编辑器 -->
+      <div v-else class="sc-card-list">
+        <div v-for="(p, idx) in form.partyRoles" :key="idx" class="sc-card">
+          <div class="sc-card-title">参与方 {{ idx + 1 }}</div>
+          <el-form-item label="角色标识">
+            <el-input v-model="p.role" size="small" />
+          </el-form-item>
+          <el-form-item label="显示名称">
+            <el-input v-model="p.label" size="small" />
+          </el-form-item>
+          <el-form-item label="主办方">
+            <el-switch v-model="p.isHost" size="small" />
+          </el-form-item>
+          <el-button size="small" type="danger" text @click="removeParty(idx)">删除</el-button>
+        </div>
+      </div>
       <el-button style="margin-top: 8px" @click="addParty">添加参与方</el-button>
 
       <!-- 输入字段 -->
       <el-divider>输入字段</el-divider>
-      <el-table :data="form.inputSchema" border size="small">
+      <el-table v-if="!isPhone" :data="form.inputSchema" border size="small">
         <el-table-column prop="key" label="字段标识" width="120">
           <template #default="{ row }">
             <el-input v-model="row.key" size="small" />
@@ -77,6 +93,31 @@
           </template>
         </el-table-column>
       </el-table>
+      <!-- 手机端：输入字段改为卡片式编辑器 -->
+      <div v-else class="sc-card-list">
+        <div v-for="(f, idx) in form.inputSchema" :key="idx" class="sc-card">
+          <div class="sc-card-title">字段 {{ idx + 1 }}</div>
+          <el-form-item label="字段标识">
+            <el-input v-model="f.key" size="small" />
+          </el-form-item>
+          <el-form-item label="显示名称">
+            <el-input v-model="f.label" size="small" />
+          </el-form-item>
+          <el-form-item label="类型">
+            <el-select v-model="f.type" size="small">
+              <el-option label="数字" value="NUMBER" />
+              <el-option label="文本" value="STRING" />
+              <el-option label="布尔" value="BOOLEAN" />
+              <el-option label="单选" value="SELECT" />
+              <el-option label="公司引用" value="COMPANY_REF" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="必填">
+            <el-switch v-model="f.required" size="small" />
+          </el-form-item>
+          <el-button size="small" type="danger" text @click="removeInput(idx)">删除</el-button>
+        </div>
+      </div>
       <el-button style="margin-top: 8px" @click="addInput">添加输入字段</el-button>
 
       <!-- 效果定义 -->
@@ -169,6 +210,7 @@ import { ref, reactive, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import FormulaInput from './FormulaInput.vue';
 import { toPinyinKey } from '@/utils/pinyin';
+import { useBreakpoint } from '@/composables/useBreakpoint';
 
 interface PartyRole {
   role: string;
@@ -211,6 +253,8 @@ const emit = defineEmits<{
   (e: 'saved', data: any): void;
   (e: 'cancel'): void;
 }>();
+
+const { isPhone } = useBreakpoint();
 
 const saving = ref(false);
 
@@ -374,6 +418,35 @@ async function handleSave() {
 <style scoped>
 .simple-contract-type-editor {
   padding: 16px;
+}
+
+/* 手机端：可编辑表格改为卡片式编辑器 */
+.sc-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sc-card {
+  border: 1px solid var(--color-border, #ebeef5);
+  border-radius: var(--radius-md, 10px);
+  background: var(--color-surface, #fff);
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.06));
+  padding: 12px 14px 4px;
+}
+.sc-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary, #303133);
+  margin-bottom: 6px;
+  padding-left: 8px;
+  border-left: 3px solid var(--color-primary, #409eff);
+}
+.sc-card :deep(.el-form-item) {
+  margin-bottom: 10px;
+}
+.sc-card :deep(.el-form-item__label) {
+  font-size: 13px;
+  color: var(--color-text-secondary, #5a5f6a);
 }
 
 .effect-item {

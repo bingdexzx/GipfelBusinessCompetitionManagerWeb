@@ -27,7 +27,7 @@
         title="该公司未设置产业类型，没有字段"
       />
       <el-table
-        v-else-if="fieldEditors.length"
+        v-else-if="fieldEditors.length && !isPhone"
         v-loading="fieldValuesLoading"
         :data="fieldEditors"
         border
@@ -72,6 +72,38 @@
           </template>
         </el-table-column>
       </el-table>
+      <!-- 手机端：字段→值改为堆叠卡片（字典/列表展开为小列表，避免横向滚动） -->
+      <MobileCards
+        v-else-if="fieldEditors.length"
+        :data="fieldEditors"
+        :columns="companyFieldColumns"
+        :loading="fieldValuesLoading"
+        title-key="name"
+      >
+        <template #value="{ row }">
+          <template v-if="row.isCalculated"><span class="ro-num">{{ row.editValue }}</span></template>
+          <template v-else-if="row.fieldType === 'STRING'"><span>{{ fieldStringDisplay(row) }}</span></template>
+          <template v-else-if="row.fieldType === 'NUMBER'"><span class="ro-num">{{ row.editValue }}</span></template>
+          <template v-else-if="row.fieldType === 'BOOLEAN'">
+            <el-tag size="small" :type="row.editValue ? 'success' : 'info'">{{ row.editValue ? '是' : '否' }}</el-tag>
+          </template>
+          <template v-else-if="row.fieldType === 'DICTIONARY'">
+            <span v-if="!dictRows(row).length" class="dict-empty">—</span>
+            <div v-else class="cdv-dict-list">
+              <div v-for="d in dictRows(row)" :key="d.key" class="cdv-dict-row">
+                <span class="cdv-dict-key">{{ d.label }}</span>
+                <span class="cdv-dict-val">{{ formatDictVal(row, d.key) }}</span>
+              </div>
+            </div>
+          </template>
+          <template v-else-if="row.fieldType === 'LIST'">
+            <div v-if="!row.editValue || !row.editValue.length" class="dict-empty">—</div>
+            <div v-else class="cdv-list">
+              <span v-for="(it, idx) in row.editValue" :key="idx" class="dict-val cdv-list-item">{{ it }}</span>
+            </div>
+          </template>
+        </template>
+      </MobileCards>
       <el-alert
         v-else
         type="info"
@@ -89,11 +121,19 @@ import { ElMessage } from "element-plus";
 import api from "@/api/request";
 import { companyFieldsApi } from "@/api";
 import { useAuthStore } from "@/stores/auth";
+import { useBreakpoint } from "@/composables/useBreakpoint";
+import MobileCards from "@/components/common/MobileCards.vue";
 import { onRealtime, offRealtime } from "@/realtime/socket";
 
 const route = useRoute();
 const router = useRouter();
 const companyId = Number(route.params.id);
+const { isPhone } = useBreakpoint();
+// 手机端字段→值用堆叠卡片；桌面保持 el-table
+const companyFieldColumns = [
+  { prop: "name", label: "字段" },
+  { label: "值", slot: "value" },
+];
 
 // ===== 公司信息 =====
 const company = ref<any>(null);
@@ -311,5 +351,40 @@ onUnmounted(() => {
   flex-direction: column;
   justify-content: center;
   min-height: 32px;
+}
+/* 手机端卡片内：字典/列表展开为紧凑小列表 */
+.cdv-dict-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+.cdv-dict-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cdv-dict-key {
+  color: var(--color-text-secondary, #5a5f6a);
+  font-size: 13px;
+}
+.cdv-dict-val {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: #303133;
+  text-align: right;
+}
+.cdv-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+}
+.cdv-list-item {
+  background: var(--color-surface-2, #f5f7fa);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
 }
 </style>
