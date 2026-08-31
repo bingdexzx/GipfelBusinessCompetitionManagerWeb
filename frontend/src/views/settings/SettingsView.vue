@@ -21,7 +21,8 @@
       <p>
         打开 Django 管理后台，可直接对业务数据做临时排查 / 修数（注意：后台写库会绕过前端业务校验，
         仅建议管理员使用）。将跳转到后端地址
-        <code>http://127.0.0.1:8000/admin/</code>（在新标签页打开，需后端以 daphne 运行）。
+        <code>{{ adminUrl }}</code>（在新标签页打开，需后端以 daphne 运行；端口取自后端
+        <code>.env</code> 的 <code>PORT</code>）。
       </p>
       <el-button type="primary" @click="openAdmin">进入后端管理界面</el-button>
     </div>
@@ -29,14 +30,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { clearCurrentAccountCache } from "@/api/cache";
 import { resetRequestMemo } from "@/api/request";
 import { removeAccountItem } from "@/utils/accountStorage";
+import { useVersionStore } from "@/stores/version";
 import AnnouncementHistoryDialog from "@/components/AnnouncementHistoryDialog.vue";
 
 const historyVisible = ref(false);
+const versionStore = useVersionStore();
 
 async function clearLocalData() {
   try {
@@ -61,10 +64,13 @@ async function clearLocalData() {
   setTimeout(() => window.location.reload(), 300);
 }
 
-// 后端管理后台地址（开发期直连后端 8000 端口；生产可改为实际后端地址）
-const ADMIN_URL = "http://127.0.0.1:8000/admin/";
+// 后端管理后台地址：端口取自后端 .env 的 PORT（经 /api/version 下发），默认 8000。
+// 后端改端口只需改 .env PORT 并重启，按钮自动跟随，无需改前端代码。
+const adminUrl = computed(
+  () => `http://127.0.0.1:${versionStore.backendPort || 8000}/admin/`,
+);
 function openAdmin() {
-  window.open(ADMIN_URL, "_blank", "noopener,noreferrer");
+  window.open(adminUrl.value, "_blank", "noopener,noreferrer");
 }
 </script>
 

@@ -8,6 +8,7 @@ import { ANNOUNCEMENT } from "@/data/announcement";
 export const useVersionStore = defineStore("version", () => {
   const showDialog = ref(false);
   const serverVersion = ref<string | null>(null);
+  const backendPort = ref<number>(8000); // 后端监听端口（来自 /api/version 的 port，默认 8000）
   const announcement = ref<string>(ANNOUNCEMENT);
   let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -19,6 +20,9 @@ export const useVersionStore = defineStore("version", () => {
       });
       const data = res.data?.data ?? res.data;
       serverVersion.value = data?.version ?? null;
+      if (typeof data?.port === "number" && data.port > 0) {
+        backendPort.value = data.port;
+      }
       const client = getClientVersion();
       const blocked = !!serverVersion.value && serverVersion.value !== client;
       versionBlocked.value = blocked;
@@ -45,5 +49,5 @@ export const useVersionStore = defineStore("version", () => {
     }
   }
 
-  return { showDialog, serverVersion, announcement, checkVersion };
+  return { showDialog, serverVersion, backendPort, announcement, checkVersion };
 });

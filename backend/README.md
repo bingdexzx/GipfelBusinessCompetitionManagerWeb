@@ -12,10 +12,14 @@ pip install -r requirements.txt
 # 2. 数据库 + 种子（首次 migrate 自动建 admin/admin123）
 python manage.py migrate
 
-# 3. 启动 daphne（HTTP + Socket.IO 同源同端口 :8000）
+# 3. 启动 daphne（HTTP + Socket.IO 同源同端口，端口来自 .env 的 PORT，默认 8000）
 #    注意：必须用 daphne（ASGI）而非 runserver，否则 Socket.IO 的 WebSocket 升级无法处理。
-#    绑定 127.0.0.1（IPv4）；若需局域网/容器访问可改为 0.0.0.0。
-daphne -b 127.0.0.1 -p 8000 backend.asgi:application
+#    推荐用自带的 rundaphne 命令，端口自动取 .env 的 PORT（前端后台跳转按钮也会跟随该端口）：
+python manage.py rundaphne
+#    如需局域网/容器访问（绑定所有网卡）：
+python manage.py rundaphne --bind 0.0.0.0
+#    等价原生命令（端口需与 .env PORT 保持一致）：
+#    daphne -b 127.0.0.1 -p 8000 backend.asgi:application
 ```
 
 ## 排错：开发期 `[vite] ws proxy error: read ECONNRESET`
@@ -62,7 +66,7 @@ curl -s -X POST http://127.0.0.1:8000/api/auth/change-password \
 | --- | --- | --- | --- |
 | `JWT_SECRET` | — | ✅ | HS256 签名密钥；空值进程直接退出（fail-fast） |
 | `DEBUG` | `false` | | `true` 启用 Django debug-toolbar（需额外安装）与详细错误页 |
-| `PORT` | `8000` | | 仅命令行脚本读取；`runserver` 用命令行参数 |
+| `PORT` | `8000` | | 后端监听端口（单一真源）：`python manage.py rundaphne` 按其绑定 daphne，并经 `/api/version` 下发给前端「后端管理」跳转按钮 |
 | `LOG_LEVEL` | `INFO` | | `DEBUG/INFO/WARNING/ERROR/CRITICAL` |
 | `LOG_DIR` | `./logs` | | 日志目录；自动创建 |
 | `UPLOAD_DIR` | `./uploads` | | 文件上传目录；自动创建；前端 `/uploads/*` 由此托管 |
