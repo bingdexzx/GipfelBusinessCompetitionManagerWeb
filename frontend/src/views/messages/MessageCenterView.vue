@@ -1,6 +1,25 @@
 <template>
   <div class="message-center">
-    <h2 class="page-title">消息中心</h2>
+    <div class="mm-toolbar">
+      <h2 class="mm-title">消息中心</h2>
+      <div class="mm-actions">
+        <el-button :icon="Refresh" @click="refresh">刷新</el-button>
+        <el-button
+          v-if="activeTab === 'inbox'"
+          :icon="Check"
+          :disabled="messageStore.unreadCount === 0"
+          @click="markAllRead"
+          >全部标为已读</el-button
+        >
+        <el-button
+          v-if="activeTab === 'sent' && canManage"
+          type="primary"
+          :icon="Promotion"
+          @click="openPublish"
+          >发布消息</el-button
+        >
+      </div>
+    </div>
 
     <el-tabs v-model="activeTab" class="msg-tabs" @tab-change="onTabChange">
       <el-tab-pane name="inbox">
@@ -16,16 +35,6 @@
             />
           </span>
         </template>
-        <div class="toolbar">
-          <el-button :icon="Refresh" @click="refresh">刷新</el-button>
-          <el-button
-            class="toolbar-right"
-            :icon="Check"
-            :disabled="messageStore.unreadCount === 0"
-            @click="markAllRead"
-            >全部标为已读</el-button
-          >
-        </div>
         <div class="list-wrap">
           <div v-if="loading" class="empty-tip"><el-icon class="is-loading"><Loading /></el-icon> 加载中…</div>
           <div v-else-if="!inboxItems.length" class="empty-tip">暂无消息</div>
@@ -70,16 +79,6 @@
 
       <el-tab-pane v-if="canManage" name="sent">
         <template #label><span class="tab-label">已发布</span></template>
-        <div class="toolbar">
-          <el-button :icon="Refresh" @click="refresh">刷新</el-button>
-          <el-button
-            class="toolbar-right"
-            type="primary"
-            :icon="Promotion"
-            @click="openPublish"
-            >发布消息</el-button
-          >
-        </div>
         <div class="list-wrap">
           <div v-if="loading" class="empty-tip"><el-icon class="is-loading"><Loading /></el-icon> 加载中…</div>
           <div v-else-if="!sentItems.length" class="empty-tip">尚未发布任何消息</div>
@@ -510,14 +509,16 @@ onMounted(() => {
 .message-center {
   width: 100%;
 }
-.toolbar {
+.mm-toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: space-between;
   margin-bottom: 16px;
 }
-.toolbar-right {
-  margin-left: auto;
+.mm-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .msg-tabs :deep(.el-tabs__header) {
   margin-bottom: 16px;
