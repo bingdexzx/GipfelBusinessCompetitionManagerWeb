@@ -9,11 +9,6 @@
     <AnnouncementHistoryDialog v-model="historyVisible" />
     <div class="settings-section">
       <h3>本地数据</h3>
-      <p>
-        客户端会将请求数据缓存在本地（IndexedDB）以加速加载并支持离线查看。若服务端已重置数据库，
-        本地可能残留已不存在的内容。点击下方按钮可清空<strong>当前账号</strong>的本地缓存与当前比赛选择，
-        下次将从服务端重新加载（其他账号的数据不受影响）。
-      </p>
       <el-button type="warning" @click="clearLocalData">清空本地缓存</el-button>
     </div>
     <div class="settings-section" v-if="isSuperAdmin">
