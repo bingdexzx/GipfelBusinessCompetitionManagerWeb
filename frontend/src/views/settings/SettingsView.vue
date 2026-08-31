@@ -16,7 +16,7 @@
       </p>
       <el-button type="warning" @click="clearLocalData">清空本地缓存</el-button>
     </div>
-    <div class="settings-section">
+    <div class="settings-section" v-if="isSuperAdmin">
       <h3>后端管理</h3>
       <p>
         打开 Django 管理后台，可直接对业务数据做临时排查 / 修数（注意：后台写库会绕过前端业务校验，
@@ -36,10 +36,13 @@ import { clearCurrentAccountCache } from "@/api/cache";
 import { resetRequestMemo } from "@/api/request";
 import { removeAccountItem } from "@/utils/accountStorage";
 import { useVersionStore } from "@/stores/version";
+import { useAuthStore } from "@/stores/auth";
 import AnnouncementHistoryDialog from "@/components/AnnouncementHistoryDialog.vue";
 
 const historyVisible = ref(false);
 const versionStore = useVersionStore();
+const authStore = useAuthStore();
+const isSuperAdmin = authStore.isSuperAdmin;
 
 async function clearLocalData() {
   try {
