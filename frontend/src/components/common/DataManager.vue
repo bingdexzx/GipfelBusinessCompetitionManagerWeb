@@ -59,7 +59,7 @@
       width="560px"
       @closed="resetForm"
     >
-      <el-form ref="formRef" :model="form" :rules="formRules" label-width="120px" @submit.prevent>
+      <el-form ref="formRef" :model="form" :rules="formRules" label-width="120px" class="dm-form" @submit.prevent>
         <el-form-item
           v-for="field in formFields"
           :key="field.prop"
@@ -346,6 +346,16 @@ function resetForm() {
     flex: 1;
     width: auto;
     min-width: 0;
+  }
+  /* 表单标签在窄屏改为顶部堆叠，避免 label-width 挤压输入框 */
+  .dm-form :deep(.el-form-item) {
+    display: block;
+  }
+  .dm-form :deep(.el-form-item__label) {
+    width: auto !important;
+    text-align: left;
+    padding: 0 0 4px;
+    line-height: 1.4;
   }
 }
 .no-comp-warning {

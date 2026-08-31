@@ -606,4 +606,9 @@ body.modal-open .app-layout {
     padding-left: 8px;
     padding-right: 8px;
   }
+  // 表格在手机上保持可读列宽并允许横向滚动，避免列被挤压到不可读导致“信息显示不全”
+  .el-table__header,
+  .el-table__body {
+    min-width: 600px !important;
+  }
 }

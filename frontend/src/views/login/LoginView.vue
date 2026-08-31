@@ -158,13 +158,15 @@ async function submitChangePassword() {
 
 <style scoped>
 .login-page {
-  height: 100vh;
+  height: 100vh; /* 回退 */
+  height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
   background: linear-gradient(135deg, #eef1fe 0%, #f6f7fb 55%, #e9f6fb 100%);
   position: relative;
-  overflow: hidden;
+  overflow-y: auto; /* 键盘弹起/小屏时允许滚动到登录卡片 */
+  -webkit-overflow-scrolling: touch;
 }
 .login-page::before {
   content: "";

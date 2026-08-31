@@ -149,7 +149,8 @@ onBeforeUnmount(() => {
 <style scoped>
 .app-layout {
   display: flex;
-  height: 100vh;
+  height: 100vh; /* 回退：老浏览器不支持 dvh 时仍可用 */
+  height: 100dvh; /* 移动端动态视口高度：避开地址栏导致底部被裁切、内容不可达 */
   overflow: hidden;
   position: relative;
 }
@@ -221,6 +222,8 @@ onBeforeUnmount(() => {
   z-index: 1;
   flex: 1;
   overflow: auto;
+  -webkit-overflow-scrolling: touch; /* iOS 惯性滚动 */
+  overscroll-behavior: contain; /* 避免连锁触发外层滚动/下拉刷新 */
   padding: var(--content-padding);
 }
 .route-wrap {

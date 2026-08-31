@@ -2085,7 +2085,8 @@ onBeforeUnmount(() => {
 .maps-manager {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 120px);
+  height: calc(100vh - 120px); /* 回退 */
+  height: calc(100dvh - 120px);
   min-height: 600px;
   background: #f5f7fa;
 }

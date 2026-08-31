@@ -277,7 +277,8 @@ const activeMenu = computed(() => {
 <style scoped>
 .sidebar {
   width: var(--sidebar-width);
-  height: 100vh;
+  height: 100vh; /* 回退 */
+  height: 100dvh; /* 移动端动态视口高度，避免抽屉下沿被地址栏遮挡 */
   background: linear-gradient(180deg, #ffffff 0%, #fafbfe 100%);
   border-right: 1px solid var(--color-border);
   display: flex;

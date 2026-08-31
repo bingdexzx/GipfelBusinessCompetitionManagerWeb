@@ -532,7 +532,8 @@ async function handleDelete(row: any) {
 .tt-tree-container {
   display: flex;
   gap: 16px;
-  height: calc(100vh - 200px);
+  height: calc(100vh - 200px); /* 回退 */
+  height: calc(100dvh - 200px);
   overflow: hidden;
 }
 .tt-chart {

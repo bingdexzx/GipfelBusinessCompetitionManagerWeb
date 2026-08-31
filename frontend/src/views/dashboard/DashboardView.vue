@@ -532,6 +532,10 @@ onBeforeUnmount(() => {
     width: 100%;
     margin-left: 0;
   }
+  /* 取消固定最小高度，让画布填满可用区域，避免底部被强制滚动裁切、悬浮按钮不可达 */
+  .dash-canvas {
+    min-height: 0;
+  }
 }
 
 .dash-canvas {
