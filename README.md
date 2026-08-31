@@ -1,13 +1,5 @@
 # Gipfel Business Competition Manager Web
 
-企业竞争模拟竞赛管理系统 —— **Vue 3 + Django 5 网站版**。
-保持与原桌面版功能与界面一致，剥离 Electron，改造为纯 Web（HTTP + Socket.IO）部署。
-
-> 原始桌面版代码不做任何改动（保留在仓库根目录下的 `server/`、`client/`、`shared/` 等目录），
-> 本项目所有代码统一放在 `GipfelBusinessCompetitionManagerWeb/` 目录下。
-
----
-
 ## 1. 架构总览
 
 ```
@@ -269,24 +261,3 @@ cd backend; .\.venv\Scripts\python.exe manage.py runserver 127.0.0.1:8000
 - CI：`npm run typecheck` 与 `python manage.py check` 必须全绿，无 migrations 未应用
 
 ---
-
-## 10. 技术迁移方案
-
-详细的技术选型、API 契约（每个路由方法/参数/返回/权限）、数据模型映射、分阶段实施进度表，见 [Vue-Django迁移设计.md](Vue-Django迁移设计.md)。
-
----
-
-## 11. 与原桌面版的差异说明
-
-| 维度 | 原桌面版（NestJS + Electron） | 本 Web 版（Django + Vue） |
-| --- | --- | --- |
-| 部署形态 | 桌面应用安装包 | 纯网站：浏览器访问 |
-| 运行时 | 客户端内嵌 Node.js 服务 | 服务端 daphne ASGI + 浏览器 SPA |
-| 数据存储 | 客户端本地 SQLite | 服务器 SQLite / Postgres |
-| 实时通信 | ipcMain | Socket.IO Rooms + JWT 鉴权 |
-| 认证 | 本地用户 | JWT + tokenVersion 顶号 |
-| 用户范围 | 单用户本机 | 多用户 + 比赛多租户隔离 |
-| API 签名 | `/api/*` REST 完全一致 | **完全一致**（前端零改动即可切换 target） |
-| UI / 交互 | Element Plus 组件、路由、视图 | **完全一致**（仅剥离 Electron shell 依赖） |
-
-一句话：**功能与界面不变，只有「交付形态」与「运行时位置」变了。**
