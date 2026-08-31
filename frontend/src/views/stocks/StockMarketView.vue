@@ -1,9 +1,11 @@
 <template>
   <div class="stock-market">
-    <h2 class="page-title">股票行情</h2>
-    <div class="toolbar">
-      <el-tag type="info" effect="plain">轮次：{{ maxRound }}</el-tag>
-      <el-button :icon="Refresh" @click="reloadAll">刷新</el-button>
+    <div class="mm-toolbar">
+      <h2 class="mm-title">股票行情</h2>
+      <div class="mm-actions">
+        <el-tag type="info" effect="plain">轮次：{{ maxRound }}</el-tag>
+        <el-button :icon="Refresh" @click="reloadAll">刷新</el-button>
+      </div>
     </div>
 
     <div class="market-body">
@@ -649,12 +651,22 @@ onBeforeUnmount(() => {
 .stock-market {
   width: 100%;
 }
-.toolbar {
+.mm-toolbar {
   display: flex;
-  justify-content: flex-end;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
   margin-bottom: 16px;
+}
+.mm-title {
+  font-size: 20px;
+  font-weight: 500;
+  color: #1f1f1f;
+  margin: 0;
+}
+.mm-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .market-body {
   display: grid;
