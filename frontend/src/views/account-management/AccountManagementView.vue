@@ -1,13 +1,21 @@
 <template>
   <div class="account-management">
-    <h2 class="page-title">账号管理</h2>
+    <div class="mm-toolbar">
+      <h2 class="mm-title">账号管理</h2>
+      <div class="mm-actions">
+        <!-- 创建按钮统一置于标题栏右侧，创建目标随当前 tab 切换 -->
+        <el-button
+          type="primary"
+          :disabled="activeTab === 'competition' && !compStore.competitionId"
+          @click="showCreateDialog(activeTab)"
+          >{{ activeTab === "competition" ? "新建账号（比赛用）" : "新建账号" }}</el-button
+        >
+      </div>
+    </div>
 
     <el-tabs v-model="activeTab">
       <!-- 系统账号：不归属任何比赛（全局账号） -->
       <el-tab-pane label="账号（系统）" name="system">
-        <div class="toolbar">
-          <el-button type="primary" @click="showCreateDialog('system')">新建账号</el-button>
-        </div>
         <el-table :data="systemUsers" border stripe style="width: 100%; margin-top: 16px">
           <el-table-column prop="username" label="用户名" />
           <el-table-column prop="displayName" label="显示名称" />
@@ -42,9 +50,6 @@
         <template v-else>
           <div class="toolbar">
             <span class="comp-label">所属比赛：{{ competitionName }}</span>
-            <el-button type="primary" @click="showCreateDialog('competition')"
-              >新建账号（比赛用）</el-button
-            >
           </div>
           <el-table :data="competitionUsers" border stripe style="width: 100%; margin-top: 16px">
             <el-table-column prop="username" label="用户名" />
@@ -453,11 +458,21 @@ useResourceChanged("users", () => {
 </script>
 
 <style scoped>
-.page-title {
+.mm-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.mm-title {
   font-size: 20px;
   font-weight: 500;
   color: #1f1f1f;
-  margin: 0 0 16px;
+  margin: 0;
+}
+.mm-actions {
+  display: flex;
+  gap: 8px;
 }
 .toolbar {
   display: flex;
