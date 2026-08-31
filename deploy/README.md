@@ -66,7 +66,7 @@ Windows 不提供独立生产部署脚本；生产部署请使用方案一的 Li
 
 - Django `:8000`（runserver）
 - Vite `:5173`（前端开发服务器）
-- 日志查看器 `:8120`（端口取 `backend/.env` 的 `LOG_VIEWER_PORT`，UI 与前端一致，登录账号 = Django 后台超管）
+- 日志查看器 `:8120`（独立服务，端口取 `backend/.env` 的 `LOG_VIEWER_PORT`，登录账号使用 Django 后台超级管理员凭据）
 
 ---
 

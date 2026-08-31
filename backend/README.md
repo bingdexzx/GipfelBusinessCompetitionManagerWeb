@@ -66,7 +66,7 @@ curl -s -X POST http://127.0.0.1:8000/api/auth/change-password \
 | --- | --- | --- | --- |
 | `JWT_SECRET` | — | ✅ | HS256 签名密钥；空值进程直接退出（fail-fast） |
 | `DEBUG` | `false` | | `true` 启用 Django debug-toolbar（需额外安装）与详细错误页 |
-| `PORT` | `8000` | | 后端监听端口（单一真源）：`python manage.py rundaphne` 按其绑定 daphne，并经 `/api/version` 下发给前端「后端管理」跳转按钮 |
+| `PORT` | `8000` | | 后端监听端口（单一真源）：`python manage.py rundaphne` 按其绑定 daphne，并经 `/api/version` 下发给前端「系统设置 → 后端管理」区块的红色「后端管理界面」与黄色「日志查看器」跳转按钮 |
 | `LOG_LEVEL` | `INFO` | | `DEBUG/INFO/WARNING/ERROR/CRITICAL` |
 | `LOG_DIR` | `./logs` | | 日志目录；自动创建 |
 | `UPLOAD_DIR` | `./uploads` | | 文件上传目录；自动创建；前端 `/uploads/*` 由此托管 |
@@ -162,13 +162,13 @@ emit_permissions_changed(u.id, u.permission_version)
 ### 访问与账号
 
 - 访问地址：`http://<host>:8000/admin/`（与 API、Socket.IO 同源同端口）
-  - 前端「系统设置 → 后端管理」提供一键跳转按钮，直接新标签页打开后端 `http://127.0.0.1:8000/admin/`。
+  - 前端「系统设置 → 后端管理」区块提供两个超管专属按钮（均需 `isSuperAdmin` 才可见）：红色「后端管理界面」一键新标签页打开后端 `http://127.0.0.1:8000/admin/`；黄色「日志查看器」打开独立日志查看器 `http://127.0.0.1:8120/`（端口取 `LOG_VIEWER_PORT`）。
   - 注意：Vite 开发代理**不再转发** `/admin` 与 `/static`（已由该跳转按钮直连后端取代）；开发期需进后台请直连后端端口或用按钮，**不要**走 `http://localhost:5173/admin/`。
 - 超级管理员账号（首次 `migrate` 自动从 `.env` 的 `SEED_ADMIN_*` 创建；业务超管与后台超管共用同一凭据，**已存在则跳过、不覆盖**）：
 
   | 用户名 | 密码 | 说明 |
   | --- | --- | --- |
-  | `admin` | 见 `.env`（`SEED_ADMIN_PASSWORD`，默认 `admin123`） | 生产务必改用强密码；**建议首次登录后立即改密** |
+  | `admin` | 默认 `admin123`（`SEED_ADMIN_PASSWORD` 在 `.env` 中默认被注释，由 `bootstrap.py` 兜底；取消注释可自定义） | 生产务必改用强密码；**建议首次登录后立即改密** |
 
 - 登录后可见 39 个业务模型（公司 / 比赛 / 合同 / 股票 / 原料 / 零件 / 产品 / 地图节点 / 基础设施 / 燃料 / 车辆 / 仓库 / 生产线 / 行业类型 / 区域 / 消费需求 / 消息 / 技术树 / 审计等）+ Django 内置的 用户 / 组。
 

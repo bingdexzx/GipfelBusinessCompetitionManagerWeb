@@ -70,7 +70,6 @@ GipfelBusinessCompetitionManagerWeb/
 │   │   ├── stock/                   股票引擎（推进轮次 bulk 广播）
 │   │   ├── messages/                消息中心
 │   │   └── files/                   上传
-│   ├── deploy/                      生产部署模板（systemd/nginx）
 │   ├── manage.py
 │   ├── requirements.txt
 │   ├── .env.example
@@ -158,8 +157,6 @@ scripts\start-dev.bat
 
 并行拉起 Django(:8000) + Vite(:5173) + 日志查看器(:8120，端口取 `backend/.env` 的 `LOG_VIEWER_PORT`)。
 生产环境部署请以 5.1 的 `deploy-linux.sh` 为准。
-4. 使用 nssm 注册 `GipfelBackend` Windows 服务（daphne.exe :8000）
-5. 前端 build 产物交给 80 端口（可选：自动配 IIS 站点/反向代理到 8000）
 
 详细手动部署步骤、systemd/nginx 模板、回滚流程见 [deploy/README.md](deploy/README.md)。
 
@@ -204,7 +201,7 @@ scripts\start-dev.bat
 除前端 Vue 界面外，后端还完整启用了 Django 自带管理后台，可直接在网页上查看 / 增删改查全部业务数据。仅建议运维临时排查与修数，详细说明（账号、警示、命令、技术改动）见 [backend/README.md](backend/README.md) 的「Django 管理后台（Admin）」一节：
 
 - 访问：`http://<host>:8000/admin/`
-- 账号：`admin` / 见 `.env`（`SEED_ADMIN_PASSWORD`，默认 `admin123`）；首次 `migrate` 自动创建，已存在则跳过（建议立即改密）
+- 账号：`admin` / 密码默认 `admin123`（来自 `apps/auth/bootstrap.py` 的兜底默认值；`.env` 中 `SEED_ADMIN_PASSWORD` 默认被注释，取消注释并赋值可自定义）；首次 `migrate` 自动创建，已存在则跳过（建议立即改密）
 - **⚠️ 警示**：后台直接写库会绕过业务校验（合同引擎 / 股票计算 / 权限派生等），可能导致账实不符；常规管理请走前端界面。
 
 ---
