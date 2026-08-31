@@ -2,18 +2,6 @@
   <div class="settings">
     <h2 class="page-title">系统设置</h2>
     <div class="settings-section">
-      <h3>服务器连接</h3>
-      <el-form label-width="120px">
-        <el-form-item label="服务器地址">
-          <el-input v-model="serverUrl" :placeholder="DEFAULT_SERVER_URL" style="width: 360px" />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="saveServerUrl">保存</el-button>
-          <el-button @click="testConnection">测试连接</el-button>
-        </el-form-item>
-      </el-form>
-    </div>
-    <div class="settings-section">
       <h3>关于</h3>
       <p>Gipfel商赛系统</p>
       <el-button @click="historyVisible = true">查看更新记录</el-button>
@@ -32,50 +20,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { useConfigStore } from "@/stores/config";
-import { useCompetitionStore } from "@/stores/competition";
-import { DEFAULT_SERVER_URL } from "@/config";
 import { clearCurrentAccountCache } from "@/api/cache";
 import { resetRequestMemo } from "@/api/request";
 import { removeAccountItem } from "@/utils/accountStorage";
-import axios from "axios";
 import AnnouncementHistoryDialog from "@/components/AnnouncementHistoryDialog.vue";
 
-const configStore = useConfigStore();
-const serverUrl = ref(DEFAULT_SERVER_URL);
-const competitionStore = useCompetitionStore();
 const historyVisible = ref(false);
-
-onMounted(async () => {
-  await configStore.loadConfig();
-  serverUrl.value = configStore.getBaseUrl();
-});
-
-async function saveServerUrl() {
-  await configStore.setServerUrl(serverUrl.value);
-  // serverUrl 变更后，HTTP 通道由请求拦截器即时切换；此处主动重建 WebSocket 通道，
-  // 使其连到新服务器并按当前比赛重新订阅，避免实时更新仍指向旧地址而静默失效。
-  competitionStore.reconnectRealtime();
-  ElMessage.success("服务器地址已保存");
-}
-
-async function testConnection() {
-  const base = serverUrl.value.replace(/\/$/, "");
-  try {
-    // 用真实的健康检查端点 /api/ping（返回 200），避免请求不存在的 GET /api/auth/login 产生 404 误报。
-    await axios.get(`${base}/api/ping`, { timeout: 5000 });
-    ElMessage.success("连接成功（服务端响应正常）");
-  } catch (err: any) {
-    if (err.response) {
-      // 服务端有响应但非 2xx：仍说明网络可达，仅端点或状态异常。
-      ElMessage.success("连接成功 (服务端已响应)");
-    } else {
-      ElMessage.warning("连接失败，请检查服务器地址和服务是否启动");
-    }
-  }
-}
 
 async function clearLocalData() {
   try {

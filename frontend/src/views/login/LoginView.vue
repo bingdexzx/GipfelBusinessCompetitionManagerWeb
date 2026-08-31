@@ -4,37 +4,6 @@
       <img class="login-logo" src="@/assets/gipfel-logo.jpg" alt="Gipfel" />
       <h1 class="login-title">Gipfel商赛系统</h1>
 
-      <div class="settings-toggle" @click="showSettings = !showSettings">
-        <el-icon><Setting /></el-icon>
-        <span>服务器设置</span>
-        <el-icon v-if="!showSettings" style="margin-left: auto"><ArrowDown /></el-icon>
-        <el-icon v-else style="margin-left: auto"><ArrowUp /></el-icon>
-      </div>
-
-      <div v-if="showSettings" class="settings-panel">
-        <div class="server-row">
-          <el-select v-model="serverProtocol" size="small" style="width: 110px">
-            <el-option label="http://" value="http" />
-            <el-option label="https://" value="https" />
-          </el-select>
-          <el-input
-            v-model="serverHost"
-            placeholder="服务器地址（不含协议）"
-            size="small"
-            class="server-input"
-          />
-        </div>
-        <div class="server-actions">
-          <el-button size="small" type="primary" :loading="testing" @click="testConnection"
-            >测试连接</el-button
-          >
-          <el-button size="small" @click="saveServerUrl">保存</el-button>
-        </div>
-        <div v-if="testResult" class="test-result" :class="testResult.ok ? 'ok' : 'fail'">
-          {{ testResult.msg }}
-        </div>
-      </div>
-
       <el-form
         ref="formRef"
         :model="form"
@@ -102,60 +71,16 @@
 import { ref, reactive, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { User, Lock, Setting, ArrowDown, ArrowUp } from "@element-plus/icons-vue";
+import { User, Lock } from "@element-plus/icons-vue";
 import { useAuthStore } from "@/stores/auth";
-import { useConfigStore } from "@/stores/config";
-import { DEFAULT_SERVER_URL } from "@/config";
 import { getErrorMessage } from "@/api";
-import axios from "axios";
 import type { FormInstance } from "element-plus";
 
 const router = useRouter();
 const authStore = useAuthStore();
-const configStore = useConfigStore();
 const formRef = ref<FormInstance>();
 const loading = ref(false);
 const showChangeDialog = ref(false);
-
-// 服务器地址拆分为「协议 + 主机」两部分：
-// - 协议通过下拉选择（http / https），修复此前只能填 http 导致 https 服务器连接失败的问题；
-// - 主机部分不含协议，初始化时从已存地址中解析出协议与主机，避免 https 被剥离后回退成 http。
-function parseServer(raw: string): { protocol: "http" | "https"; host: string } {
-  const m = /^(https?):\/\/(.*)$/i.exec((raw || DEFAULT_SERVER_URL).trim());
-  if (m) {
-    return { protocol: m[1].toLowerCase() as "http" | "https", host: m[2] };
-  }
-  return { protocol: "http", host: (raw || DEFAULT_SERVER_URL).trim() };
-}
-
-const initialServer = parseServer(localStorage.getItem("serverUrl") || DEFAULT_SERVER_URL);
-const serverProtocol = ref<"http" | "https">(initialServer.protocol);
-const serverHost = ref(initialServer.host);
-
-const showSettings = ref(false);
-const testing = ref(false);
-const testResult = ref<{ ok: boolean; msg: string } | null>(null);
-
-async function saveServerUrl() {
-  const full = `${serverProtocol.value}://${serverHost.value.trim()}`;
-  await configStore.setServerUrl(full);
-  ElMessage.success("服务器地址已保存");
-}
-
-async function testConnection() {
-  testing.value = true;
-  testResult.value = null;
-  const full = `${serverProtocol.value}://${serverHost.value.trim()}`;
-  const url = configStore.normalizeServerUrl(full);
-  try {
-    await axios.get(`${url}/api/ping`, { timeout: 5000 });
-    testResult.value = { ok: true, msg: `连接成功（服务端响应正常）` };
-  } catch (e: any) {
-    testResult.value = { ok: false, msg: `连接失败：${getErrorMessage(e)}` };
-  } finally {
-    testing.value = false;
-  }
-}
 
 const form = reactive({
   username: "",
@@ -303,50 +228,5 @@ async function submitChangePassword() {
 }
 .login-btn {
   width: 100%;
-}
-.settings-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-  margin-bottom: 12px;
-  user-select: none;
-}
-.settings-toggle:hover {
-  color: var(--color-primary);
-}
-.settings-panel {
-  margin-bottom: 16px;
-  padding: 12px;
-  background: var(--color-surface-2);
-  border-radius: var(--radius-sm);
-}
-.server-row {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-.server-input {
-  flex: 1;
-}
-.server-actions {
-  display: flex;
-  gap: 8px;
-}
-.test-result {
-  margin-top: 8px;
-  font-size: 12px;
-  padding: 6px 10px;
-  border-radius: var(--radius-xs);
-}
-.test-result.ok {
-  background: #ecfdf3;
-  color: var(--color-success);
-}
-.test-result.fail {
-  background: #fef3f2;
-  color: var(--color-danger);
 }
 </style>
