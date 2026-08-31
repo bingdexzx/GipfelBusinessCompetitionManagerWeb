@@ -601,6 +601,24 @@ body.modal-open .app-layout {
     padding-bottom: 4px;
   }
 
+  // 所有表单（无论 label-position）在手机上标签置顶、控件占满宽，
+  // 避免横向标签（默认 right）在 ~350px 弹窗内挤压输入框、截短标签文字
+  .el-form:not(.el-form--inline) .el-form-item {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .el-form:not(.el-form--inline) .el-form-item__label {
+    text-align: left;
+    width: 100% !important;
+    padding-bottom: 4px;
+    line-height: 1.4;
+  }
+  .el-form:not(.el-form--inline) .el-form-item__content {
+    margin-left: 0 !important;
+    flex: 1;
+  }
+
   // 表格进一步收紧
   .el-table .cell {
     padding-left: 8px;
