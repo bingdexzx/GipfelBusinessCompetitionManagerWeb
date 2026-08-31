@@ -157,7 +157,7 @@
 
     <!-- 产业字段管理 -->
     <el-dialog append-to-body v-model="showFields" :title="`产业字段 · ${fieldTarget?.name || ''}`" width="900px">
-      <el-table v-loading="fieldLoading" :data="fields" border size="small">
+      <el-table v-if="!isPhone" v-loading="fieldLoading" :data="fields" border size="small">
         <el-table-column prop="name" label="字段名称" min-width="130" />
         <el-table-column prop="fieldKey" label="字段键" min-width="130" />
         <el-table-column prop="fieldType" label="类型" width="90" />
@@ -218,6 +218,31 @@
           </template>
         </el-table-column>
       </el-table>
+      <div v-else class="dlg-cards">
+        <div v-for="row in fields" :key="row.id" class="dlg-card">
+          <div class="dlg-row"><span>字段名称</span><b>{{ row.name }}</b></div>
+          <div class="dlg-row"><span>字段键</span><b>{{ row.fieldKey }}</b></div>
+          <div class="dlg-row"><span>类型</span><b>{{ row.fieldType }}</b></div>
+          <div class="dlg-row"><span>默认值</span><b>{{ row.defaultValue ?? "—" }}</b></div>
+          <div class="dlg-row"><span>计算配置</span><b>{{ formulaDisplay(row) }}</b></div>
+          <div class="dlg-row"><span>配置</span><b>{{ configSummary(row) }}</b></div>
+          <div class="dlg-row"><span>定时器</span><b>{{ row.timerEnabled ? (row.timerTrigger === "FY_END" ? "财年末" : "财年初") : "—" }}</b></div>
+          <div class="dlg-row"><span>排序</span><b>{{ row.sortOrder }}</b></div>
+          <div class="dlg-row"><span>展示</span>
+            <el-switch :model-value="row.visible !== false" :disabled="!authStore.can('industryType:manage')" @change="(v: any) => toggleFieldVisible(row, v)" />
+          </div>
+          <div class="dlg-actions">
+            <el-button size="small" @click="openFieldDetail(row)">详情</el-button>
+            <template v-if="row.isCalculated">
+              <el-button size="small" type="primary" :disabled="!authStore.can('industryType:manage')" @click="openGraphFullscreen(row)">编辑公式</el-button>
+            </template>
+            <template v-else>
+              <el-button size="small" :disabled="!authStore.can('industryType:manage')" @click="editField(row)">编辑</el-button>
+            </template>
+            <el-button size="small" type="danger" :disabled="!authStore.can('industryType:manage')" @click="deleteField(row)">删除</el-button>
+          </div>
+        </div>
+      </div>
 
       <el-divider>{{ fieldForm.id ? "编辑字段" : "添加字段" }}</el-divider>
       <el-form
@@ -576,7 +601,7 @@
         <el-descriptions-item label="说明" :span="2">{{ typeDetailRow?.description || "—" }}</el-descriptions-item>
       </el-descriptions>
       <el-divider content-position="left">字段列表</el-divider>
-      <el-table :data="typeDetailRow?.fields || []" border size="small" empty-text="该产业尚未定义字段">
+      <el-table v-if="!isPhone" :data="typeDetailRow?.fields || []" border size="small" empty-text="该产业尚未定义字段">
         <el-table-column prop="name" label="字段名称" min-width="130" />
         <el-table-column prop="fieldKey" label="字段键" min-width="130" />
         <el-table-column prop="fieldType" label="类型" width="90" />
@@ -608,6 +633,20 @@
           <template #default="{ row }">{{ row.visible !== false ? "是" : "否" }}</template>
         </el-table-column>
       </el-table>
+      <div v-else class="dlg-cards">
+        <div v-for="row in (typeDetailRow?.fields || [])" :key="row.id ?? row.fieldKey" class="dlg-card">
+          <div class="dlg-row"><span>字段名称</span><b>{{ row.name }}</b></div>
+          <div class="dlg-row"><span>字段键</span><b>{{ row.fieldKey }}</b></div>
+          <div class="dlg-row"><span>类型</span><b>{{ row.fieldType }}</b></div>
+          <div class="dlg-row"><span>默认值</span><b>{{ row.defaultValue ?? "—" }}</b></div>
+          <div class="dlg-row"><span>计算字段</span><b>{{ row.isCalculated ? "计算" : "—" }}</b></div>
+          <div class="dlg-row"><span>计算配置</span><b>{{ formulaDisplay(row) }}</b></div>
+          <div class="dlg-row"><span>配置</span><b>{{ configSummary(row) }}</b></div>
+          <div class="dlg-row"><span>定时器</span><b>{{ row.timerEnabled ? (row.timerTrigger === "FY_END" ? "财年末" : "财年初") : "—" }}</b></div>
+          <div class="dlg-row"><span>排序</span><b>{{ row.sortOrder }}</b></div>
+          <div class="dlg-row"><span>展示</span><b>{{ row.visible !== false ? "是" : "否" }}</b></div>
+        </div>
+      </div>
     </el-dialog>
 
     <!-- 产业字段详情（只读） -->
@@ -1503,5 +1542,41 @@ useResourceChanged("industry-types", () => {
 }
 .fs-formula-textarea:focus {
   background: #fff;
+}
+/* 弹窗内嵌套表格：手机端改为卡片（标签:值竖向排列） */
+.dlg-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dlg-card {
+  border: 1px solid var(--color-border, #ebeef5);
+  border-radius: var(--radius-md, 10px);
+  padding: 10px 12px;
+  background: var(--color-surface, #fff);
+}
+.dlg-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 13px;
+  padding: 2px 0;
+}
+.dlg-row > span {
+  color: var(--color-text-tertiary, #92969e);
+  white-space: nowrap;
+}
+.dlg-row > b {
+  color: var(--color-text-primary, #1f1f1f);
+  font-weight: 600;
+  text-align: right;
+  word-break: break-all;
+}
+.dlg-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
 }
 </style>

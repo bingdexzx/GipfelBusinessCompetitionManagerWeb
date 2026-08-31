@@ -417,7 +417,7 @@
         </el-descriptions>
 
         <el-divider>参与方</el-divider>
-        <el-table :data="detailParties" border size="small">
+        <el-table v-if="!isPhone" :data="detailParties" border size="small">
           <el-table-column label="公司">
             <template #default="{ row }">
               {{
@@ -457,19 +457,52 @@
             </template>
           </el-table-column>
         </el-table>
+        <div v-else class="dlg-cards">
+          <div v-for="row in detailParties" :key="row.role" class="dlg-card">
+            <div class="dlg-row">
+              <span>公司</span>
+              <b>{{
+                row.isHost
+                  ? "主席团"
+                  : row.companyName || companyName(row.companyId) || `公司#${row.companyId}`
+              }}</b>
+            </div>
+            <div class="dlg-row">
+              <span>合同编号</span>
+              <b :class="{ 'num-empty': !row.contractNumber }">{{ row.contractNumber || "未编号" }}</b>
+            </div>
+            <template v-if="!row.isHost && canEditParty(row) && editingNumber.role === row.role">
+              <div class="party-row dlg-edit">
+                <el-input v-model="editingNumber.value" placeholder="输入合同编号" />
+                <el-button size="small" type="primary" :loading="submitting" @click="saveNumber(row)">保存</el-button>
+                <el-button size="small" @click="cancelEditNumber">取消</el-button>
+              </div>
+            </template>
+            <div v-else-if="!row.isHost && canEditParty(row)" class="dlg-actions">
+              <el-button size="small" link type="primary" @click="startEditNumber(row)">补全/修改</el-button>
+            </div>
+          </div>
+        </div>
 
         <el-divider>输入参数</el-divider>
-        <el-table :data="detailInputs" border size="small">
+        <el-table v-if="!isPhone" :data="detailInputs" border size="small">
           <el-table-column prop="key" label="参数" width="160" />
           <el-table-column prop="label" label="名称" width="200" />
           <el-table-column label="值">
             <template #default="{ row }">{{ formatInputValue(row) }}</template>
           </el-table-column>
         </el-table>
+        <div v-else class="dlg-cards">
+          <div v-for="row in detailInputs" :key="row.key" class="dlg-card">
+            <div class="dlg-row"><span>参数</span><b>{{ row.key }}</b></div>
+            <div class="dlg-row"><span>名称</span><b>{{ row.label }}</b></div>
+            <div class="dlg-row"><span>值</span><b>{{ formatInputValue(row) }}</b></div>
+          </div>
+        </div>
 
         <template v-if="detailChecks && detailChecks.length">
           <el-divider>检查结果</el-divider>
-          <el-table :data="detailChecks" border size="small">
+          <el-table v-if="!isPhone" :data="detailChecks" border size="small">
             <el-table-column prop="label" label="检查项" min-width="200" :formatter="condKindFmt" />
             <el-table-column label="结果" width="90">
               <template #default="{ row }">
@@ -480,6 +513,13 @@
             </el-table-column>
             <el-table-column prop="detail" label="详情" min-width="240" />
           </el-table>
+          <div v-else class="dlg-cards">
+            <div v-for="row in detailChecks" :key="row.label" class="dlg-card">
+              <div class="dlg-row"><span>检查项</span><b>{{ row.label }}</b></div>
+              <div class="dlg-row"><span>结果</span><b :class="row.passed ? 'dlg-ok' : 'dlg-bad'">{{ row.passed ? '通过' : '未通过' }}</b></div>
+              <div class="dlg-row"><span>详情</span><b>{{ row.detail }}</b></div>
+            </div>
+          </div>
         </template>
         <template v-if="execLogRows.length">
           <el-divider>执行结果</el-divider>
@@ -491,7 +531,7 @@
             description="常见原因：效果的「值」来源未连接（导致按 0 累加）、或前置检查已阻止落账。请打开合同类型编辑器检查效果节点是否连了数值来源。"
             style="margin-bottom: 12px"
           />
-          <el-table :data="execLogRows" border size="small">
+          <el-table v-if="!isPhone" :data="execLogRows" border size="small">
             <el-table-column prop="company" label="公司" min-width="160" />
             <el-table-column prop="field" label="字段" min-width="140" />
             <el-table-column prop="op" label="操作" width="80" />
@@ -502,6 +542,15 @@
               <template #default="{ row }">{{ row.after }}</template>
             </el-table-column>
           </el-table>
+          <div v-else class="dlg-cards">
+            <div v-for="row in execLogRows" :key="row.company + row.field" class="dlg-card">
+              <div class="dlg-row"><span>公司</span><b>{{ row.company }}</b></div>
+              <div class="dlg-row"><span>字段</span><b>{{ row.field }}</b></div>
+              <div class="dlg-row"><span>操作</span><b>{{ row.op }}</b></div>
+              <div class="dlg-row"><span>前值</span><b>{{ row.before }}</b></div>
+              <div class="dlg-row"><span>后值</span><b>{{ row.after }}</b></div>
+            </div>
+          </div>
         </template>
       </template>
     </el-dialog>
@@ -515,6 +564,7 @@
         :title="precheckAllPass ? '全部检查通过，可以执行' : '存在未通过的检查，执行将被中止'"
       />
       <el-table
+        v-if="!isPhone"
         v-loading="prechecking"
         :data="precheckResults"
         border
@@ -531,6 +581,13 @@
         </el-table-column>
         <el-table-column prop="detail" label="详情" min-width="260" />
       </el-table>
+      <div v-else class="dlg-cards">
+        <div v-for="row in precheckResults" :key="row.label" class="dlg-card">
+          <div class="dlg-row"><span>检查项</span><b>{{ row.label }}</b></div>
+          <div class="dlg-row"><span>结果</span><b :class="row.passed ? 'dlg-ok' : 'dlg-bad'">{{ row.passed ? '通过' : '未通过' }}</b></div>
+          <div class="dlg-row"><span>详情</span><b>{{ row.detail }}</b></div>
+        </div>
+      </div>
       <template #footer>
         <el-button @click="showPrecheck = false">关闭</el-button>
       </template>
@@ -543,7 +600,7 @@
         :closable="false"
         title="所选参与方公司所属产业缺少合同所需字段，无法创建该合同"
       />
-      <el-table :data="missingEffectFields" border size="small" style="margin-top: 12px">
+      <el-table v-if="!isPhone" :data="missingEffectFields" border size="small" style="margin-top: 12px">
         <el-table-column label="参与方" width="140">
           <template #default="{ row }">{{ partyLabel(row.party) }}</template>
         </el-table-column>
@@ -552,6 +609,13 @@
           <template #default="{ row }">{{ row.fieldName }}（{{ row.fieldKey }}）</template>
         </el-table-column>
       </el-table>
+      <div v-else class="dlg-cards">
+        <div v-for="row in missingEffectFields" :key="row.companyName + row.fieldKey" class="dlg-card">
+          <div class="dlg-row"><span>参与方</span><b>{{ partyLabel(row.party) }}</b></div>
+          <div class="dlg-row"><span>公司</span><b>{{ row.companyName }}</b></div>
+          <div class="dlg-row"><span>缺失字段</span><b>{{ row.fieldName }}（{{ row.fieldKey }}）</b></div>
+        </div>
+      </div>
       <template #footer>
         <el-button type="primary" @click="showUnsupported = false">我知道了</el-button>
       </template>
@@ -1692,5 +1756,53 @@ onUnmounted(() => {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-all;
+}
+/* 弹窗内嵌套表格：手机端改为卡片（标签:值竖向排列） */
+.dlg-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dlg-card {
+  border: 1px solid var(--color-border, #ebeef5);
+  border-radius: var(--radius-md, 10px);
+  padding: 10px 12px;
+  background: var(--color-surface, #fff);
+}
+.dlg-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 13px;
+  padding: 2px 0;
+}
+.dlg-row > span {
+  color: var(--color-text-tertiary, #92969e);
+  white-space: nowrap;
+}
+.dlg-row > b {
+  color: var(--color-text-primary, #1f1f1f);
+  font-weight: 600;
+  text-align: right;
+  word-break: break-all;
+}
+.dlg-ok {
+  color: #16a34a;
+}
+.dlg-bad {
+  color: #f5483b;
+}
+.dlg-actions {
+  margin-top: 4px;
+}
+.dlg-edit {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin-top: 6px;
+}
+.dlg-edit .el-button {
+  margin: 0;
 }
 </style>
