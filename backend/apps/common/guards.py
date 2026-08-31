@@ -100,17 +100,44 @@ class CompetitionScopePermission(permissions.BasePermission):
         return True
 
 
+def _normalize_competition_id(value):
+    """把前端可能传来的各种「无值」形态统一为 None 或 int。
+
+    防御：前端在比赛未选中时可能把 competitionId 传成字符串 "null" / 空串，
+    或传入非整数；若直接交给 queryset.filter(competition_id=...) 会触发
+    Field 'id' expected a number but got 'null' 的 500。这里在过滤前归一成
+    None（视为「不限/无上下文」）或可比较的 int。
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        s = value.strip()
+        if s == "" or s.lower() == "null":
+            return None
+        try:
+            return int(s)
+        except ValueError:
+            return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def apply_competition_scope(queryset, user, competition_id=None):
     """对 queryset 应用比赛域过滤。
 
     - SUPER_ADMIN：若显式传入 competitionId 则按其过滤，否则不过滤
     - 其余角色：强制按 user.competition_id 过滤（防越权读其他比赛）
     """
+    competition_id = _normalize_competition_id(competition_id)
     if getattr(user, "role", None) == "SUPER_ADMIN":
         if competition_id is not None:
             return queryset.filter(competition_id=competition_id)
         return queryset
-    cid = competition_id or getattr(user, "competition_id", None)
+    cid = competition_id or _normalize_competition_id(getattr(user, "competition_id", None))
     if cid is None:
         return queryset.none()
     return queryset.filter(competition_id=cid)
