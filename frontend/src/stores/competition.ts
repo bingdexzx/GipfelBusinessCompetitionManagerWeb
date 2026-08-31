@@ -103,9 +103,17 @@ export const useCompetitionStore = defineStore("competition", () => {
       }
       if (!res.ok) return;
       const json = await res.json();
-      const fys = json.data || [];
-      const active = fys.find((f: { status: string; year: number }) => f.status === "ACTIVE");
+      // 响应形态归一：本函数用裸 fetch（为避开缓存层），因此也绕过了 api/request.ts 的分页解包，
+      // 必须自行兼容「裸数组」与「分页对象 {items,total,page,pageSize}」两种形态。
+      // 后端财年列表走分页契约，若直接把 data 当数组调 .find 会抛 TypeError，被下方 catch
+      // 兜底成 null，表现为「开关财年后左上角恒显未开启财年」。
+      const payload = json?.data ?? json;
+      const fys: { status: string; year: number }[] = Array.isArray(payload)
+        ? payload
+        : (payload?.items ?? []);
+      const active = fys.find((f) => f.status === "ACTIVE");
       // 有进行中的财年显示其年份；财年全部结束后显示“未开启财年”(null)
+      // 注意：首个财年 year = 0，必须用 active ? ... 判断对象存在性，不可对 year 做真值判断。
       currentFiscalYear.value = active ? active.year : null;
     } catch (e) {
       logger.error("Failed to load fiscal year:", e);

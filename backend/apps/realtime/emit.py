@@ -283,6 +283,18 @@ def emit_to_users(user_ids, event: str, data) -> None:
         _emit_sio(event, data, room=f"user-{uid}")
 
 
+def emit_to_competition(competition_id: int | None, event: str, data) -> None:
+    """向某比赛房间（comp-<id>）广播自定义事件。
+
+    对应 NestJS RealtimeService.broadcastToCompetition，用于 resource:changed 之外
+    的业务事件（如 fiscal-year:changed / competition:changed）。competition_id 为空
+    时静默跳过，避免误广播到全局。
+    """
+    if competition_id is None:
+        return
+    _emit_sio(event, data, room=f"comp-{competition_id}")
+
+
 # ====================================================================
 # permissions:changed
 # ====================================================================

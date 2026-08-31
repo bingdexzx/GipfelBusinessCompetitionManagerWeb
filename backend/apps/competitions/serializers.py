@@ -52,6 +52,12 @@ class CompetitionSerializer(serializers.Serializer):
             "stockConfig": instance.stock_config,
             "createdAt": instance.created_at,
             "updatedAt": instance.updated_at,
+            # 与 NestJS `include: { fiscalYears: true }` 对齐：比赛列表/详情内联财年。
+            # 前端比赛列表「当前财年」列读 comp.fiscalYears，缺失时该列恒为空。
+            # 调用方（列表/详情视图）需 prefetch_related("fiscal_years") 以免 N+1。
+            "fiscalYears": FiscalYearSerializer(
+                instance.fiscal_years.all().order_by("year"), many=True
+            ).data,
         }
 
     def validate_name(self, value: str) -> str:

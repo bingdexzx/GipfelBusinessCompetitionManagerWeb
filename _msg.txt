@@ -1,0 +1,11 @@
+修复 Web 版左上角财年恒显「未开启财年」
+
+根因：Django 财年列表按分页契约返回 {items,...}，但前端 store 的
+loadFiscalYear 用裸 fetch 直接 json.data.find(...)，在对象上调数组方法
+抛 TypeError 被 catch 兜底成 null，致每次回源都退化成「未开启财年」。
+
+修复：
+- 前端 store 自行归一响应（裸数组 / 分页对象皆可）
+- CompetitionSerializer 补 fiscalYears 字段并对列表 prefetch 避免 N+1
+- 财年 create/update 补 fiscal-year:changed 房间广播，对齐 NestJS 契约
+- 文档补充缺陷记录

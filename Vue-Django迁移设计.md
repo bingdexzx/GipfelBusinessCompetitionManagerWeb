@@ -585,3 +585,25 @@ sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=...)
 | 迁移期数据迁移 | 提供 Prisma→Django 数据导入脚本（如需保留历史数据） |
 
 > 原 NestJS 服务端保留在 `server/`，迁移验证完成前不删除，可随时回退对照。
+
+---
+
+## 13. 迁移期缺陷修复记录
+
+### 1. 顶部栏财年恒显「未开启财年」（严重，2026-08-31）
+
+- **文件**：`frontend/src/stores/competition.ts`（主因）、`backend/apps/competitions/serializers.py`、`backend/apps/competitions/views.py`、`backend/apps/realtime/emit.py`
+- **现象**：比赛管理页开始/结束财年后，左上角财年标签会刷新一次，但最终**恒定**显示「未开启财年」，即使库中确实存在 `status=ACTIVE` 的财年（实测 `fiscal_years` 表有 `year=1, status=ACTIVE`）。
+- **根因（主因，前端）**：Django 端 `GET /api/competitions/:id/fiscal-years` 遵循分页契约返回 `{items,total,page,pageSize}`，再经 `JSONRenderer` 包装成 `{code,message,data}`；而 store 的 `loadFiscalYear` 使用**裸 `fetch`**（为避开缓存层而绕过 `api/request.ts`，因此也绕过了 `extractItems` 的分页解包），直接执行 `json.data.find(...)`。在对象上调用数组方法抛 `TypeError` → 被 `catch` 捕获 → 走 `currentFiscalYear.value = null` 兜底分支，于是**每次回源都稳定退化**为「未开启财年」。这也解释了「乐观更新已生效（会刷新）但最终值仍错」的表象：乐观值随后被失败的回源覆盖。
+- **修复**：`loadFiscalYear` 自行做响应形态归一，兼容裸数组与分页对象两种形态：
+
+```ts
+const payload = json?.data ?? json;
+const fys = Array.isArray(payload) ? payload : (payload?.items ?? []);
+```
+
+- **配套修复（与 NestJS 契约对齐）**：
+  1. `CompetitionSerializer.to_representation` 补 `fiscalYears`（NestJS 侧 `findAll/findOne` 用 `include: { fiscalYears: true }`），修复比赛列表「当前财年」列恒为空（`getCurrentFiscalYear(comp)` 读 `comp.fiscalYears`）；列表查询同步加 `prefetch_related("fiscal_years")` 避免 N+1。
+  2. 财年 create/update 补 `fiscal-year:changed` 房间广播（新增 `emit_to_competition`，房间 `comp-<id>`，载荷 `{competitionId, fiscalYear}`）。前端 `handleFiscalYearChanged` 早已监听该事件，但 Django 侧此前从未发出，导致多端/多标签页无法实时同步。
+- **约束提醒**：财年年号从 **0** 起（首个财年 `year = 0`），判空一律用 `!== null`，禁止真值判断。
+- **仍存差异（已知未实现）**：Django 侧财年开启/关闭**未触发**产业字段财年定时器（`timer_enabled + timer_trigger = FY_START/FY_END`），NestJS 侧由 `CompanyFieldsService.applyFiscalYearTimer` 实现，属待补齐的迁移缺口。

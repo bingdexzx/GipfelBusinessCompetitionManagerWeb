@@ -16,11 +16,30 @@ from rest_framework.views import APIView
 from apps.common.exceptions import BusinessError
 from apps.common.guards import PermissionsPermission, require_permissions
 from apps.common.pagination import paginated_response, parse_pagination
+from apps.realtime.emit import emit_to_competition
 
 from .models import Competition, FiscalYear
 from .serializers import CompetitionSerializer, FiscalYearSerializer
 
 _PERM_CLASSES = (IsAuthenticated, PermissionsPermission)
+
+EVENT_FISCAL_YEAR_CHANGED = "fiscal-year:changed"
+
+
+def _broadcast_fiscal_year(fy: FiscalYear) -> None:
+    """广播 fiscal-year:changed，载荷对齐 NestJS：{competitionId, fiscalYear}。
+
+    前端 stores/competition.ts 的 handleFiscalYearChanged 依赖该事件即时同步顶部栏
+    财年标签（无需 HTTP 回源），并作废本地比赛缓存。
+    """
+    emit_to_competition(
+        fy.competition_id,
+        EVENT_FISCAL_YEAR_CHANGED,
+        {
+            "competitionId": fy.competition_id,
+            "fiscalYear": FiscalYearSerializer(fy).data,
+        },
+    )
 
 
 def _get_competition(pk, user) -> Competition:
@@ -55,7 +74,8 @@ class CompetitionListView(APIView):
     permission_classes = _PERM_CLASSES
 
     def get(self, request):
-        qs = Competition.objects.all()
+        # prefetch_related：序列化器内联 fiscalYears，不预取会按比赛条数产生 N+1 查询。
+        qs = Competition.objects.all().prefetch_related("fiscal_years")
         if getattr(request.user, "role", None) != "SUPER_ADMIN":
             cid = getattr(request.user, "competition_id", None)
             qs = qs.filter(pk=cid) if cid else qs.none()
@@ -157,6 +177,8 @@ class FiscalYearCreateView(APIView):
             year=year,
             status=serializer.validated_data.get("status", "ACTIVE"),
         )
+        # 新建财年即「财年开始」，与 update 对齐广播，使各端顶部栏即刻同步。
+        _broadcast_fiscal_year(fy)
         return Response(FiscalYearSerializer(fy).data)
 
 
@@ -175,6 +197,8 @@ class FiscalYearUpdateView(APIView):
         if "year" in serializer.validated_data:
             fy.year = serializer.validated_data["year"]
         fy.save()
+        # 财年开始/关闭后广播，使各端顶部栏与财年列表即刻同步。
+        _broadcast_fiscal_year(fy)
         return Response(FiscalYearSerializer(fy).data)
 
 
