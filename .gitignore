@@ -1,0 +1,43 @@
+# ===== Python / Django =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+backend/.deps/
+*.sqlite3
+db.sqlite3
+
+# ===== Django 运行时目录（保留空目录，忽略生成内容）=====
+backend/uploads/
+!backend/uploads/.gitkeep
+backend/logs/
+!backend/logs/.gitkeep
+
+# ===== 密钥 / 环境配置 =====
+.env
+.env.*
+!.env.example
+
+# ===== Node / Vue (前端) =====
+node_modules/
+frontend/dist/
+dist/
+.vite/
+*.local
+
+# ===== 日志（保留项目根 logs/ 空目录）=====
+logs/
+!logs/.gitkeep
+*.log
+
+# ===== OS / 编辑器 =====
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
