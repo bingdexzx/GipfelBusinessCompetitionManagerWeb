@@ -49,13 +49,13 @@
       <div class="login-title">日志查看器</div>
       <div class="login-sub">Gipfel 商赛系统 · 运维后台</div>
       <el-form label-position="top" @submit.prevent="doLogin">
-        <el-form-item label="管理员账号">
-          <el-input v-model="form.username" placeholder="Django 超级管理员用户名"
+        <el-form-item label="用户名">
+          <el-input v-model="form.username" placeholder="请输入用户名"
             @keyup.enter="doLogin" />
         </el-form-item>
         <el-form-item label="密码">
           <el-input v-model="form.password" type="password" show-password
-            placeholder="Django 超级管理员密码" @keyup.enter="doLogin" />
+            placeholder="请输入密码" @keyup.enter="doLogin" />
         </el-form-item>
         <el-alert v-if="loginError" :title="loginError" type="error" show-icon
           :closable="false" style="margin-bottom:12px" />
