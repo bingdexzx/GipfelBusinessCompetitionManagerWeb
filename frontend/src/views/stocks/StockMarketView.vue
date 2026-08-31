@@ -1184,16 +1184,38 @@ onBeforeUnmount(() => {
   }
 }
 @media (max-width: 640px) {
+  .quote-header {
+    gap: 10px 16px;
+  }
   .qh-price {
     font-size: 24px;
   }
   .qh-stats {
     grid-template-columns: repeat(2, 1fr);
+    gap: 6px 16px;
     width: 100%;
     margin-left: 0;
   }
+  .qh-stat {
+    min-width: 0;
+  }
   .qh-stat b {
     font-size: 13px;
+  }
+  /* 手机端 K 线/分时图高度收敛，减少长屏滚动 */
+  .kline-chart,
+  .chart-empty {
+    height: 300px;
+  }
+  .chart-hint {
+    font-size: 10px;
+  }
+  /* 交易面板置底时收紧分隔与内边距，信息更紧凑 */
+  .market-side :deep(.el-divider) {
+    margin: 12px 0 8px;
+  }
+  .order-list {
+    max-height: 240px;
   }
 }
 </style>
