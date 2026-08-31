@@ -1,12 +1,22 @@
 <template>
   <div class="company-page">
-    <h2 class="page-title">{{ authStore.can("company:manage") ? "公司管理" : "公司" }}</h2>
+    <div class="mm-toolbar">
+      <h2 class="mm-title">{{ authStore.can("company:manage") ? "公司管理" : "公司" }}</h2>
+      <div class="mm-actions">
+        <el-button
+          v-if="authStore.can('company:manage')"
+          type="primary"
+          @click="openCreate"
+          >新建公司</el-button
+        >
+      </div>
+    </div>
+
     <div v-if="!compStore.competitionId" class="no-comp-warning">
       请先在「比赛管理」中选择一个比赛
     </div>
-    <el-button v-if="authStore.can('company:manage')" type="primary" @click="openCreate">新建公司</el-button>
 
-    <el-table v-if="compStore.competitionId && !dataLoading" :data="companies" border stripe style="margin-top: 16px">
+    <el-table v-if="compStore.competitionId && !dataLoading" :data="companies" border stripe style="width: 100%">
       <el-table-column prop="name" label="名称" />
       <el-table-column label="产业类型">
         <template #default="{ row }">
@@ -205,11 +215,21 @@ async function handleDelete(row: any) {
 </script>
 
 <style scoped>
-.page-title {
+.mm-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.mm-title {
   font-size: 20px;
   font-weight: 500;
   color: #1f1f1f;
-  margin: 0 0 16px;
+  margin: 0;
+}
+.mm-actions {
+  display: flex;
+  gap: 8px;
 }
 .no-comp-warning {
   text-align: center;
