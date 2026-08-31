@@ -1,8 +1,10 @@
 <template>
   <div class="stock-manage">
-    <h2 class="page-title">股票管理</h2>
-    <div class="toolbar">
-      <el-button :icon="Refresh" @click="reloadAll">刷新</el-button>
+    <div class="mm-toolbar">
+      <h2 class="mm-title">股票管理</h2>
+      <div class="mm-actions">
+        <el-button :icon="Refresh" @click="reloadAll">刷新</el-button>
+      </div>
     </div>
 
     <!-- 股票管理（仅高级管理） -->
@@ -970,12 +972,21 @@ onBeforeUnmount(() => {
 .stock-manage {
   width: 100%;
 }
-.toolbar {
+.mm-toolbar {
   display: flex;
-  justify-content: flex-end;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
   margin-bottom: 16px;
+}
+.mm-title {
+  font-size: 20px;
+  font-weight: 500;
+  color: #1f1f1f;
+  margin: 0;
+}
+.mm-actions {
+  display: flex;
+  gap: 8px;
 }
 .block-card {
   margin-bottom: 16px;
