@@ -77,7 +77,7 @@
           <el-button type="primary" :icon="Plus" @click="openAccountDialog()">新增账户</el-button>
         </div>
       </template>
-      <el-table :data="accounts" size="small" v-loading="loadingAccounts">
+      <el-table v-if="!isPhone" :data="accounts" size="small" v-loading="loadingAccounts">
         <el-table-column prop="name" label="账户名" min-width="120" />
         <el-table-column label="类型" width="80">
           <template #default="{ row }">{{ row.ownerType === "USER" ? "个人" : "公司" }}</template>
@@ -104,6 +104,18 @@
           </template>
         </el-table-column>
       </el-table>
+      <div v-else class="dlg-cards">
+        <div v-for="row in accounts" :key="row.id" class="dlg-card">
+          <div class="dlg-row"><span>账户名</span><b>{{ row.name }}</b></div>
+          <div class="dlg-row"><span>类型</span><b>{{ row.ownerType === "USER" ? "个人" : "公司" }}</b></div>
+          <div class="dlg-row"><span>归属</span><b>{{ row.ownerType === 'USER' ? (row.userId === authStore.user?.id ? "我自己" : "用户#" + row.userId) : companyName(row.companyId) }}</b></div>
+          <div class="dlg-row"><span>现金(元)</span><b>{{ row.bindFieldId ? fmt(row.fieldBalance != null ? row.fieldBalance : row.cashBalance) : fmt(row.cashBalance) }}<el-tag v-if="row.bindFieldId" size="small" type="success" effect="plain" class="field-link-tag">联动</el-tag></b></div>
+          <div class="dlg-actions">
+            <el-button size="small" text @click="openAccountDialog(row)">编辑</el-button>
+            <el-button size="small" text type="danger" @click="removeAccount(row)">删除</el-button>
+          </div>
+        </div>
+      </div>
     </el-card>
 
     <!-- 账户总览（仅超级管理员） -->
@@ -114,7 +126,7 @@
           <el-button type="primary" :icon="Refresh" @click="reloadOverview">刷新总览</el-button>
         </div>
       </template>
-      <el-table :data="overview" size="small" v-loading="loadingOverview" row-key="id">
+      <el-table v-if="!isPhone" :data="overview" size="small" v-loading="loadingOverview" row-key="id">
         <el-table-column type="expand">
           <template #default="{ row }">
             <div class="holding-detail" v-if="row.holdings && row.holdings.length">
@@ -174,6 +186,27 @@
           </template>
         </el-table-column>
       </el-table>
+      <div v-else class="dlg-cards">
+        <div v-for="row in overview" :key="row.id" class="dlg-card">
+          <div class="dlg-row"><span>账户名</span><b>{{ row.name }}</b></div>
+          <div class="dlg-row"><span>类型</span><b>{{ row.ownerLabel }}</b></div>
+          <div class="dlg-row"><span>归属</span><b>{{ row.ownerType === 'USER' ? '用户#'+row.userId : (row.companyName || ('公司#'+row.companyId)) }}</b></div>
+          <div class="dlg-row"><span>可用资金(元)</span><b>{{ fmt(row.cashBalance) }}</b></div>
+          <div class="dlg-row"><span>持仓市值(元)</span><b>{{ fmt(row.holdingsMarketValue) }}</b></div>
+          <div class="dlg-row"><span>总资产(元)</span><b>{{ fmt(row.totalAssets) }}</b></div>
+          <div class="dlg-row"><span>历史盈亏(元)</span><b :class="row.totalProfit >= 0 ? 'up' : 'down'">{{ fmt(row.totalProfit) }}</b></div>
+          <div class="dlg-row"><span>盈亏率</span><b :class="row.totalProfitPct >= 0 ? 'up' : 'down'">{{ row.totalProfitPct }}%</b></div>
+          <template v-if="row.holdings && row.holdings.length">
+            <div class="dlg-subhead">持仓（{{ row.holdings.length }}）</div>
+            <div v-for="h in row.holdings" :key="h.stockCode" class="dlg-subrow">
+              <div><b>{{ h.stockName }}</b> <span class="dlg-submeta">{{ h.stockCode }}</span></div>
+              <div class="dlg-submeta">股数 {{ fmt(h.shares) }} · 成本 {{ fmt(h.costPrice) }} · 现价 {{ fmt(h.currentPrice) }} · 市值 {{ fmt(h.marketValue) }}</div>
+              <div :class="h.profit >= 0 ? 'up' : 'down'">盈亏 {{ fmt(h.profit) }}（{{ h.profitPct }}%）</div>
+            </div>
+          </template>
+          <div v-else class="dlg-empty">无持仓</div>
+        </div>
+      </div>
     </el-card>
 
     <!-- 股票编辑对话框 -->
@@ -386,7 +419,7 @@
 
     <!-- S9：本轮定价诊断面板，运营可直接看到「为什么本轮涨/跌/封板」 -->
     <el-dialog append-to-body v-model="diagVisible" title="本轮定价诊断（S9）" width="760px">
-      <el-table :data="advanceResults" size="small" max-height="440" stripe>
+      <el-table v-if="!isPhone" :data="advanceResults" size="small" max-height="440" stripe>
         <el-table-column prop="code" label="代码" width="92" />
         <el-table-column label="状态" width="78">
           <template #default="{ row }">
@@ -416,6 +449,18 @@
           </template>
         </el-table-column>
       </el-table>
+      <div v-else class="dlg-cards">
+        <div v-for="row in advanceResults" :key="row.code" class="dlg-card">
+          <div class="dlg-row"><span>代码</span><b>{{ row.code }}</b></div>
+          <div class="dlg-row"><span>状态</span><b :class="row.skipped ? 'dlg-muted' : 'dlg-ok'">{{ row.skipped ? '跳过' : '已推进' }}</b></div>
+          <div class="dlg-row"><span>成交</span><b>{{ row.matched ? '是' : '否' }}</b></div>
+          <div class="dlg-row"><span>净买压力</span><b>{{ fmtNum(row.pressure) }}</b></div>
+          <div class="dlg-row"><span>趋势偏置</span><b>{{ fmtNum(row.drift) }}</b></div>
+          <div class="dlg-row"><span>理论价</span><b>{{ fmtNum(row.theoretical, 2) }}</b></div>
+          <div class="dlg-row"><span>最终价</span><b>{{ fmtNum(row.finalPrice, 2) }}</b></div>
+          <div class="dlg-row"><span>干预</span><b>{{ row.mmIntervened ? '是' : '否' }}</b></div>
+        </div>
+      </div>
       <template #footer>
         <el-button type="primary" @click="diagVisible = false">关闭</el-button>
       </template>
@@ -431,10 +476,12 @@ import { stockApi, companiesApi, regionsApi, companyFieldsApi } from "@/api";
 import { useCompetitionStore } from "@/stores/competition";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import { useBreakpoint } from "@/composables/useBreakpoint";
 import { formatMoney } from "@/utils/format";
 
 const compStore = useCompetitionStore();
 const authStore = useAuthStore();
+const { isPhone } = useBreakpoint();
 const canManage = computed(() => authStore.can("stock:manage"));
 const canEdit = computed(() => authStore.canAny(["stock:edit", "stock:manage"]));
 // 账户总览：仅超级管理员可见
@@ -1172,5 +1219,68 @@ onBeforeUnmount(() => {
 }
 .holding-table .num {
   text-align: right;
+}
+/* 管理报表表格：手机端改为卡片（标签:值竖向排列） */
+.dlg-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dlg-card {
+  border: 1px solid var(--color-border, #ebeef5);
+  border-radius: var(--radius-md, 10px);
+  padding: 10px 12px;
+  background: var(--color-surface, #fff);
+}
+.dlg-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 13px;
+  padding: 2px 0;
+}
+.dlg-row > span {
+  color: var(--color-text-tertiary, #92969e);
+  white-space: nowrap;
+}
+.dlg-row > b {
+  color: var(--color-text-primary, #1f1f1f);
+  font-weight: 600;
+  text-align: right;
+  word-break: break-all;
+}
+.dlg-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  justify-content: flex-end;
+}
+.dlg-ok {
+  color: #16a34a;
+}
+.dlg-muted {
+  color: var(--color-text-tertiary, #92969e);
+}
+.dlg-subhead {
+  font-size: 12px;
+  color: var(--color-text-tertiary, #92969e);
+  margin: 8px 0 4px;
+}
+.dlg-subrow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  padding: 6px 0;
+  border-top: 1px dashed var(--color-border, #ebeef5);
+}
+.dlg-submeta {
+  color: var(--color-text-secondary, #5a5f6a);
+}
+.dlg-empty {
+  font-size: 12px;
+  color: var(--color-text-tertiary, #92969e);
+  padding: 4px 0;
 }
 </style>
