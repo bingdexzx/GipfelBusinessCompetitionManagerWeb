@@ -16,15 +16,6 @@
       >
     </div>
 
-    <el-alert
-      v-if="!loading && types.length === 0"
-      type="info"
-      show-icon
-      :closable="false"
-      title="暂无产业类型"
-      style="margin-bottom: 12px"
-    />
-
     <el-table
       v-loading="loading"
       :data="filteredTypes"
