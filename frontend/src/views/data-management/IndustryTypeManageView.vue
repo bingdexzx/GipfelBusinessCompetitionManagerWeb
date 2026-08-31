@@ -1,19 +1,21 @@
 <template>
   <div class="it-manager">
-    <h2 class="page-title">产业类型管理</h2>
-    <div class="toolbar">
-      <el-input
-        v-model="searchText"
-        placeholder="搜索名称 / 编号"
-        clearable
-        style="width: 200px"
-      />
-      <el-button
-        type="primary"
-        :disabled="!authStore.can('industryType:manage')"
-        @click="openCreate"
-        >新建产业类型</el-button
-      >
+    <div class="mm-toolbar">
+      <h2 class="mm-title">产业类型管理</h2>
+      <div class="mm-actions">
+        <el-input
+          v-model="searchText"
+          placeholder="搜索名称 / 编号"
+          clearable
+          style="width: 200px"
+        />
+        <el-button
+          type="primary"
+          :disabled="!authStore.can('industryType:manage')"
+          @click="openCreate"
+          >新建产业类型</el-button
+        >
+      </div>
     </div>
 
     <el-table
@@ -1213,20 +1215,24 @@ useResourceChanged("industry-types", () => {
 .it-manager {
   width: 100%;
 }
-.toolbar {
+.mm-toolbar {
   display: flex;
-  justify-content: flex-end;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
   margin-bottom: 16px;
+}
+.mm-title {
+  font-size: 20px;
+  font-weight: 500;
+  color: #1f1f1f;
+  margin: 0;
+}
+.mm-actions {
+  display: flex;
+  gap: 8px;
 }
 .expand-fields {
   padding: 10px 20px;
-}
-.empty-tip {
-  color: #909399;
-  font-size: 13px;
-  padding: 6px 0;
 }
 .empty-tip {
   color: #909399;
