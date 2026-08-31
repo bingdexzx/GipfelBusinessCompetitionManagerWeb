@@ -520,9 +520,6 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
 }
-.msg-tabs :deep(.el-tabs__header) {
-  margin-bottom: 16px;
-}
 .tab-label {
   display: inline-flex;
   align-items: center;
