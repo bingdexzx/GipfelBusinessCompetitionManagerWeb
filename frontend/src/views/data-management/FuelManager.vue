@@ -23,7 +23,7 @@
       请先在「比赛管理」中选择一个比赛
     </div>
 
-    <el-table v-loading="loading" :data="filteredData" border stripe style="width: 100%">
+    <el-table v-if="!isPhone" v-loading="loading" :data="filteredData" border stripe style="width: 100%">
       <el-table-column prop="name" label="名称" min-width="200" />
       <el-table-column prop="pricePerLiter" label="每升价格" min-width="120" />
       <el-table-column
@@ -39,6 +39,20 @@
         </template>
       </el-table-column>
     </el-table>
+
+    <MobileCards
+      v-else
+      :data="filteredData"
+      :columns="fuelColumns"
+      :loading="loading"
+      :row-key="(row: any) => row.id"
+    >
+      <template #actions="{ row }">
+        <el-button size="small" @click="showDetail(row)">详情</el-button>
+        <el-button size="small" @click="openEdit(row)">编辑</el-button>
+        <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+      </template>
+    </MobileCards>
 
     <el-dialog append-to-body v-model="detailVisible" title="燃料详情" width="480px">
       <el-descriptions v-if="detailData" :column="1" border>
@@ -82,6 +96,8 @@ import { fuelsApi } from "@/api";
 import { confirmDeleteWithImpact } from "@/utils/deleteConfirm";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import MobileCards from "@/components/common/MobileCards.vue";
+import { useBreakpoint } from "@/composables/useBreakpoint";
 
 interface FuelItem {
   id: number;
@@ -93,9 +109,15 @@ interface FuelItem {
 
 const compStore = useCompetitionStore();
 const authStore = useAuthStore();
+const { isPhone } = useBreakpoint();
 const data = ref<FuelItem[]>([]);
 const loading = ref(false);
 const searchText = ref("");
+
+const fuelColumns = [
+  { prop: "name", label: "名称" },
+  { prop: "pricePerLiter", label: "每升价格" },
+];
 const dialogVisible = ref(false);
 const isEdit = ref(false);
 const editingId = ref<number | null>(null);

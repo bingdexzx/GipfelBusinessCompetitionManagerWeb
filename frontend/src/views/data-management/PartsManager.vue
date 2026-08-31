@@ -20,7 +20,7 @@
       请先在「比赛管理」中选择一个比赛
     </div>
 
-    <el-table v-loading="loading" :data="filteredData" border stripe style="width: 100%">
+    <el-table v-if="!isPhone" v-loading="loading" :data="filteredData" border stripe style="width: 100%">
       <el-table-column prop="name" label="名称" min-width="160" />
       <el-table-column label="原料配比" min-width="200">
         <template #default="{ row }">
@@ -58,6 +58,44 @@
         </template>
       </el-table-column>
     </el-table>
+
+    <MobileCards
+      v-else
+      :data="filteredData"
+      :columns="partColumns"
+      :loading="loading"
+      :row-key="(row: any) => row.id"
+    >
+      <template #materials="{ row }">
+        <span v-if="!row._materials?.length && !row.partMaterials?.length" style="color: #c0c4cc"
+          >-</span
+        >
+        <el-tag
+          v-for="pm in row.partMaterials || row._materials || []"
+          :key="pm.id || pm.materialId"
+          size="small"
+          style="margin: 2px"
+        >
+          {{ pm.material?.name || pm.materialName }}x{{ pm.ratio }}
+        </el-tag>
+      </template>
+      <template #actions="{ row }">
+        <el-button size="small" @click="showDetail(row)">详情</el-button>
+        <el-button
+          v-if="authStore.can('data:part:edit')"
+          size="small"
+          @click="openEdit(row)"
+          >编辑</el-button
+        >
+        <el-button
+          v-if="authStore.can('data:part:edit')"
+          size="small"
+          type="danger"
+          @click="handleDelete(row)"
+          >删除</el-button
+        >
+      </template>
+    </MobileCards>
 
     <el-dialog append-to-body v-model="detailVisible" title="零件详情" width="560px">
       <el-descriptions v-if="detailData" :column="1" border>
@@ -174,6 +212,8 @@ import { partsApi } from "@/api";
 import { confirmDeleteWithImpact } from "@/utils/deleteConfirm";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import MobileCards from "@/components/common/MobileCards.vue";
+import { useBreakpoint } from "@/composables/useBreakpoint";
 
 interface MaterialRow {
   materialId: number | null;
@@ -204,9 +244,15 @@ interface PartItem {
 
 const compStore = useCompetitionStore();
 const authStore = useAuthStore();
+const { isPhone } = useBreakpoint();
 const data = ref<PartItem[]>([]);
 const loading = ref(false);
 const searchText = ref("");
+
+const partColumns = [
+  { prop: "name", label: "名称" },
+  { label: "原料配比", slot: "materials" },
+];
 const dialogVisible = ref(false);
 const isEdit = ref(false);
 const editingId = ref<number | null>(null);

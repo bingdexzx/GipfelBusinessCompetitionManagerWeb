@@ -334,7 +334,7 @@
               >+ 新建类型</el-button
             >
           </div>
-          <el-table :data="nodeTypes" border stripe size="small" style="width: 100%">
+          <el-table v-if="!isPhone" :data="nodeTypes" border stripe size="small" style="width: 100%">
             <el-table-column label="颜色" width="70">
               <template #default="{ row }">
                 <span class="color-block" :style="{ background: row.color }"></span>
@@ -361,6 +361,32 @@
               </template>
             </el-table-column>
           </el-table>
+          <MobileCards
+            v-else
+            :data="nodeTypes"
+            :columns="mapNodeTypeColumns"
+            :row-key="(row: any) => row.id"
+          >
+            <template #color="{ row }">
+              <span class="color-block" :style="{ background: row.color }"></span>
+            </template>
+            <template #actions="{ row }">
+              <el-button size="small" @click="showNodeTypeDetail(row)">详情</el-button>
+              <el-button
+                v-if="authStore.can('data:map:edit')"
+                size="small"
+                @click="openNodeTypeEdit(row)"
+                >编辑</el-button
+              >
+              <el-button
+                v-if="authStore.can('data:map:edit')"
+                size="small"
+                type="danger"
+                @click="deleteNodeType(row)"
+                >删除</el-button
+              >
+            </template>
+          </MobileCards>
         </el-tab-pane>
 
         <!-- 路径类型管理 -->
@@ -374,7 +400,7 @@
               >+ 新建类型</el-button
             >
           </div>
-          <el-table :data="pathTypes" border stripe size="small" style="width: 100%">
+          <el-table v-if="!isPhone" :data="pathTypes" border stripe size="small" style="width: 100%">
             <el-table-column label="颜色" width="70">
               <template #default="{ row }">
                 <span class="color-block" :style="{ background: row.color }"></span>
@@ -401,6 +427,32 @@
               </template>
             </el-table-column>
           </el-table>
+          <MobileCards
+            v-else
+            :data="pathTypes"
+            :columns="mapPathTypeColumns"
+            :row-key="(row: any) => row.id"
+          >
+            <template #color="{ row }">
+              <span class="color-block" :style="{ background: row.color }"></span>
+            </template>
+            <template #actions="{ row }">
+              <el-button size="small" @click="showPathTypeDetail(row)">详情</el-button>
+              <el-button
+                v-if="authStore.can('data:map:edit')"
+                size="small"
+                @click="openPathTypeEdit(row)"
+                >编辑</el-button
+              >
+              <el-button
+                v-if="authStore.can('data:map:edit')"
+                size="small"
+                type="danger"
+                @click="deletePathType(row)"
+                >删除</el-button
+              >
+            </template>
+          </MobileCards>
         </el-tab-pane>
 
         <!-- 区域管理 -->
@@ -414,7 +466,7 @@
               >+ 新建区域</el-button
             >
           </div>
-          <el-table :data="regionsList" border stripe size="small" style="width: 100%">
+          <el-table v-if="!isPhone" :data="regionsList" border stripe size="small" style="width: 100%">
             <el-table-column prop="name" label="名称" />
             <el-table-column label="操作" width="100" fixed="right">
               <template #default="{ row }">
@@ -428,6 +480,22 @@
               </template>
             </el-table-column>
           </el-table>
+          <MobileCards
+            v-else
+            :data="regionsList"
+            :columns="mapRegionColumns"
+            :row-key="(row: any) => row.name"
+          >
+            <template #actions="{ row }">
+              <el-button
+                v-if="authStore.can('data:map:edit')"
+                size="small"
+                type="danger"
+                @click="removeRegion(row.name)"
+                >删除</el-button
+              >
+            </template>
+          </MobileCards>
         </el-tab-pane>
       </el-tabs>
     </div>
@@ -681,12 +749,15 @@ import { useCompetitionStore } from "@/stores/competition";
 import { useCompetitionReload } from "@/composables/useCompetitionReload";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import MobileCards from "@/components/common/MobileCards.vue";
+import { useBreakpoint } from "@/composables/useBreakpoint";
 import { getApiBaseUrl } from "@/config";
 import { onRealtime, offRealtime } from "@/realtime/socket";
 
 const NODE_RADIUS = 28;
 const compStore = useCompetitionStore();
 const authStore = useAuthStore();
+const { isPhone } = useBreakpoint();
 // 查看权限（无 data:map:edit）时只展示可拖拽/缩放的地图，隐藏所有编辑用外框与按钮
 const canEdit = computed(() => authStore.can("data:map:edit"));
 // 图例浮窗（仅无管理权限时显示）的折叠状态
@@ -735,6 +806,18 @@ const pathTypes = ref<PathType[]>([]);
 const regions = ref<string[]>([]); // 区域名称列表
 const regionIdMap = ref<Map<string, number>>(new Map()); // 区域名 -> Region 实体 id（无实体则为 null）
 const loading = ref(false);
+
+const mapNodeTypeColumns = [
+  { label: "颜色", slot: "color" },
+  { prop: "name", label: "名称" },
+  { prop: "description", label: "描述" },
+];
+const mapPathTypeColumns = [
+  { label: "颜色", slot: "color" },
+  { prop: "name", label: "名称" },
+  { prop: "description", label: "描述" },
+];
+const mapRegionColumns = [{ prop: "name", label: "名称" }];
 
 // ===================== 画布 =====================
 const canvasWrapper = ref<HTMLElement>();

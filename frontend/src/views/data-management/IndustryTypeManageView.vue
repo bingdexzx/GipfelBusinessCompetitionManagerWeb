@@ -19,7 +19,7 @@
     </div>
 
     <el-table
-      v-loading="loading"
+      v-loading="loading" v-if="!isPhone"
       :data="filteredTypes"
       border
       stripe
@@ -95,6 +95,36 @@
         </template>
       </el-table-column>
     </el-table>
+
+    <MobileCards
+      v-else
+      :data="filteredTypes"
+      :columns="industryTypeColumns"
+      :loading="loading"
+      :row-key="(row: any) => row.id"
+    >
+      <template #desc="{ row }">{{ row.description || "—" }}</template>
+      <template #fields="{ row }">{{ row.fields?.length || 0 }}</template>
+      <template #companies="{ row }">{{ row._count?.companies ?? 0 }}</template>
+      <template #actions="{ row }">
+        <el-button size="small" @click="openTypeDetail(row)">详情</el-button>
+        <el-button size="small" @click="openFields(row)">字段</el-button>
+        <el-button
+          size="small"
+          type="primary"
+          :disabled="!authStore.can('industryType:manage')"
+          @click="openEdit(row)"
+          >编辑</el-button
+        >
+        <el-button
+          size="small"
+          type="danger"
+          :disabled="!authStore.can('industryType:manage')"
+          @click="handleDelete(row)"
+          >删除</el-button
+        >
+      </template>
+    </MobileCards>
 
     <!-- 新建 / 编辑产业类型 -->
     <el-dialog append-to-body
@@ -631,9 +661,20 @@ import { industryTypesApi } from "@/api";
 import { ElMessage, ElMessageBox } from "element-plus";
 import IndustryFieldGraphEditor from "@/components/industry-types/IndustryFieldGraphEditor.vue";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import MobileCards from "@/components/common/MobileCards.vue";
+import { useBreakpoint } from "@/composables/useBreakpoint";
 import { toPinyinKey } from "@/utils/pinyin";
 
 const authStore = useAuthStore();
+const { isPhone } = useBreakpoint();
+
+const industryTypeColumns = [
+  { prop: "code", label: "编号" },
+  { prop: "name", label: "产业名称" },
+  { label: "说明", slot: "desc" },
+  { label: "字段数", slot: "fields" },
+  { label: "公司数", slot: "companies" },
+];
 
 const loading = ref(false);
 const saving = ref(false);

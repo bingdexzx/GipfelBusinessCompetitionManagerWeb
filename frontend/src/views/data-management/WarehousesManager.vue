@@ -20,7 +20,7 @@
       请先在「比赛管理」中选择一个比赛
     </div>
 
-    <el-table v-loading="loading" :data="filteredData" border stripe style="width: 100%">
+    <el-table v-if="!isPhone" v-loading="loading" :data="filteredData" border stripe style="width: 100%">
       <el-table-column prop="name" label="名称" />
       <el-table-column prop="capacity" label="容量" />
       <el-table-column prop="price" label="价格" />
@@ -50,6 +50,34 @@
         </template>
       </el-table-column>
     </el-table>
+
+    <MobileCards
+      v-else
+      :data="filteredData"
+      :columns="warehouseColumns"
+      :loading="loading"
+      :row-key="(row: any) => row.id"
+    >
+      <template #type="{ row }">
+        <el-tag :type="typeTag(row.type)">{{ typeLabel(row.type) }}</el-tag>
+      </template>
+      <template #actions="{ row }">
+        <el-button size="small" @click="showDetail(row)">详情</el-button>
+        <el-button
+          v-if="authStore.can('data:warehouse:edit')"
+          size="small"
+          @click="openEdit(row)"
+          >编辑</el-button
+        >
+        <el-button
+          v-if="authStore.can('data:warehouse:edit')"
+          size="small"
+          type="danger"
+          @click="handleDelete(row)"
+          >删除</el-button
+        >
+      </template>
+    </MobileCards>
 
     <el-dialog append-to-body v-model="detailVisible" title="仓库详情" width="500px">
       <el-descriptions v-if="detailData" :column="1" border>
@@ -123,6 +151,8 @@ import { confirmDeleteWithImpact } from "@/utils/deleteConfirm";
 import api from "@/api/request";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import MobileCards from "@/components/common/MobileCards.vue";
+import { useBreakpoint } from "@/composables/useBreakpoint";
 
 interface Warehouse {
   id: number;
@@ -136,9 +166,17 @@ interface Warehouse {
 
 const compStore = useCompetitionStore();
 const authStore = useAuthStore();
+const { isPhone } = useBreakpoint();
 const data = ref<Warehouse[]>([]);
 const loading = ref(false);
 const searchText = ref("");
+
+const warehouseColumns = [
+  { prop: "name", label: "名称" },
+  { prop: "capacity", label: "容量" },
+  { prop: "price", label: "价格" },
+  { label: "种类", slot: "type" },
+];
 
 const filteredData = computed(() => {
   const list = Array.isArray(data.value) ? data.value : [];

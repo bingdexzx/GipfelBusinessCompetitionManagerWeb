@@ -23,7 +23,7 @@
       </div>
     </div>
 
-    <el-table v-loading="loading" :data="filteredTypes" border stripe style="width: 100%">
+    <el-table v-if="!isPhone" v-loading="loading" :data="filteredTypes" border stripe style="width: 100%">
       <el-table-column prop="key" label="标识(key)" min-width="220" />
       <el-table-column prop="name" label="名称" min-width="220" />
       <el-table-column label="参与方数" width="100">
@@ -64,6 +64,48 @@
         </template>
       </el-table-column>
     </el-table>
+
+    <MobileCards
+      v-else
+      :data="filteredTypes"
+      :columns="contractTypeColumns"
+      :loading="loading"
+      :row-key="(row: any) => row.id"
+    >
+      <template #party="{ row }">
+        <span>{{ partyCountOf(row) }}</span>
+      </template>
+      <template #enabled="{ row }">
+        <el-switch
+          v-model="row.enabled"
+          :disabled="!authStore.can('contractType:manage')"
+          @change="() => toggleEnabled(row)"
+        />
+      </template>
+      <template #actions="{ row }">
+        <el-button size="small" @click="openDetail(row)">配置</el-button>
+        <el-button
+          size="small"
+          :disabled="!authStore.can('contractType:manage')"
+          @click="openSimple(row)"
+          >简单编辑</el-button
+        >
+        <el-button
+          size="small"
+          type="primary"
+          :disabled="!authStore.can('contractType:manage')"
+          @click="openGraph(row)"
+          >可视化编辑</el-button
+        >
+        <el-button
+          size="small"
+          type="danger"
+          :disabled="!authStore.can('contractType:manage')"
+          @click="handleDelete(row)"
+          >删除</el-button
+        >
+      </template>
+    </MobileCards>
 
     <el-dialog append-to-body
       v-model="showDetail"
@@ -135,8 +177,18 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import ContractTypeGraphEditor from "@/components/contracts/ContractTypeGraphEditor.vue";
 import SimpleContractTypeEditor from "@/components/contracts/simple/SimpleContractTypeEditor.vue";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import MobileCards from "@/components/common/MobileCards.vue";
+import { useBreakpoint } from "@/composables/useBreakpoint";
 
 const authStore = useAuthStore();
+const { isPhone } = useBreakpoint();
+
+const contractTypeColumns = [
+  { prop: "key", label: "标识(key)" },
+  { prop: "name", label: "名称" },
+  { label: "参与方数", slot: "party" },
+  { label: "启用", slot: "enabled" },
+];
 
 const types = ref<any[]>([]);
 const loading = ref(false);

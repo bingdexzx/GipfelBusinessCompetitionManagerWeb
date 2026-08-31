@@ -20,7 +20,7 @@
       请先在「比赛管理」中选择一个比赛
     </div>
 
-    <el-table v-loading="loading" :data="filteredMaterials" border stripe style="width: 100%">
+    <el-table v-if="!isPhone" v-loading="loading" :data="filteredMaterials" border stripe style="width: 100%">
       <el-table-column prop="name" label="名称" />
       <el-table-column prop="origin" label="产地" :formatter="originFmt" />
       <el-table-column label="价格（按地点）" min-width="220">
@@ -61,6 +61,43 @@
         </template>
       </el-table-column>
     </el-table>
+
+    <MobileCards
+      v-else
+      :data="filteredMaterials"
+      :columns="materialColumns"
+      :loading="loading"
+      :row-key="(row: any) => row.id"
+    >
+      <template #nodePrices="{ row }">
+        <div v-if="!getRowNodePrices(row).length" class="np-none">—</div>
+        <div v-for="p in getRowNodePrices(row)" :key="p.nodeId" class="np-line">
+          <span class="np-name">{{ p.nodeName }}</span>
+          <span class="np-val">{{ p.price }}</span>
+        </div>
+      </template>
+      <template #type="{ row }">
+        <el-tag :type="row.type === 'SPECIAL' ? 'danger' : ''">{{
+          row.type === "SPECIAL" ? "特殊原料" : "普通原料"
+        }}</el-tag>
+      </template>
+      <template #actions="{ row }">
+        <el-button size="small" @click="openDetail(row)">详情</el-button>
+        <el-button
+          v-if="authStore.can('data:material:edit')"
+          size="small"
+          @click="openEdit(row)"
+          >编辑</el-button
+        >
+        <el-button
+          v-if="authStore.can('data:material:edit')"
+          size="small"
+          type="danger"
+          @click="handleDelete(row)"
+          >删除</el-button
+        >
+      </template>
+    </MobileCards>
 
     <el-dialog append-to-body v-model="showDetail" title="原料详情" width="480px">
       <el-descriptions :column="1" border>
@@ -162,13 +199,24 @@ import { materialsApi } from "@/api";
 import { confirmDeleteWithImpact } from "@/utils/deleteConfirm";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import MobileCards from "@/components/common/MobileCards.vue";
+import { useBreakpoint } from "@/composables/useBreakpoint";
 
 const compStore = useCompetitionStore();
 const authStore = useAuthStore();
+const { isPhone } = useBreakpoint();
 const materials = ref<any[]>([]);
 const mapNodes = ref<any[]>([]);
 const loading = ref(false);
 const searchText = ref("");
+
+const materialColumns = [
+  { prop: "name", label: "名称" },
+  { prop: "origin", label: "产地", formatter: (r: any) => formatOrigin(r.origin) },
+  { label: "价格（按地点）", slot: "nodePrices" },
+  { prop: "carbonEmissionCoefficient", label: "碳排放系数" },
+  { label: "类型", slot: "type" },
+];
 
 const filteredMaterials = computed(() => {
   if (!searchText.value) return materials.value;

@@ -23,7 +23,7 @@
       请先在「比赛管理」中选择一个比赛
     </div>
 
-    <el-table v-loading="loading" :data="filteredData" border stripe style="width: 100%">
+    <el-table v-if="!isPhone" v-loading="loading" :data="filteredData" border stripe style="width: 100%">
       <el-table-column prop="name" label="名称" min-width="150" />
       <el-table-column
         v-for="f in fields"
@@ -45,6 +45,22 @@
         </template>
       </el-table-column>
     </el-table>
+
+    <MobileCards
+      v-else
+      :data="filteredData"
+      :columns="infraColumns"
+      :loading="loading"
+      :row-key="(row: any) => row.id"
+    >
+      <template #actions="{ row }">
+        <template v-if="authStore.can('data:infrastructure:edit')">
+          <el-button size="small" @click="showDetail(row)">详情</el-button>
+          <el-button size="small" @click="openEdit(row)">编辑</el-button>
+          <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+        </template>
+      </template>
+    </MobileCards>
 
     <el-dialog append-to-body v-model="detailVisible" title="基建详情" width="560px">
       <el-descriptions v-if="detailData" :column="1" border>
@@ -99,6 +115,8 @@ import { infrastructuresApi } from "@/api";
 import { confirmDeleteWithImpact } from "@/utils/deleteConfirm";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import MobileCards from "@/components/common/MobileCards.vue";
+import { useBreakpoint } from "@/composables/useBreakpoint";
 
 interface InfraItem {
   id: number;
@@ -128,9 +146,11 @@ const FIELD_DEFS = [
   { prop: "activationPrice", label: "启用价格" },
 ];
 const fields = FIELD_DEFS;
+const infraColumns = [{ prop: "name", label: "名称" }, ...fields];
 
 const compStore = useCompetitionStore();
 const authStore = useAuthStore();
+const { isPhone } = useBreakpoint();
 const data = ref<InfraItem[]>([]);
 const loading = ref(false);
 const searchText = ref("");

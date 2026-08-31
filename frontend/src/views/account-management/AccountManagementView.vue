@@ -16,7 +16,7 @@
     <el-tabs v-model="activeTab">
       <!-- 系统账号：不归属任何比赛（全局账号） -->
       <el-tab-pane label="账号（系统）" name="system">
-        <el-table :data="systemUsers" border stripe style="width: 100%; margin-top: 16px">
+        <el-table v-if="!isPhone" :data="systemUsers" border stripe style="width: 100%; margin-top: 16px">
           <el-table-column prop="username" label="用户名" />
           <el-table-column prop="displayName" label="显示名称" />
           <el-table-column prop="role" label="角色" class-name="role-col">
@@ -39,8 +39,26 @@
               <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
             </template>
           </el-table-column>
-        </el-table>
-      </el-tab-pane>
+          </el-table>
+          <MobileCards
+            v-else
+            :data="systemUsers"
+            :columns="accountColumns"
+            :row-key="(row: any) => row.id"
+          >
+            <template #role="{ row }">
+              <el-tag :type="roleTag(row.role)">{{ roleLabel(row.role) }}</el-tag>
+            </template>
+            <template #perm="{ row }">
+              <el-tag :type="permSummary(row).type" size="small">{{ permSummary(row).text }}</el-tag>
+            </template>
+            <template #actions="{ row }">
+              <el-button size="small" @click="handleEdit(row, 'system')">编辑</el-button>
+              <el-button size="small" @click="handleResetPassword(row)">重置密码</el-button>
+              <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+            </template>
+          </MobileCards>
+        </el-tab-pane>
 
       <!-- 比赛用账号：归属于当前选中的比赛，比赛删除时联级删除 -->
       <el-tab-pane label="账号（比赛用）" name="competition">
@@ -51,7 +69,7 @@
           <div class="toolbar">
             <span class="comp-label">所属比赛：{{ competitionName }}</span>
           </div>
-          <el-table :data="competitionUsers" border stripe style="width: 100%; margin-top: 16px">
+          <el-table v-if="!isPhone" :data="competitionUsers" border stripe style="width: 100%; margin-top: 16px">
             <el-table-column prop="username" label="用户名" />
             <el-table-column prop="displayName" label="显示名称" />
             <el-table-column prop="role" label="角色" class-name="role-col">
@@ -75,6 +93,24 @@
               </template>
             </el-table-column>
           </el-table>
+          <MobileCards
+            v-else
+            :data="competitionUsers"
+            :columns="accountColumns"
+            :row-key="(row: any) => row.id"
+          >
+            <template #role="{ row }">
+              <el-tag :type="roleTag(row.role)">{{ roleLabel(row.role) }}</el-tag>
+            </template>
+            <template #perm="{ row }">
+              <el-tag :type="permSummary(row).type" size="small">{{ permSummary(row).text }}</el-tag>
+            </template>
+            <template #actions="{ row }">
+              <el-button size="small" @click="handleEdit(row, 'competition')">编辑</el-button>
+              <el-button size="small" @click="handleResetPassword(row)">重置密码</el-button>
+              <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+            </template>
+          </MobileCards>
         </template>
       </el-tab-pane>
     </el-tabs>
@@ -141,6 +177,8 @@ import { usersApi, companiesApi } from "@/api";
 import { useCompetitionStore } from "@/stores/competition";
 import type { FormInstance } from "element-plus";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import MobileCards from "@/components/common/MobileCards.vue";
+import { useBreakpoint } from "@/composables/useBreakpoint";
 
 // 范围字段在 API 中以作用域对象形式返回（与后端正交）：{ mode, companyIds }
 interface ScopeLike {
@@ -168,6 +206,15 @@ interface CompanyOption {
 type AccountScope = "system" | "competition";
 
 const compStore = useCompetitionStore();
+const { isPhone } = useBreakpoint();
+
+const accountColumns = [
+  { prop: "username", label: "用户名" },
+  { prop: "displayName", label: "显示名称" },
+  { label: "角色", slot: "role" },
+  { label: "权限", slot: "perm" },
+  { prop: "createdAt", label: "创建时间" },
+];
 const competitionId = computed(() => compStore.competitionId);
 const competitionName = computed(() => compStore.competitionName);
 

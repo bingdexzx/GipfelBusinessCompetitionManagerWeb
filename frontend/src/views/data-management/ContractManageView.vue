@@ -32,7 +32,7 @@
       style="margin-bottom: 12px"
     />
 
-    <el-table v-loading="loading" :data="filteredContracts" border stripe style="width: 100%">
+    <el-table v-if="!isPhone" v-loading="loading" :data="filteredContracts" border stripe style="width: 100%">
       <template #empty>
         <el-empty
           :description="authStore.can('contract:manage') ? '暂无合同，点击右上角「+ 新建」创建草稿' : '暂无合同'"
@@ -94,6 +94,51 @@
         </template>
       </el-table-column>
     </el-table>
+
+    <MobileCards
+      v-else
+      :data="filteredContracts"
+      :columns="contractColumns"
+      :loading="loading"
+      :row-key="(row: any) => row.id"
+    >
+      <template #numbers="{ row }">{{ contractNumbersText(row) }}</template>
+      <template #type="{ row }">{{ row.contractType?.name || "—" }}</template>
+      <template #status="{ row }">
+        <el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
+      </template>
+      <template #parties="{ row }">
+        <div class="party-boxes">
+          <span
+            v-for="(p, i) in parseJson(row.parties, [])"
+            :key="i"
+            class="party-box"
+            :class="{ 'party-box--host': p.isHost }"
+          >
+            {{ p.isHost ? "主席团" : p.companyName || companyName(p.companyId) || ("公司#" + p.companyId) }}
+          </span>
+        </div>
+      </template>
+      <template #created="{ row }">{{ $formatTime(row.createdAt) }}</template>
+      <template #actions="{ row }">
+        <el-button size="small" @click="openDetail(row)">详情</el-button>
+        <el-button
+          size="small"
+          type="success"
+          :disabled="executeBtnState(row).disabled"
+          :title="executeBtnState(row).title"
+          @click="executeContract(row)"
+          >执行</el-button
+        >
+        <el-button
+          v-if="authStore.isSuperAdmin"
+          size="small"
+          type="danger"
+          @click="handleDelete(row)"
+          >删除</el-button
+        >
+      </template>
+    </MobileCards>
 
     <!-- 新建合同 -->
     <el-dialog append-to-body v-model="showCreate" title="新建合同" width="640px">
@@ -520,6 +565,8 @@ import { useCompetitionStore } from "@/stores/competition";
 import { useCompetitionReload } from "@/composables/useCompetitionReload";
 import { onRealtime, offRealtime } from "@/realtime/socket";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import MobileCards from "@/components/common/MobileCards.vue";
+import { useBreakpoint } from "@/composables/useBreakpoint";
 import { useAuthStore } from "@/stores/auth";
 import { contractTypesApi, contractsApi, mapsApi, companyFieldsApi, industryTypesApi } from "@/api";
 import { evalFormCondition, type FormConditionCtx } from "@/contracts/graph-model";
@@ -529,6 +576,15 @@ import { formatTime } from "@/utils/format";
 
 const compStore = useCompetitionStore();
 const authStore = useAuthStore();
+const { isPhone } = useBreakpoint();
+
+const contractColumns = [
+  { label: "合同编号", slot: "numbers" },
+  { label: "类型", slot: "type" },
+  { label: "状态", slot: "status" },
+  { label: "参与方", slot: "parties" },
+  { label: "创建时间", slot: "created" },
+];
 
 const contracts = ref<any[]>([]);
 const contractTypes = ref<any[]>([]);

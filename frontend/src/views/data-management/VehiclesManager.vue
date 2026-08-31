@@ -20,7 +20,7 @@
       请先在「比赛管理」中选择一个比赛
     </div>
 
-    <el-table v-loading="loading" :data="filteredData" border stripe style="width: 100%">
+    <el-table v-if="!isPhone" v-loading="loading" :data="filteredData" border stripe style="width: 100%">
       <el-table-column prop="name" label="名称" />
       <el-table-column prop="fuelConsumptionPerKm" label="每公里油耗" />
       <el-table-column prop="maxCargo" label="最大载货量" />
@@ -47,6 +47,31 @@
         </template>
       </el-table-column>
     </el-table>
+
+    <MobileCards
+      v-else
+      :data="filteredData"
+      :columns="vehicleColumns"
+      :loading="loading"
+      :row-key="(row: any) => row.id"
+    >
+      <template #actions="{ row }">
+        <el-button size="small" @click="showDetail(row)">详情</el-button>
+        <el-button
+          v-if="authStore.can('data:vehicle:edit')"
+          size="small"
+          @click="openEdit(row)"
+          >编辑</el-button
+        >
+        <el-button
+          v-if="authStore.can('data:vehicle:edit')"
+          size="small"
+          type="danger"
+          @click="handleDelete(row)"
+          >删除</el-button
+        >
+      </template>
+    </MobileCards>
 
     <el-dialog append-to-body v-model="detailVisible" title="载具详情" width="560px">
       <el-descriptions v-if="detailData" :column="1" border>
@@ -176,6 +201,8 @@ import { confirmDeleteWithImpact } from "@/utils/deleteConfirm";
 import api from "@/api/request";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import MobileCards from "@/components/common/MobileCards.vue";
+import { useBreakpoint } from "@/composables/useBreakpoint";
 
 interface VehicleItem {
   id: number;
@@ -188,9 +215,18 @@ interface VehicleItem {
 
 const compStore = useCompetitionStore();
 const authStore = useAuthStore();
+const { isPhone } = useBreakpoint();
 const data = ref<VehicleItem[]>([]);
 const loading = ref(false);
 const searchText = ref("");
+
+const vehicleColumns = [
+  { prop: "name", label: "名称" },
+  { prop: "fuelConsumptionPerKm", label: "每公里油耗" },
+  { prop: "maxCargo", label: "最大载货量" },
+  { prop: "price", label: "价格" },
+  { prop: "carbonEmission", label: "碳排放系数" },
+];
 const dialogVisible = ref(false);
 const isEdit = ref(false);
 const editingId = ref<number | null>(null);

@@ -21,7 +21,7 @@
     请先在「比赛管理」中选择一个比赛
   </div>
 
-  <el-table v-loading="loading" :data="filteredData" border stripe style="width: 100%">
+  <el-table v-if="!isPhone" v-loading="loading" :data="filteredData" border stripe style="width: 100%">
     <el-table-column prop="name" label="名称" />
     <el-table-column prop="price" label="价格" />
     <el-table-column prop="laborCount" label="劳动力" />
@@ -50,6 +50,31 @@
       </template>
     </el-table-column>
   </el-table>
+
+  <MobileCards
+    v-else
+    :data="filteredData"
+    :columns="productionLineColumns"
+    :loading="loading"
+    :row-key="(row: any) => row.id"
+  >
+    <template #actions="{ row }">
+      <el-button size="small" @click="showDetail(row)">详情</el-button>
+      <el-button
+        v-if="authStore.can('data:productionLine:edit')"
+        size="small"
+        @click="openEdit(row)"
+        >编辑</el-button
+      >
+      <el-button
+        v-if="authStore.can('data:productionLine:edit')"
+        size="small"
+        type="danger"
+        @click="handleDelete(row)"
+        >删除</el-button
+      >
+    </template>
+  </MobileCards>
 
   <el-dialog append-to-body v-model="detailVisible" title="生产线详情" width="500px">
     <el-descriptions v-if="detailData" :column="1" border>
@@ -103,12 +128,22 @@ import { confirmDeleteWithImpact } from "@/utils/deleteConfirm";
 import api from "@/api/request";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import MobileCards from "@/components/common/MobileCards.vue";
+import { useBreakpoint } from "@/composables/useBreakpoint";
 
 const compStore = useCompetitionStore();
 const authStore = useAuthStore();
+const { isPhone } = useBreakpoint();
 const data = ref<any[]>([]);
 const loading = ref(false);
 const searchText = ref("");
+
+const productionLineColumns = [
+  { prop: "name", label: "名称" },
+  { prop: "price", label: "价格" },
+  { prop: "laborCount", label: "劳动力" },
+  { prop: "maxPerYear", label: "年加工上限" },
+];
 const filteredData = computed(() => {
   const list = Array.isArray(data.value) ? data.value : [];
   if (!searchText.value) return list;

@@ -16,7 +16,13 @@
       请先在「比赛管理」中选择一个比赛
     </div>
 
-    <el-table v-if="compStore.competitionId && !dataLoading" :data="companies" border stripe style="width: 100%">
+    <el-table
+      v-if="compStore.competitionId && !dataLoading && !isPhone"
+      :data="companies"
+      border
+      stripe
+      style="width: 100%"
+    >
       <el-table-column prop="name" label="名称" />
       <el-table-column label="产业类型">
         <template #default="{ row }">
@@ -45,7 +51,32 @@
         </template>
       </el-table-column>
     </el-table>
-    <div v-else-if="compStore.competitionId" class="cl-loading">正在加载公司数据…</div>
+    <MobileCards
+      v-else-if="compStore.competitionId && !dataLoading && isPhone"
+      :data="companies"
+      :columns="companyColumns"
+      :row-key="(row: any) => row.id"
+    >
+      <template #industry="{ row }">
+        <el-tag type="info" size="small">{{ row.industryType?.name || "-" }}</el-tag>
+      </template>
+      <template #status="{ row }">
+        <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'">{{ row.status }}</el-tag>
+      </template>
+      <template #actions="{ row }">
+        <el-button size="small" type="primary" @click="$router.push(`/companies/${row.id}`)"
+          >查看</el-button
+        >
+        <el-button
+          v-if="authStore.can('company:manage')"
+          size="small"
+          type="danger"
+          @click="handleDelete(row)"
+          >删除</el-button
+        >
+      </template>
+    </MobileCards>
+    <div v-else class="cl-loading">正在加载公司数据…</div>
 
     <el-dialog append-to-body v-model="showCreate" title="新建公司" width="450px">
       <el-form ref="createFormRef" :model="form" :rules="createRules" label-width="80px">
@@ -76,9 +107,12 @@ import { useCompetitionStore } from "@/stores/competition";
 import { useAuthStore } from "@/stores/auth";
 import api from "@/api/request";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import MobileCards from "@/components/common/MobileCards.vue";
+import { useBreakpoint } from "@/composables/useBreakpoint";
 
 const compStore = useCompetitionStore();
 const authStore = useAuthStore();
+const { isPhone } = useBreakpoint();
 
 const companies = ref<any[]>([]);
 const allIndustryTypes = ref<any[]>([]);
@@ -90,6 +124,12 @@ const createRules = { name: [{ required: true, message: "请输入公司名称",
 const loading = ref(false);
 const dataLoading = ref(true);
 const form = reactive({ name: "", industryTypeId: null as number | null });
+
+const companyColumns = [
+  { prop: "name", label: "名称" },
+  { label: "产业类型", slot: "industry" },
+  { label: "状态", slot: "status" },
+];
 
 // 公司查看范围过滤（与服务端 companyListScopes 对齐）：仅持 company:view（无 company:manage /
 // data:region:edit）且配置了 viewCompanyScopes 的账号，公司管理界面只展示其可见范围内的公司；

@@ -57,7 +57,7 @@
     </div>
 
     <div v-show="viewMode !== 'tree'">
-      <el-table v-loading="loading" :data="nodes" border stripe>
+      <el-table v-if="!isPhone" v-loading="loading" :data="nodes" border stripe>
         <el-table-column prop="name" label="名称" />
         <el-table-column prop="description" label="描述" />
         <el-table-column prop="tier" label="层级" />
@@ -98,6 +98,40 @@
           </template>
         </el-table-column>
       </el-table>
+      <MobileCards
+        v-else
+        :data="nodes"
+        :columns="techColumns"
+        :loading="loading"
+        :row-key="(row: any) => row.id"
+      >
+        <template #prereqs="{ row }">
+          <span v-if="row.prerequisites?.length">
+            <el-tag
+              v-for="p in row.prerequisites"
+              :key="p.prerequisiteNodeId"
+              size="small"
+              style="margin: 2px"
+            >
+              {{ p.prerequisite?.name }}
+            </el-tag>
+          </span>
+          <span v-else style="color: #c0c4cc">无</span>
+        </template>
+        <template #actions="{ row }">
+          <el-button size="small" @click="showDetail(row)">详情</el-button>
+          <el-button v-if="authStore.can('data:tech:edit')" size="small" @click="editNode(row)"
+            >编辑</el-button
+          >
+          <el-button
+            v-if="authStore.can('data:tech:edit')"
+            size="small"
+            type="danger"
+            @click="handleDelete(row)"
+            >删除</el-button
+          >
+        </template>
+      </MobileCards>
     </div>
 
     <el-dialog append-to-body v-model="detailVisible" title="科技节点详情" width="560px">
@@ -171,12 +205,23 @@ import * as echarts from "echarts";
 import api from "@/api/request";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import MobileCards from "@/components/common/MobileCards.vue";
+import { useBreakpoint } from "@/composables/useBreakpoint";
 
 const compStore = useCompetitionStore();
 const authStore = useAuthStore();
+const { isPhone } = useBreakpoint();
 const nodes = ref<any[]>([]);
 const loading = ref(false);
 const viewMode = ref<"table" | "tree">("tree");
+
+const techColumns = [
+  { prop: "name", label: "名称" },
+  { prop: "description", label: "描述" },
+  { prop: "tier", label: "层级" },
+  { prop: "researchCost", label: "研发费用" },
+  { label: "前置依赖", slot: "prereqs" },
+];
 const showDialog = ref(false);
 const isEdit = ref(false);
 const editId = ref(0);
