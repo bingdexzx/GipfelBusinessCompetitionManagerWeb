@@ -18,7 +18,15 @@
       请先在「比赛管理」中选择一个比赛
     </div>
 
-    <el-table v-loading="loading" :data="filteredData" border stripe style="width: 100%">
+    <!-- 桌面 / 平板：表格 -->
+    <el-table
+      v-if="!isPhone"
+      v-loading="loading"
+      :data="filteredData"
+      border
+      stripe
+      style="width: 100%"
+    >
       <el-table-column
         v-for="col in columns"
         :key="col.prop"
@@ -38,6 +46,35 @@
         </template>
       </el-table-column>
     </el-table>
+
+    <!-- 手机：堆叠卡片，每个字段以「标签：值」竖向排列，全部信息可见、无需横滑 -->
+    <div v-else class="dm-cards" v-loading="loading">
+      <div v-for="row in filteredData" :key="rowKey(row)" class="dm-card">
+        <div class="dm-card-head">
+          <span class="dm-card-title">{{ cardTitle(row) }}</span>
+        </div>
+        <div class="dm-card-body">
+          <div v-for="col in columns" :key="col.prop" class="dm-card-row">
+            <span class="dm-card-label">{{ col.label }}</span>
+            <span class="dm-card-value">
+              <component
+                v-if="col.render"
+                :is="col.render"
+                :row="row"
+                :value="getNested(row, col.prop)"
+              />
+              <template v-else>{{ getNested(row, col.prop) ?? "—" }}</template>
+            </span>
+          </div>
+        </div>
+        <div v-if="canManage" class="dm-card-actions">
+          <el-button size="small" @click="openDetail(row)">详情</el-button>
+          <el-button size="small" @click="openEdit(row)">编辑</el-button>
+          <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+        </div>
+      </div>
+      <div v-if="!loading && !filteredData.length" class="dm-card-empty">暂无数据</div>
+    </div>
 
     <el-dialog append-to-body v-model="showDetail" :title="title.replace('管理', '') + '详情'" width="480px">
       <el-descriptions :column="1" border>
@@ -114,6 +151,7 @@ import { ElMessage } from "element-plus";
 import { useCompetitionStore } from "@/stores/competition";
 import { useCompetitionReload } from "@/composables/useCompetitionReload";
 import { useAuthStore } from "@/stores/auth";
+import { useBreakpoint } from "@/composables/useBreakpoint";
 import { confirmDeleteWithImpact } from "@/utils/deleteConfirm";
 
 interface Column {
@@ -152,6 +190,8 @@ const props = defineProps<{
 
 const compStore = useCompetitionStore();
 const authStore = useAuthStore();
+// 手机端（≤640px）将表格切换为堆叠卡片，避免横向滚动导致数据展示不全
+const { isPhone } = useBreakpoint();
 
 // 是否拥有管理权限：未声明 managePermission 的模块默认视为可管理。
 const canManage = computed(() => !props.managePermission || authStore.can(props.managePermission));
@@ -195,6 +235,20 @@ function getNested(obj: any, path: string): any {
 
 function getIdField(item: any): number {
   return item.id || item._id;
+}
+
+// 卡片视图：用行 id 作为 v-for 的 key
+function rowKey(row: any): number | string {
+  return getIdField(row);
+}
+
+// 卡片视图：标题优先取「名称」类字段，否则取首列值，再否则取 id
+function cardTitle(row: any): string {
+  const nameCol = props.columns.find(
+    (c) => c.prop === "name" || c.prop.endsWith(".name") || c.label.includes("名称"),
+  );
+  const val = nameCol ? getNested(row, nameCol.prop) : getNested(row, props.columns[0]?.prop);
+  return val != null && val !== "" ? String(val) : `ID:${getIdField(row)}`;
 }
 
 onMounted(loadData);
@@ -367,5 +421,79 @@ function resetForm() {
   border-radius: 6px;
   color: #b45309;
   font-size: 13px;
+}
+
+/* ===================== 手机端堆叠卡片（替代横向表格） ===================== */
+.dm-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+.dm-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  transition: box-shadow var(--dur-base) var(--ease-out-expo);
+}
+.dm-card:hover {
+  box-shadow: var(--shadow-md);
+}
+.dm-card-head {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+}
+.dm-card-title {
+  font-weight: 700;
+  font-size: var(--font-md);
+  color: var(--color-text-primary);
+  word-break: break-word;
+}
+.dm-card-body {
+  padding: 2px 14px 6px;
+}
+.dm-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--color-border);
+  font-size: var(--font-sm);
+}
+.dm-card-row:last-child {
+  border-bottom: none;
+}
+.dm-card-label {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+}
+.dm-card-value {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  color: var(--color-text-primary);
+  word-break: break-word;
+}
+.dm-card-actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}
+.dm-card-actions .el-button {
+  flex: 1;
+  margin: 0;
+  min-width: 0;
+}
+.dm-card-empty {
+  text-align: center;
+  color: var(--color-text-tertiary);
+  padding: 32px 0;
+  font-size: var(--font-sm);
 }
 </style>
