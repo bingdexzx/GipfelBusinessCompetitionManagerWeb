@@ -257,8 +257,14 @@ const router = createRouter({
 
 // vue-router 5 起导航守卫不再提供 next 回调，改用返回值控制跳转：
 // 返回路径字符串表示重定向，返回 true（或不返回）表示放行，返回 false 表示取消。
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const authStore = useAuthStore();
+  // 刷新后 token 已从本地存储恢复，但 user 需经异步 fetchProfile 拉取；
+  // 此时若直接判定角色 / 权限，会误把超管当普通用户（超管区块被隐藏、超管路由被拦截）。
+  // 故在已登录且 user 尚为空时，先 await 拉取资料再继续导航，保证首屏角色判定正确。
+  if (authStore.isLoggedIn && !authStore.user) {
+    await authStore.fetchProfile();
+  }
   // 强制改密：已登录但需改密的账号，统一停在登录页触发改密对话框，优先于其他跳转。
   if (authStore.isLoggedIn && authStore.needsPasswordChange) {
     if (to.path !== "/login") return "/login";
