@@ -7,7 +7,7 @@
           v-model="searchText"
           :placeholder="`搜索${title}`"
           clearable
-          style="width: 200px"
+          class="dm-search"
           size="default"
         />
         <el-button type="primary" v-if="canManage" @click="openCreate">+ 新建</el-button>
@@ -329,6 +329,24 @@ function resetForm() {
 .dm-actions {
   display: flex;
   gap: 8px;
+}
+.dm-search {
+  width: 200px;
+}
+@media (max-width: 640px) {
+  .dm-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .dm-actions {
+    width: 100%;
+  }
+  .dm-search {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+  }
 }
 .no-comp-warning {
   text-align: center;

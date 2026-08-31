@@ -524,6 +524,15 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 8px;
 }
+@media (max-width: 640px) {
+  .dash-bar {
+    flex-wrap: wrap;
+  }
+  .dash-bar-right {
+    width: 100%;
+    margin-left: 0;
+  }
+}
 
 .dash-canvas {
   position: relative;

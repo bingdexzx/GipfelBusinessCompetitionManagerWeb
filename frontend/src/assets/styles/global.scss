@@ -522,3 +522,88 @@ body.modal-open .app-layout {
   border: none;
   box-shadow: 0 4px 12px rgba(var(--color-primary-rgb), 0.22);
 }
+
+// ===================== 响应式（平板/手机） =====================
+// 仅调整密度与布局行为，不动颜色/圆角/阴影等视觉风格。
+// 断点与 useBreakpoint.ts、variables.scss 保持一致：≤1024 平板、≤640 手机。
+
+// 平板及以下：表格更易读的密度
+@media (max-width: 1024px) {
+  .el-table {
+    font-size: var(--font-sm);
+  }
+  .el-table .cell {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  .el-table td.el-table__cell,
+  .el-table th.el-table__cell {
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  // 分页器在空间不足时换行，避免被截断
+  .el-pagination {
+    flex-wrap: wrap;
+    row-gap: 8px;
+    justify-content: flex-start;
+  }
+}
+
+// 手机：对话框近满宽、卡片内距收紧、描述列表塌为单列
+@media (max-width: 640px) {
+  // 弹窗近满宽（覆盖 el-dialog / el-message-box 的内联 width）
+  .el-dialog,
+  .el-message-box {
+    width: calc(100vw - 24px) !important;
+    max-width: none !important;
+    margin: 6vh auto 6vh !important;
+  }
+  .el-dialog__header {
+    padding: 16px 18px;
+  }
+  .el-dialog__body {
+    padding: 16px 18px;
+  }
+  .el-dialog__footer {
+    padding: 12px 18px;
+  }
+  .el-message-box {
+    padding: 18px;
+  }
+  .el-message-box__btns {
+    padding: 8px 0 0;
+  }
+
+  // 卡片 / 面板内距收紧
+  .el-card {
+    border-radius: var(--radius-sm);
+  }
+  .el-card__header {
+    padding: 14px 16px;
+  }
+  .el-card__body {
+    padding: 16px;
+  }
+  .panel {
+    border-radius: var(--radius-sm);
+  }
+
+  // 描述列表：多列塌为单列（横向描述列表本身即单列，这里处理纵向多列）
+  .el-descriptions:not(.el-descriptions--label-top) {
+    --el-descriptions-item-bordered-label-width: 90px;
+  }
+  .el-descriptions .el-descriptions__body .el-descriptions__table {
+    width: 100%;
+  }
+
+  // 表单在窄弹窗内标签与控件纵向堆叠更稳
+  .el-form--label-top .el-form-item__label {
+    padding-bottom: 4px;
+  }
+
+  // 表格进一步收紧
+  .el-table .cell {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+}

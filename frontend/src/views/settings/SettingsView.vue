@@ -100,4 +100,13 @@ function openLogViewer() {
   color: #8c8c8c;
   margin: 4px 0;
 }
+@media (max-width: 640px) {
+  .settings-section .el-button {
+    width: 100%;
+    margin: 0 0 10px;
+  }
+  .settings-section .el-button:last-child {
+    margin-bottom: 0;
+  }
+}
 </style>

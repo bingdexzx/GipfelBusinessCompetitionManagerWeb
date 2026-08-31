@@ -1,6 +1,15 @@
 <template>
   <div class="topbar">
     <div class="topbar-left">
+      <el-button
+        v-if="showMenuToggle"
+        class="menu-toggle"
+        text
+        aria-label="打开菜单"
+        @click="$emit('toggle')"
+      >
+        <el-icon :size="20"><Menu /></el-icon>
+      </el-button>
       <el-breadcrumb separator="/">
         <el-breadcrumb-item :to="{ path: '/dashboard' }">首页</el-breadcrumb-item>
         <el-breadcrumb-item v-if="currentTitle">{{ currentTitle }}</el-breadcrumb-item>
@@ -21,11 +30,20 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { Menu } from "@element-plus/icons-vue";
 import { useAuthStore } from "@/stores/auth";
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+
+// 由父级 AppLayout 注入：平板/手机（抽屉模式）下显示汉堡按钮
+const props = defineProps<{
+  showMenuToggle?: boolean;
+}>();
+const emit = defineEmits<{
+  toggle: [];
+}>();
 
 const currentTitle = computed(() => {
   const title = route.meta?.title as string | undefined;
@@ -92,10 +110,19 @@ function handleLogout() {
 .topbar-left {
   display: flex;
   align-items: center;
+  min-width: 0;
 }
 .topbar-right {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
+}
+.menu-toggle {
+  margin-right: 6px;
+  color: var(--color-text-secondary);
+}
+.menu-toggle:hover {
+  color: var(--color-primary);
 }
 .user-info {
   display: flex;
@@ -103,10 +130,20 @@ function handleLogout() {
   gap: 8px;
   font-size: 14px;
   color: var(--color-text-primary);
+  min-width: 0;
 }
 .role-tag {
   font-size: 11px;
   height: 20px;
   line-height: 18px;
+}
+/* 手机(≤640px)：隐藏面包屑与用户名，仅留角色标签 + 退出，避免顶栏拥挤 */
+@media (max-width: 640px) {
+  .topbar-left .el-breadcrumb {
+    display: none;
+  }
+  .user-info > span:first-child {
+    display: none;
+  }
 }
 </style>

@@ -187,13 +187,19 @@ async function submitChangePassword() {
 .login-card {
   position: relative;
   z-index: 1;
-  width: 400px;
+  width: min(400px, calc(100vw - 32px));
   padding: 44px 40px 40px;
   background: #fff;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   border: 1px solid var(--color-border);
   animation: cardFloat 0.5s var(--ease-spring) both;
+}
+@media (max-width: 640px) {
+  .login-card {
+    padding: 32px 24px 28px;
+    border-radius: var(--radius-md);
+  }
 }
 @keyframes cardFloat {
   from {

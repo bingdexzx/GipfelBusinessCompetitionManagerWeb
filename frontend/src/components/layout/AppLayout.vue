@@ -1,9 +1,18 @@
 <template>
-  <div class="app-layout">
+  <div
+    class="app-layout"
+    :class="{ 'app-layout--drawer': isCompact, 'app-layout--nav-open': mobileNavOpen }"
+  >
     <div class="app-accent"></div>
-    <Sidebar />
+    <Sidebar :drawer="isCompact" :open="mobileNavOpen" />
+    <!-- 抽屉模式下的遮罩：点击关闭侧栏；仅在平板/手机且抽屉打开时出现 -->
+    <div
+      v-show="isCompact && mobileNavOpen"
+      class="sidebar-backdrop"
+      @click="mobileNavOpen = false"
+    ></div>
     <div class="app-main">
-      <TopBar />
+      <TopBar :show-menu-toggle="isCompact" @toggle="mobileNavOpen = !mobileNavOpen" />
       <div class="app-content">
         <div class="route-wrap">
           <!-- 页面级错误边界：单个路由页面渲染异常时仅隔离该页面，
@@ -27,6 +36,8 @@ import { useAuthStore } from "@/stores/auth";
 import { useConfigStore } from "@/stores/config";
 import { useCompetitionStore } from "@/stores/competition";
 import { useMessageStore } from "@/stores/message";
+import { useBreakpoint } from "@/composables/useBreakpoint";
+import { ref } from "vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -34,6 +45,21 @@ const authStore = useAuthStore();
 const configStore = useConfigStore();
 const compStore = useCompetitionStore();
 const messageStore = useMessageStore();
+const { isCompact } = useBreakpoint();
+
+// 平板/手机下侧栏为抽屉模式，默认收起；由顶栏汉堡按钮或路由切换控制开关。
+const mobileNavOpen = ref(false);
+// 切换路由（含点击菜单项）后自动收起抽屉，避免遮挡新页面。
+watch(
+  () => route.fullPath,
+  () => {
+    mobileNavOpen.value = false;
+  },
+);
+// 放大回桌面尺寸时强制收起，恢复固定侧栏布局。
+watch(isCompact, (compact) => {
+  if (!compact) mobileNavOpen.value = false;
+});
 
 // 拉取账号资料后：归属比赛的账号（competitionId 非空）自动锁定并显示所属比赛，
 // 无需手动选择，也避免 localStorage 残留其他比赛导致请求越权（403）。
@@ -143,6 +169,24 @@ onBeforeUnmount(() => {
   overflow: hidden;
   background: var(--color-bg);
   position: relative;
+}
+/* 抽屉遮罩：覆盖主区与顶栏，置于抽屉之下、内容之上。仅抽屉模式启用过渡。 */
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  opacity: 0;
+  transition: opacity var(--dur-base) var(--ease-out-expo);
+}
+.app-layout--nav-open .sidebar-backdrop {
+  opacity: 1;
+}
+/* 抽屉模式下，打开时锁定 body 滚动（与抽屉滑入同步） */
+.app-layout--drawer.app-layout--nav-open {
+  overflow: hidden;
 }
 .app-main::before {
   content: "";

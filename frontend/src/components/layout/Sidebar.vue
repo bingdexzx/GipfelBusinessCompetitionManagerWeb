@@ -1,5 +1,5 @@
 <template>
-  <div class="sidebar">
+  <div class="sidebar" :class="{ 'is-drawer': drawer, 'is-open': open }">
     <div class="sidebar-brand">
       <div class="brand-text">
         <div class="brand-name">Gipfel商赛系统</div>
@@ -226,6 +226,12 @@ const compStore = useCompetitionStore();
 const messageStore = useMessageStore();
 const { unreadCount } = storeToRefs(messageStore);
 
+// 抽屉模式（平板/手机）：由父级 AppLayout 控制显隐，侧栏脱离文档流浮层展示。
+const props = defineProps<{
+  drawer?: boolean;
+  open?: boolean;
+}>();
+
 // 数据管理子菜单：仅当至少一个数据域（原料/零件/产品/地图/基建/科技树/
 // 燃料/载具/仓库/生产线）具备 view 或 edit 权限时才显示，避免空菜单。
 const DATA_DOMAINS = [
@@ -406,5 +412,21 @@ const activeMenu = computed(() => {
 .sidebar-menu :deep(.el-menu-item .el-icon),
 .sidebar-menu :deep(.el-sub-menu__title .el-icon) {
   font-size: 17px;
+}
+
+/* ===== 抽屉模式（平板/手机）：固定浮层 + 滑入动画，桌面模式不受影响 ===== */
+.sidebar.is-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 60;
+  max-width: 320px;
+  transform: translateX(-100%);
+  transition: transform var(--dur-base) var(--ease-out-expo);
+  box-shadow: var(--shadow-xl);
+}
+.sidebar.is-drawer.is-open {
+  transform: translateX(0);
 }
 </style>
