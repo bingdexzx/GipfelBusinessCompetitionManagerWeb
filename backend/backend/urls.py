@@ -5,11 +5,15 @@ URL 路由：聚合所有 REST 模块 + 静态资源 + 健康检查 / 版本。
 """
 from django.conf import settings
 from django.conf.urls.static import static
-from django.urls import include, path
+from django.contrib import admin
+from django.urls import include, path, re_path
+from django.views.static import serve as static_serve
 
 from apps.auth.views import HealthView, VersionView
 
 urlpatterns = [
+    # 管理后台（Django admin）：仅用于临时排查/修数，业务管理仍走前端 Vue 界面
+    path("admin/", admin.site.urls),
     # 健康检查与版本（无鉴权，对应原 health.controller / version.controller）
     path("api/health", HealthView.as_view(), name="health"),
     path("api/version", VersionView.as_view(), name="version"),
@@ -43,3 +47,9 @@ urlpatterns = [
 
 # /uploads 静态托管（CORP cross-origin 由中间件设置）
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+# 管理后台静态资源（/admin 样式与脚本）。DEBUG=False 时 django.conf.urls.static 不挂载，
+# 故此处无条件以 re_path 托管 STATIC_ROOT，仅匹配 /static/，不影响 /api、/uploads、/socket.io。
+urlpatterns += [
+    re_path(r"^static/(?P<path>.*)$", static_serve, {"document_root": settings.STATIC_ROOT}),
+]

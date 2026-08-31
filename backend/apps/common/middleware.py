@@ -42,6 +42,11 @@ class SecurityHeadersMiddleware(MiddlewareMixin):
     """CSP default-src 'none' / XFO DENY / XCTO nosniff / Referrer no-referrer / CORP。"""
 
     def process_response(self, request, response):
+        # 管理后台（/admin）使用 Django 自带会话鉴权与表单提交，必须放行安全头，
+        # 否则 form-action 'none' 会拦截登录与所有表单提交、default-src 'none' 会禁掉后台样式与脚本。
+        # 仅对 /admin 放行，/api 等业务接口的安全头保持不变。
+        if request.path.startswith("/admin"):
+            return response
         response["Content-Security-Policy"] = (
             "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
         )
