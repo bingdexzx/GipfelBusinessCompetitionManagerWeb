@@ -87,7 +87,7 @@
         <el-option label="DEBUG" value="DEBUG" />
       </el-select>
       <el-input v-model="search" class="grow" clearable
-        placeholder="关键字过滤（消息 / 记录器）"
+        placeholder="关键字过滤（消息 / 记录器 / 操作人）"
         @keyup.enter="loadLogs" @clear="loadLogs">
         <template #append>
           <el-button @click="loadLogs">查询</el-button>
@@ -112,6 +112,7 @@
             </template>
           </el-table-column>
           <el-table-column prop="logger" label="记录器" width="210" show-overflow-tooltip />
+          <el-table-column prop="operator" label="操作人" width="150" show-overflow-tooltip />
           <el-table-column label="消息">
             <template #default="{ row }">
               <div class="msg-cell">{{ row.message }}</div>

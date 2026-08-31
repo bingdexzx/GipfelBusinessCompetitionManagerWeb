@@ -276,14 +276,21 @@ LOGGING = {
     "disable_existing_loggers": False,
     "formatters": {
         "verbose": {
-            "format": "[{asctime}] {levelname} {name} {message}",
+            # operator 来自 OperatorFilter：当前请求的 JWT 用户（无上下文时为 '-'）
+            "format": "[{asctime}] {levelname} {name} [{operator}] {message}",
             "style": "{",
+        },
+    },
+    "filters": {
+        "operator": {
+            "()": "apps.common.logfilter.OperatorFilter",
         },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": "verbose",
+            "filters": ["operator"],
         },
         "file_rotate": {
             "class": "logging.handlers.TimedRotatingFileHandler",
@@ -291,6 +298,7 @@ LOGGING = {
             "when": "midnight",
             "backupCount": 14,
             "formatter": "verbose",
+            "filters": ["operator"],
             "encoding": "utf-8",
         },
     },

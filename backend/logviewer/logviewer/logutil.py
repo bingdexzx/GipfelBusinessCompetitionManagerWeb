@@ -1,8 +1,12 @@
 """日志文件读取工具：列出文件、解析行、过滤、tail。
 
 主服务日志格式（backend/backend/settings.py verbose formatter）：
-    [{asctime}] {levelname} {name} {message}
+    [{asctime}] {levelname} {name} [{operator}] {message}
+其中 operator 为发起请求的用户（JWT 用户名），无请求上下文时为 '-'。
 例：
+    [2026-08-31 18:04:12] INFO gipfel.something [admin] 用户 admin 登录成功
+
+兼容升级前的旧格式（无 [operator] 字段）：
     [2026-08-31 18:04:12] INFO gipfel.something 用户 admin 登录成功
 """
 from __future__ import annotations
@@ -15,7 +19,10 @@ from typing import Iterable
 
 from django.conf import settings
 
-LINE_RE = re.compile(r"^\[([^\]]+)\]\s+(\w+)\s+(\S+)\s+(.*)$")
+# operator 字段（[...]）为可选，兼容升级前无该字段的旧日志行
+LINE_RE = re.compile(
+    r"^\[([^\]]+)\]\s+(\w+)\s+(\S+?)(?:\s+\[([^\]]*)\])?\s+(.*)$"
+)
 
 # 单次最多读入内存的字节数（超过则只取尾部该大小），防止超大文件拖垮服务
 MAX_READ_BYTES = 8 * 1024 * 1024
@@ -84,9 +91,10 @@ def _parse_line(line: str) -> dict:
             "time": m.group(1),
             "level": m.group(2).upper(),
             "logger": m.group(3),
-            "message": m.group(4),
+            "operator": (m.group(4) or "-"),
+            "message": m.group(5),
         }
-    return {"time": "", "level": "", "logger": "", "message": line}
+    return {"time": "", "level": "", "logger": "", "operator": "-", "message": line}
 
 
 def read_logs(
@@ -118,7 +126,9 @@ def read_logs(
     def match(r: dict) -> bool:
         if level != "ALL" and r["level"] != level:
             return False
-        if q and q not in (r["message"] + " " + r["logger"]).lower():
+        if q and q not in (
+            r["message"] + " " + r["logger"] + " " + (r.get("operator") or "")
+        ).lower():
             return False
         return True
 
