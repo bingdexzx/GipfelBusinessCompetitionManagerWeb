@@ -41,16 +41,6 @@ export default defineConfig({
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
       },
-      // 管理后台：开发期也可通过 Vite 端口访问 /admin（否则需直连后端 8000）
-      "/admin": {
-        target: "http://127.0.0.1:8000",
-        changeOrigin: true,
-      },
-      // Django admin 的静态资源（CSS/JS），需经 Vite 转发到后端才能加载
-      "/static": {
-        target: "http://127.0.0.1:8000",
-        changeOrigin: true,
-      },
     },
   },
   build: {

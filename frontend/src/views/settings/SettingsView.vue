@@ -16,6 +16,15 @@
       </p>
       <el-button type="warning" @click="clearLocalData">清空本地缓存</el-button>
     </div>
+    <div class="settings-section">
+      <h3>后端管理</h3>
+      <p>
+        打开 Django 管理后台，可直接对业务数据做临时排查 / 修数（注意：后台写库会绕过前端业务校验，
+        仅建议管理员使用）。将跳转到后端地址
+        <code>http://127.0.0.1:8000/admin/</code>（在新标签页打开，需后端以 daphne 运行）。
+      </p>
+      <el-button type="primary" @click="openAdmin">进入后端管理界面</el-button>
+    </div>
   </div>
 </template>
 
@@ -50,6 +59,12 @@ async function clearLocalData() {
   // 仅清 IndexedDB 不重载，视图仍持有内存旧值 → 按钮「看起来没用」，此即原 bug 根因。
   ElMessage.success("本地缓存已清空，正在重新加载…");
   setTimeout(() => window.location.reload(), 300);
+}
+
+// 后端管理后台地址（开发期直连后端 8000 端口；生产可改为实际后端地址）
+const ADMIN_URL = "http://127.0.0.1:8000/admin/";
+function openAdmin() {
+  window.open(ADMIN_URL, "_blank", "noopener,noreferrer");
 }
 </script>
 

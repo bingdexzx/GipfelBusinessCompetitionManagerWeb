@@ -158,7 +158,8 @@ emit_permissions_changed(u.id, u.permission_version)
 ### 访问与账号
 
 - 访问地址：`http://<host>:8000/admin/`（与 API、Socket.IO 同源同端口）
-  - 开发期若前端走 Vite 开发服务器（默认 `http://localhost:5173`），也可直接访问 `http://localhost:5173/admin/`，Vite 已把 `/admin` 与 `/static` 代理到后端 8000，无需直连后端端口。
+  - 前端「系统设置 → 后端管理」提供一键跳转按钮，直接新标签页打开后端 `http://127.0.0.1:8000/admin/`。
+  - 注意：Vite 开发代理**不再转发** `/admin` 与 `/static`（已由该跳转按钮直连后端取代）；开发期需进后台请直连后端端口或用按钮，**不要**走 `http://localhost:5173/admin/`。
 - 超级管理员账号（首次 `migrate` 自动从 `.env` 的 `SEED_ADMIN_*` 创建；业务超管与后台超管共用同一凭据，**已存在则跳过、不覆盖**）：
 
   | 用户名 | 密码 | 说明 |
