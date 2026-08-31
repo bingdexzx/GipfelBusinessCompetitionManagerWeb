@@ -100,7 +100,7 @@ try {
     # Vite 探活：最多 15s（第一次启动可能冷编译）
     for ($i = 0; $i -lt 30; $i++) {
         try {
-            $null = Invoke-WebRequest -Uri "http://127.0.0.1:${VitePort}/" -Method Head -TimeoutSec 2 -ErrorAction Stop
+            $null = Invoke-WebRequest -Uri "http://127.0.0.1:${VitePort}/" -Method Head -TimeoutSec 2 -ErrorAction Stop -UseBasicParsing
             Write-OK "Vite 就绪"
             break
         } catch {}

@@ -11,6 +11,15 @@ export default defineConfig({
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
+  css: {
+    preprocessorOptions: {
+      scss: {
+        // 切到 Dart Sass 现代 API，消除 "legacy-js-api is deprecated" 弃用警告
+        // （需 sass >= 1.71，本项目 1.77.6 满足；Vite 5 原生支持，无需 sass-embedded）
+        api: "modern",
+      },
+    },
+  },
   server: {
     port: 5173,
     strictPort: false,
