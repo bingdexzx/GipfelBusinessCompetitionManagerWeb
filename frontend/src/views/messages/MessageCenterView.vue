@@ -533,7 +533,6 @@ onMounted(() => {
   flex-direction: column;
   gap: 12px;
   margin-top: 16px;
-  min-height: 120px;
 }
 .empty-tip {
   text-align: center;
