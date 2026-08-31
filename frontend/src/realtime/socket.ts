@@ -43,6 +43,10 @@ export function connectRealtime(): Socket | null {
   connectedBaseUrl = getBaseUrl();
   socket = io(connectedBaseUrl, {
     auth: { token },
+    // 仅用 websocket 传输：跳过 socket.io 默认「先轮询再升级」的长轮询链路。
+    // 长轮询连接在升级时被中断会产生 ECONNRESET 噪声；且经 Vite 开发代理转发时，
+    // 单一 websocket 通道比 polling+upgrade 更稳定。生产同源部署同样支持 websocket。
+    transports: ["websocket"],
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 2000,

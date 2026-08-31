@@ -13,8 +13,24 @@ pip install -r requirements.txt
 python manage.py migrate
 
 # 3. 启动 daphne（HTTP + Socket.IO 同源同端口 :8000）
-python manage.py runserver 0.0.0.0:8000
+#    注意：必须用 daphne（ASGI）而非 runserver，否则 Socket.IO 的 WebSocket 升级无法处理。
+#    绑定 127.0.0.1（IPv4）；若需局域网/容器访问可改为 0.0.0.0。
+daphne -b 127.0.0.1 -p 8000 backend.asgi:application
 ```
+
+## 排错：开发期 `[vite] ws proxy error: read ECONNRESET`
+
+前端经 Vite 开发代理（`/socket.io` → 后端）连接 Socket.IO 时，控制台偶发
+`read ECONNRESET` 并触发反复重连。根因与修复：
+
+- **根因**：Vite 代理目标曾写 `http://localhost:8000`，而 Windows 上 `localhost` 优先解析到
+  IPv6 `::1`；daphne 默认只监听 IPv4，代理先对 `::1` 建连被 RST 再回退 IPv4，表现为一连串 RST。
+  另外 Socket.IO 默认「先轮询再升级 WebSocket」，升级时废弃的轮询长连接被中断也会产生 RST 噪声。
+- **已修复**：`frontend/vite.config.ts` 代理目标已改为 `http://127.0.0.1:8000`（显式 IPv4）；
+  `frontend/src/realtime/socket.ts` 客户端已限定 `transports: ["websocket"]`（跳过轮询长连接）。
+- **若仍出现**：确认启动 daphne 时绑定的是 IPv4（`-b 127.0.0.1` 或 `0.0.0.0`），不要只绑 `::1`；
+  且后端进程未被重启/崩溃（重启后端会令在飞连接 RST，属正常，客户端会自动重连）。
+
 
 ## 健康检查
 

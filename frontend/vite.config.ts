@@ -24,17 +24,21 @@ export default defineConfig({
     port: 5173,
     strictPort: false,
     proxy: {
+      // 注意：target 必须用 127.0.0.1 而非 localhost。
+      // Windows 上 localhost 优先解析到 IPv6 ::1，而 daphne 默认只监听 IPv4，
+      // 代理先对 ::1 建连被 RST 再回退 IPv4，表现为「vite ws proxy error: read ECONNRESET」
+      // 并触发 socket.io 反复重连。显式用 IPv4 可彻底消除该问题。
       "/api": {
-        target: "http://localhost:8000",
+        target: "http://127.0.0.1:8000",
         changeOrigin: true,
       },
       "/socket.io": {
-        target: "http://localhost:8000",
+        target: "http://127.0.0.1:8000",
         changeOrigin: true,
         ws: true,
       },
       "/uploads": {
-        target: "http://localhost:8000",
+        target: "http://127.0.0.1:8000",
         changeOrigin: true,
       },
     },
