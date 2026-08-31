@@ -115,6 +115,16 @@ export const useCompetitionStore = defineStore("competition", () => {
     }
   }
 
+  // 比赛管理页直接开始/结束财年后，立即同步顶部栏（乐观更新）。
+  // 仅当编辑的比赛就是当前选中的比赛（即顶部栏展示的比赛）时才生效，避免误改其他比赛的显示。
+  // 与 loadFiscalYear 回源互为冗余：此处保证即时可见，回源保证最终一致。
+  function applyFiscalYearChange(competitionId: number, year: number | null) {
+    if (competitionId === selected.value?.id) {
+      currentFiscalYear.value = year;
+      fiscalYearLoading.value = false;
+    }
+  }
+
   // ===== 实时广播处理（管理员操作 → 所有前端即刻同步）=====
   function handleFiscalYearChanged(payload: { competitionId?: number; fiscalYear?: { status: string; year: number } }) {
     if (!payload?.competitionId || payload.competitionId !== competitionId.value) return;
@@ -233,6 +243,7 @@ export const useCompetitionStore = defineStore("competition", () => {
     clearSelection,
     applyOwnCompetition,
     loadFiscalYear,
+    applyFiscalYearChange,
     reconnectRealtime,
   };
 });

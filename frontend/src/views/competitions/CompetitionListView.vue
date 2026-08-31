@@ -354,9 +354,11 @@ async function startNextFiscalYear() {
   try {
     await api.post(`/competitions/${selectedComp.value.id}/fiscal-years`, { year: nextYear });
     ElMessage.success(`第 ${nextYear} 财年已开始`);
+    // 乐观更新顶部栏财年显示（即时可见），随后回源校准，保证最终一致
+    compStore.applyFiscalYearChange(selectedComp.value.id, nextYear);
     refreshAll();
-    // 同步刷新顶部标题栏的财年显示
-    if (compStore.competitionId) await compStore.loadFiscalYear(compStore.competitionId);
+    // 同步刷新顶部标题栏的财年显示（回源校准）
+    await compStore.loadFiscalYear(selectedComp.value.id);
   } catch (e) {
     console.error("Failed to start fiscal year:", e);
   }
@@ -367,9 +369,11 @@ async function endFiscalYear(fy: any) {
   try {
     await api.patch(`/competitions/fiscal-years/${fy.id}`, { status: "CLOSED" });
     ElMessage.success("财年已结束");
+    // 乐观更新顶部栏财年显示（结束后无进行中财年，将显示“未开启财年”），随后回源校准
+    compStore.applyFiscalYearChange(selectedComp.value.id, null);
     refreshAll();
-    // 同步刷新顶部标题栏的财年显示（结束后无进行中财年，将显示“未开启财年”）
-    if (compStore.competitionId) await compStore.loadFiscalYear(compStore.competitionId);
+    // 同步刷新顶部标题栏的财年显示（回源校准）
+    await compStore.loadFiscalYear(selectedComp.value.id);
   } catch (e) {
     console.error("Failed to end fiscal year:", e);
   }
