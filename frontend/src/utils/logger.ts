@@ -1,9 +1,14 @@
-/** 简易日志器：统一带前缀输出到控制台。 */
+const isDev = import.meta.env.DEV;
+
 export const logger = {
-  info: (...args: unknown[]) => console.log("[Gipfel]", ...args),
-  warn: (...args: unknown[]) => console.warn("[Gipfel]", ...args),
-  error: (...args: unknown[]) => console.error("[Gipfel]", ...args),
-  debug: (...args: unknown[]) => {
-    if (import.meta.env.DEV) console.debug("[Gipfel]", ...args);
+  error: (...args: unknown[]) => {
+    if (isDev) console.error(...args);
+    // In production, could send to error reporting service
+  },
+  warn: (...args: unknown[]) => {
+    if (isDev) console.warn(...args);
+  },
+  info: (...args: unknown[]) => {
+    if (isDev) console.log(...args);
   },
 };

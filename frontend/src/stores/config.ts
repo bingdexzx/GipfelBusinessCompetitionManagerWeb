@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
-import { getServerUrl, setServerUrl as setUrl, getApiBaseUrl } from "@/config";
+import { getServerUrl, setServerUrl as setUrl, getApiBaseUrl, normalizeServerUrl } from "@/config";
 
 /** 系统设置 store：服务端地址等。 */
 export const useConfigStore = defineStore("config", () => {
@@ -21,5 +21,5 @@ export const useConfigStore = defineStore("config", () => {
     serverUrl.value = url;
   }
 
-  return { serverUrl, loadConfig, getBaseUrl, setServerUrl };
+  return { serverUrl, loadConfig, getBaseUrl, setServerUrl, normalizeServerUrl };
 });

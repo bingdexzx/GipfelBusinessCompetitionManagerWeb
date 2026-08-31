@@ -49,3 +49,14 @@ export function setServerUrl(url: string): void {
 export function getClientVersion(): string {
   return APP_VERSION;
 }
+
+/**
+ * 规范化服务器地址：去空白、无协议时补 http://、去掉尾部斜杠，保留用户显式输入的 https。
+ * 原 Electron 客户端在 config/index.ts 提供，登录页通过 configStore.normalizeServerUrl 复用。
+ */
+export function normalizeServerUrl(raw: string): string {
+  let u = (raw || "").trim();
+  if (!/^https?:\/\//i.test(u)) u = "http://" + u;
+  u = u.replace(/\/+$/, "");
+  return u;
+}

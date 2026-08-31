@@ -1,22 +1,21 @@
-/** 时间格式化：截断到秒（全局统一引用）。 */
-export function formatTime(value: string | number | Date | null | undefined): string {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
+/**
+ * 前端通用格式化工具（唯一真源）。
+ * 消除多个视图中重复的匿名格式化函数（金额千分位、ISO 时间截断等）。
+ */
 
-/** 金额格式化：千分位 + 最多 2 位小数；空/非数返回 "—"。 */
+/** 金额格式化：中文千分位、最多 2 位小数；null/NaN 显示"—"（与两处股票视图原 fmt 一致）。 */
 export function formatMoney(n: number | null | undefined): string {
   if (n == null || isNaN(Number(n))) return "—";
   return Number(n).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
 }
 
-export function formatDate(value: string | number | Date | null | undefined): string {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+/**
+ * ISO 时间去秒截断（与全局 $formatTime 完全一致）。
+ * 空值或非法日期返回 "-"；否则按 UTC 截断到秒（YYYY-MM-DD HH:mm:ss）。
+ */
+export function formatTime(val: string | Date | null | undefined): string {
+  if (!val) return "-";
+  const d = typeof val === "string" ? new Date(val) : val;
+  if (isNaN(d.getTime())) return "-";
+  return d.toISOString().replace("T", " ").substring(0, 19);
 }

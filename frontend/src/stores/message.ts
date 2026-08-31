@@ -4,15 +4,14 @@ import { messagesApi } from "@/api";
 import { connectRealtime, onRealtime } from "@/realtime/socket";
 
 /** 一条滑入弹窗消息（实时推送触发）。 */
-export interface ToastMessage {
+export interface MessageToast {
   /** 本地唯一键（用于 transition-group 的 DOM 跟踪与定时移除） */
-  key?: string;
+  key: string;
   /** 消息 id */
   id: number;
   title: string;
   content: string;
-  senderName?: string;
-  images?: { url: string; filename: string }[];
+  senderName: string;
   createdAt: string;
 }
 
@@ -26,7 +25,7 @@ export interface ToastMessage {
  */
 export const useMessageStore = defineStore("message", () => {
   const unreadCount = ref(0);
-  const toasts = ref<ToastMessage[]>([]);
+  const toasts = ref<MessageToast[]>([]);
 
   let initialized = false;
   let toastSeq = 0;
@@ -35,32 +34,27 @@ export const useMessageStore = defineStore("message", () => {
   /** 拉取未读计数（收件箱维度）。无权限 / 未登录静默失败。 */
   async function fetchUnread() {
     try {
-      const res: any = await messagesApi.unreadCount();
-      unreadCount.value = res?.count ?? 0;
+      const res = await messagesApi.unreadCount();
+      unreadCount.value = res.count ?? 0;
     } catch {
       // 未登录或缺少 message:view 时忽略
     }
   }
 
-  /** 兼容 MessageToastHost 旧名 */
-  function setUnread(n: number) {
-    unreadCount.value = Math.max(0, n);
-  }
-
-  /** 从队列移除一条弹窗（MessageToastHost 用 id 调用）。 */
-  function dismissToast(id: number) {
-    toasts.value = toasts.value.filter((t) => t.id !== id);
-  }
-
-  /** 兼容原 store 命名：按 key 移除 */
   function removeToast(key: string) {
     const idx = toasts.value.findIndex((t) => t.key === key);
     if (idx !== -1) toasts.value.splice(idx, 1);
   }
 
   /** 入队一条滑入弹窗；约 6s 后自动向右滑出关闭。 */
-  function pushToast(item: ToastMessage) {
-    const key = item.key ?? `t${++toastSeq}`;
+  function pushToast(item: {
+    id: number;
+    title: string;
+    content: string;
+    senderName: string;
+    createdAt: string;
+  }) {
+    const key = `t${++toastSeq}`;
     toasts.value.push({ key, ...item });
     window.setTimeout(() => removeToast(key), AUTO_CLOSE_MS);
   }
@@ -73,7 +67,6 @@ export const useMessageStore = defineStore("message", () => {
       title: payload.title ?? "新消息",
       content: payload.content ?? "",
       senderName: payload.senderName ?? "",
-      images: payload.images ?? [],
       createdAt: payload.createdAt ?? new Date().toISOString(),
     });
     fetchUnread();
@@ -87,8 +80,6 @@ export const useMessageStore = defineStore("message", () => {
     // 规避 socket.ts 中「无 token 时 socket 为 null、on 被跳过」的懒加载陷阱。
     connectRealtime();
     onRealtime("message:new", onNewMessage);
-    // 兼容旧事件名（部分后端可能仍用 message:received）
-    onRealtime("message:received", onNewMessage);
   }
 
   /** 重置实时监听幂等锁：socket 因改服务器地址 / 被顶号重建后，旧 handler 绑在旧实例上失效，
@@ -97,10 +88,10 @@ export const useMessageStore = defineStore("message", () => {
     initialized = false;
     initRealtime();
   }
-  if (typeof window !== "undefined") {
-    window.addEventListener("server:changed", resetRealtime);
-    window.addEventListener("auth:kicked", resetRealtime);
-  }
+  window.removeEventListener("server:changed", resetRealtime);
+  window.addEventListener("server:changed", resetRealtime);
+  window.removeEventListener("auth:kicked", resetRealtime);
+  window.addEventListener("auth:kicked", resetRealtime);
 
   /** 全部标记为已读（消息中心页调用），成功后清零红点。 */
   async function markAllRead() {
@@ -116,12 +107,9 @@ export const useMessageStore = defineStore("message", () => {
     unreadCount,
     toasts,
     fetchUnread,
-    setUnread,
     pushToast,
-    dismissToast,
     removeToast,
     initRealtime,
-    resetRealtime,
     markAllRead,
   };
 });

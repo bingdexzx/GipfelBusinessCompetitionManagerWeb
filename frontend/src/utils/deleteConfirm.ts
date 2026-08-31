@@ -1,46 +1,49 @@
 import { ElMessageBox } from "element-plus";
 
-/**
- * 两步删除确认（对应项目记忆约束：删除 Company 等敏感对象需提示 + 名称校验）。
- * @param name 待删除对象的名称（需用户输入匹配）
- * @param label 提示文案中的对象类型
- */
-export async function deleteConfirmWithMatch(
-  name: string,
-  label = "对象",
-): Promise<boolean> {
-  try {
-    await ElMessageBox.confirm(
-      `此操作将永久删除该${label}，且不可恢复。确定继续？`,
-      "危险操作确认",
-      { type: "warning", confirmButtonText: "继续", cancelButtonText: "取消" },
-    );
-    const { value } = await ElMessageBox.prompt(
-      `请输入${label}名称「${name}」以确认删除：`,
-      "二次确认",
-      {
-        confirmButtonText: "确认删除",
-        cancelButtonText: "取消",
-        inputPlaceholder: name,
-        inputValidator: (v) => v === name || `请输入正确的${label}名称`,
-      },
-    );
-    return value === name;
-  } catch {
-    return false;
-  }
+export interface DeleteImpactItem {
+  label: string;
+  count: number;
 }
 
-/** 普通单步删除确认。 */
-export async function deleteConfirm(message = "确定删除此项？"): Promise<boolean> {
-  try {
-    await ElMessageBox.confirm(message, "确认删除", {
-      type: "warning",
-      confirmButtonText: "删除",
-      cancelButtonText: "取消",
-    });
-    return true;
-  } catch {
-    return false;
+export interface DeleteImpact {
+  name?: string;
+  children?: DeleteImpactItem[];
+}
+
+/**
+ * 删除前的二次确认。
+ * - 若该数据存在级联子数据（impact.children 非空），展示危险提示并逐项列出
+ *   将被级联删除的关联数据条数，要求用户显式确认级联删除。
+ * - 无级联子数据时仅做普通删除确认。
+ *
+ * @param name   数据名称（用于提示文案）
+ * @param impact 后端返回的级联影响信息（getDeleteImpact），失败或为空时按普通删除处理
+ */
+export async function confirmDeleteWithImpact(
+  name: string,
+  impact?: DeleteImpact | null,
+  options?: { baseMessage?: string; confirmText?: string },
+): Promise<void> {
+  const children = impact?.children || [];
+  const total = children.reduce((sum, c) => sum + (c.count || 0), 0);
+
+  if (total <= 0) {
+    const msg = options?.baseMessage || `确定删除「${name}」？删除后不可恢复。`;
+    await ElMessageBox.confirm(msg, "确认删除", { type: "warning" });
+    return;
   }
+
+  const lines = children
+    .filter((c) => (c.count || 0) > 0)
+    .map((c) => `• ${c.label}：${c.count} 条`)
+    .join("<br/>");
+  const msg =
+    `删除「<b>${name}</b>」将<b>级联删除</b>以下关联数据，且不可恢复：<br/><br/>` +
+    `${lines}<br/><br/>确定继续删除吗？`;
+  await ElMessageBox.confirm(msg, "级联删除警告", {
+    type: "warning",
+    dangerouslyUseHTMLString: true,
+    confirmButtonText: options?.confirmText || "确认级联删除",
+    cancelButtonText: "取消",
+  });
 }

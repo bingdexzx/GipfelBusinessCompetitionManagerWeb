@@ -249,7 +249,7 @@ async function loadDemands() {
 
 async function loadProducts() {
   try {
-    const res: any = (await productsApi.list({ page: 1, pageSize: 200 })) || {};
+    const res: any = (await productsApi.list(1, 200)) || {};
     // 后端列表接口返回分页对象 {items,total,...} 或直接数组，做兼容
     const list: any[] = Array.isArray(res) ? res : res.items || [];
     productOptions.value = list

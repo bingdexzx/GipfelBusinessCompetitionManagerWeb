@@ -1,15 +1,130 @@
-// 全局 SCSS 变量
-$primary-color: #409eff;
-$success-color: #67c23a;
-$warning-color: #e6a23c;
-$danger-color: #f56c6c;
-$info-color: #909399;
+:root {
+  // ===== Brand & Primary =====
+  --color-primary: #4f46e5;
+  --color-primary-rgb: 79, 70, 229;
+  --color-accent: #8b5cf6;
+  --color-accent-2: #06b6d4;
 
-$sidebar-width: 220px;
-$sidebar-collapsed-width: 64px;
-$topbar-height: 56px;
+  // Signature gradient (AI product look)
+  --gradient-brand: linear-gradient(135deg, #6366f1 0%, #8b5cf6 45%, #06b6d4 100%);
+  --gradient-brand-soft: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(139, 92, 246, 0.06));
+  --gradient-brand-hover: linear-gradient(135deg, #5457e0 0%, #7c3aed 45%, #0891b2 100%);
 
-$border-color: #ebeef5;
-$bg-color: #f5f7fa;
-$text-color: #303133;
-$text-color-secondary: #606266;
+  // ===== Neutrals (light premium) =====
+  --color-bg: #f6f7fb;
+  --color-bg-rgb: 246, 247, 251;
+  --color-surface: #ffffff;
+  --color-surface-2: #fbfbfd;
+  --color-text-primary: #1a1d29;
+  --color-text-secondary: #6b7280;
+  --color-text-tertiary: #9ca3af;
+  --color-border: #eceef2;
+  --color-border-strong: #e2e5eb;
+
+  // ===== Status =====
+  --color-success: #16a34a;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+
+  // ===== Radius =====
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --radius-full: 999px;
+
+  // ===== Shadows (soft, layered) =====
+  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-sm: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-md: 0 6px 16px rgba(16, 24, 40, 0.07), 0 2px 6px rgba(16, 24, 40, 0.04);
+  --shadow-lg: 0 16px 40px rgba(16, 24, 40, 0.1), 0 6px 12px rgba(16, 24, 40, 0.05);
+  --shadow-xl: 0 24px 64px rgba(16, 24, 40, 0.14), 0 8px 20px rgba(16, 24, 40, 0.06);
+  --shadow-glow: 0 8px 24px rgba(99, 102, 241, 0.28);
+  --shadow-glow-sm: 0 4px 12px rgba(99, 102, 241, 0.18);
+
+  // ===== Motion =====
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 0.16s;
+  --dur-base: 0.24s;
+  --dur-slow: 0.4s;
+  --dur-xslow: 0.6s;
+
+  // ===== Layout =====
+  --sidebar-width: 240px;
+  --topbar-height: 60px;
+  --content-padding: 28px;
+
+  // ===== Font scale =====
+  --font-xs: 12px;
+  --font-sm: 13px;
+  --font-base: 14px;
+  --font-md: 15px;
+  --font-lg: 16px;
+  --font-xl: 18px;
+  --font-2xl: 20px;
+  --font-3xl: 24px;
+
+  // ===== Soft status surfaces (tinted backgrounds for notices/alerts) =====
+  --color-success-soft: rgba(22, 163, 74, 0.1);
+  --color-success-soft-rgb: 22, 163, 74;
+  --color-warning-soft: rgba(245, 158, 11, 0.12);
+  --color-warning-soft-rgb: 245, 158, 11;
+  --color-danger-soft: rgba(239, 68, 68, 0.1);
+  --color-danger-soft-rgb: 239, 68, 68;
+  --color-info-soft: rgba(59, 130, 246, 0.1);
+  --color-info-soft-rgb: 59, 130, 246;
+
+  // ===== Glassmorphism =====
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-bg-strong: rgba(255, 255, 255, 0.86);
+  --glass-border: rgba(255, 255, 255, 0.6);
+  --glass-blur: 16px;
+
+  // ===== Raised / sunken surfaces =====
+  --surface-raised: #ffffff;
+  --surface-sunken: #f3f4f8;
+
+  // ===== Element Plus theme overrides =====
+  --el-color-primary: #4f46e5;
+  --el-color-primary-light-3: #847eed;
+  --el-color-primary-light-5: #a7a2f2;
+  --el-color-primary-light-7: #cbc7f7;
+  --el-color-primary-light-8: #dcd9f9;
+  --el-color-primary-light-9: #f1f0fd;
+  --el-color-primary-dark-2: #3f38b7;
+
+  --el-color-success: #16a34a;
+  --el-color-warning: #f59e0b;
+  --el-color-danger: #ef4444;
+  --el-color-error: #ef4444;
+
+  --el-bg-color: #ffffff;
+  --el-bg-color-page: #f6f7fb;
+  --el-bg-color-overlay: #ffffff;
+  --el-text-color-primary: #1a1d29;
+  --el-text-color-regular: #374151;
+  --el-text-color-secondary: #6b7280;
+  --el-text-color-placeholder: #9ca3af;
+  --el-border-color: #eceef2;
+  --el-border-color-light: #f0f1f5;
+  --el-border-color-lighter: #f4f5f8;
+  --el-border-color-extra-light: #f8f9fb;
+  --el-fill-color: #f3f4f8;
+  --el-fill-color-light: #f7f8fb;
+  --el-fill-color-lighter: #fbfbfd;
+  --el-fill-color-blank: #ffffff;
+
+  --el-border-radius-base: 10px;
+  --el-border-radius-small: 8px;
+  --el-border-radius-round: 999px;
+
+  --el-box-shadow: var(--shadow-md);
+  --el-box-shadow-light: var(--shadow-sm);
+  --el-box-shadow-lighter: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --el-box-shadow-dark: var(--shadow-lg);
+
+  --el-font-size-base: 14px;
+}
