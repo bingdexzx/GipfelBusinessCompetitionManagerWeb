@@ -42,6 +42,25 @@ def _broadcast_fiscal_year(fy: FiscalYear) -> None:
     )
 
 
+def _apply_fiscal_year_timer(competition_id: int, trigger: str) -> None:
+    """触发财年定时器（对齐 NestJS applyFiscalYearTimer）。
+
+    延迟导入 company_fields.timer 避免模块间循环依赖；并广播受影响公司的字段变更，
+    使同比赛前端（公司详情/区域总览）即刻刷新。无启用定时器字段时该函数静默返回。
+    """
+    from apps.company_fields.timer import apply_fiscal_year_timer as _impl
+    from apps.realtime.emit import emit_to_competition as _emit
+
+    affected = _impl(competition_id, trigger)
+    # 定时器写入会改动本比赛相关公司字段，统一广播让前端刷新（company-field:changed 房间事件）。
+    _emit(
+        competition_id,
+        "company-field:changed",
+        {"competitionId": competition_id, "trigger": trigger},
+    )
+    return affected
+
+
 def _get_competition(pk, user) -> Competition:
     """取比赛并做比赛域隔离：非超管仅能访问自己所属的比赛，否则视作不存在。"""
     try:
@@ -179,6 +198,8 @@ class FiscalYearCreateView(APIView):
         )
         # 新建财年即「财年开始」，与 update 对齐广播，使各端顶部栏即刻同步。
         _broadcast_fiscal_year(fy)
+        # 财年定时器：FY_START 触发本比赛全部启用该时机的产业字段写入（对齐 NestJS）。
+        _apply_fiscal_year_timer(comp.id, "FY_START")
         return Response(FiscalYearSerializer(fy).data)
 
 
@@ -192,6 +213,7 @@ class FiscalYearUpdateView(APIView):
         fy = _get_fiscal_year(pk, request.user)
         serializer = FiscalYearSerializer(fy, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+        prev_status = fy.status
         if "status" in serializer.validated_data:
             fy.status = serializer.validated_data["status"]
         if "year" in serializer.validated_data:
@@ -199,6 +221,13 @@ class FiscalYearUpdateView(APIView):
         fy.save()
         # 财年开始/关闭后广播，使各端顶部栏与财年列表即刻同步。
         _broadcast_fiscal_year(fy)
+        # 财年定时器：非 ACTIVE→ACTIVE 视为 FY_START；非 CLOSED→CLOSED 视为 FY_END
+        # （对齐 NestJS updateFiscalYear 的 trigger 推导；其它状态切换不触发）。
+        new_status = fy.status
+        if prev_status != "ACTIVE" and new_status == "ACTIVE":
+            _apply_fiscal_year_timer(fy.competition_id, "FY_START")
+        elif prev_status != "CLOSED" and new_status == "CLOSED":
+            _apply_fiscal_year_timer(fy.competition_id, "FY_END")
         return Response(FiscalYearSerializer(fy).data)
 
 

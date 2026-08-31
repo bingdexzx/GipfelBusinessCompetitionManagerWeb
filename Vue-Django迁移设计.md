@@ -606,4 +606,9 @@ const fys = Array.isArray(payload) ? payload : (payload?.items ?? []);
   1. `CompetitionSerializer.to_representation` 补 `fiscalYears`（NestJS 侧 `findAll/findOne` 用 `include: { fiscalYears: true }`），修复比赛列表「当前财年」列恒为空（`getCurrentFiscalYear(comp)` 读 `comp.fiscalYears`）；列表查询同步加 `prefetch_related("fiscal_years")` 避免 N+1。
   2. 财年 create/update 补 `fiscal-year:changed` 房间广播（新增 `emit_to_competition`，房间 `comp-<id>`，载荷 `{competitionId, fiscalYear}`）。前端 `handleFiscalYearChanged` 早已监听该事件，但 Django 侧此前从未发出，导致多端/多标签页无法实时同步。
 - **约束提醒**：财年年号从 **0** 起（首个财年 `year = 0`），判空一律用 `!== null`，禁止真值判断。
-- **仍存差异（已知未实现）**：Django 侧财年开启/关闭**未触发**产业字段财年定时器（`timer_enabled + timer_trigger = FY_START/FY_END`），NestJS 侧由 `CompanyFieldsService.applyFiscalYearTimer` 实现，属待补齐的迁移缺口。
+- **财年定时器已补齐（2026-08-31）**：新增 `backend/apps/company_fields/timer.py` 的 `apply_fiscal_year_timer(competition_id, trigger)`，对齐 NestJS `CompanyFieldsService.applyFiscalYearTimer`：
+  - 捞出 `timer_enabled && timer_trigger==trigger` 的 `IndustryField`，按 `industry_type_id` 分组，批量写入该比赛对应产业类型公司（避免 N+1）；
+  - 写入值经 `_serialize` 按字段类型序列化（DICTIONARY/LIST 为 JSON 文本）；`timer_value` 形如 `field:<fieldKey>` 时取被引用字段当前值（基于触发前快照，避免相互引用顺序依赖）；引用源缺失则 warn 跳过不中断；
+  - 每公司写入后调 `_recompute_calc_fields`（calcGraph 引擎接入后真正生效），并广播 `company-field:changed` 让同比赛前端刷新。
+  - 触发点：`FiscalYearCreateView`（POST 新建 → FY_START）、`FiscalYearUpdateView`（PATCH 非 ACTIVE→ACTIVE → FY_START；非 CLOSED→CLOSED → FY_END），与 NestJS `competition.service.ts` 的 trigger 推导一致。
+  - 验证：构造测试产业/公司/字段，`apply_fiscal_year_timer(comp.id,"FY_START")` 实测 —— 常量字段 `cash_base` 写入 `100.0`、`field:cash_base` 引用字段 `cash_disp` 解析为被引用字段当前值 `55.0`，符合预期。
