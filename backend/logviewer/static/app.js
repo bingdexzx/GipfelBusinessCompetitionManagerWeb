@@ -62,9 +62,6 @@
         <el-button type="primary" :loading="logging" style="width:100%"
           @click="doLogin">登 录</el-button>
       </el-form>
-      <div style="text-align:center;margin-top:14px;font-size:12px;color:#c0c4cc">
-        账号密码与 Django 后台超级管理员一致
-      </div>
     </div>
   </div>
 
