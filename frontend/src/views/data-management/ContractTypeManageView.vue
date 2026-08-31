@@ -3,6 +3,12 @@
     <div class="mm-toolbar">
       <h2 class="mm-title">合同类型管理</h2>
       <div class="mm-actions">
+        <el-input
+          v-model="searchText"
+          placeholder="搜索名称 / key"
+          clearable
+          style="width: 200px"
+        />
         <el-button
           :disabled="!authStore.can('contractType:manage')"
           @click="openSimpleNew"
@@ -14,12 +20,6 @@
           @click="openGraphNew"
           >可视化新建</el-button
         >
-        <el-input
-          v-model="searchText"
-          placeholder="搜索名称 / key"
-          clearable
-          style="width: 200px"
-        />
       </div>
     </div>
 
