@@ -5,7 +5,7 @@
 django.contrib.auth.User，以 is_superuser 校验「Django 后台超级管理员」账号密码，
 从而与 /admin 登录凭据保持一致。日志文件读取主服务写入的 backend/logs/gipfel.log。
 
-启动：python manage.py runserver 8120  （端口由 scripts/start_logviewer.py 从 .env 读取）
+启动：python manage.py runserver 8120  （端口由 .env 的 LOG_VIEWER_PORT 决定；Windows 开发可用 scripts/start-dev.bat 一并拉起）
 """
 import os
 import sys

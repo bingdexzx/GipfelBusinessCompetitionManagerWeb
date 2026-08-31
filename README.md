@@ -32,13 +32,13 @@
 
 ## 2. 三行启动（开发者本地 · Windows）
 
-```powershell
+```bat
 cd GipfelBusinessCompetitionManagerWeb
-# 1. 首次初始化（虚拟环境、pip 依赖、npm 依赖、迁移、建默认超管）
-powershell -ExecutionPolicy Bypass -File scripts\bootstrap-dev.ps1
+REM 1. 首次初始化（虚拟环境、pip 依赖、npm 依赖、迁移、建默认超管）
+scripts\bootstrap-dev.bat
 
-# 2. 一键开发启动：同时拉起 Django (:8000) + Vite (:5173)
-powershell -ExecutionPolicy Bypass -File scripts\start-dev.ps1
+REM 2. 一键开发启动：同时拉起 Django (:8000) + Vite (:5173) + 日志查看器 (:8120)
+scripts\start-dev.bat
 ```
 
 浏览器访问 `http://localhost:5173`，登录默认账号：
@@ -90,10 +90,9 @@ GipfelBusinessCompetitionManagerWeb/
 │   └── README.md                    ← 前端专属说明
 │
 ├── scripts/
-│   ├── bootstrap-dev.ps1            Windows 开发环境首次初始化
-│   ├── start-dev.ps1                Windows 开发启动（Django + Vite 并行）
-│   ├── deploy-linux.sh              Linux 一键部署（daphne + systemd + nginx + 前端静态）
-│   └── deploy-windows.ps1           Windows 生产部署（nssm + 前端产物）
+│   ├── bootstrap-dev.bat            Windows 开发环境首次初始化
+│   ├── start-dev.bat                Windows 开发启动（Django + Vite + 日志查看器 并行）
+│   └── deploy-linux.sh              Linux 一键部署（daphne + systemd + nginx + 前端静态）
 │
 ├── deploy/
 │   ├── gipfel.service               systemd unit 模板
@@ -149,19 +148,16 @@ sudo bash scripts/deploy-linux.sh \
 6. 写入 `deploy/nginx-gipfel.conf` → `/etc/nginx/sites-available/` 并 `ln -s` `sites-enabled`，`nginx -t && systemctl reload`
 7. （可选）`certbot --nginx -d comp.example.com` 一键 HTTPS
 
-### 5.2 Windows Server（IIS ARR + nssm 或直接 daphne）
+### 5.2 Windows（仅开发；生产部署请使用 Linux）
 
-```powershell
-cd GipfelBusinessCompetitionManagerWeb
-powershell -ExecutionPolicy Bypass -File scripts\deploy-windows.ps1 `
-  -InstallDir "C:\gipfel" `
-  -Port 8000 -FrontendPort 80
+Windows 不提供独立生产部署脚本，仅提供开发启动器：
+
+```bat
+scripts\start-dev.bat
 ```
 
-脚本自动完成：
-1. 建虚拟环境 + pip 依赖
-2. `migrate`（建默认 admin）
-3. `npm ci && npm run build`
+并行拉起 Django(:8000) + Vite(:5173) + 日志查看器(:8120，端口取 `backend/.env` 的 `LOG_VIEWER_PORT`)。
+生产环境部署请以 5.1 的 `deploy-linux.sh` 为准。
 4. 使用 nssm 注册 `GipfelBackend` Windows 服务（daphne.exe :8000）
 5. 前端 build 产物交给 80 端口（可选：自动配 IIS 站点/反向代理到 8000）
 

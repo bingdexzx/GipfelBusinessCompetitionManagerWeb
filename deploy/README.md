@@ -58,25 +58,15 @@ sudo systemctl restart gipfel
 
 ---
 
-## 方案二：Windows Server 生产部署
+## 方案二：Windows（仅开发，无生产部署脚本）
 
-### 方式 A：脚本（最简单）
+Windows 不提供独立生产部署脚本；生产部署请使用方案一的 Linux 脚本 [deploy-linux.sh](../scripts/deploy-linux.sh)。
 
-```powershell
-cd GipfelBusinessCompetitionManagerWeb
-powershell -ExecutionPolicy Bypass -File scripts\deploy-windows.ps1 `
-  -InstallDir "C:\gipfel" -Port 8000 -FrontendPort 80 -WithService
-```
+开发启动器 [scripts/start-dev.bat](../scripts/start-dev.bat) 会并行拉起：
 
-完成后：
-- 服务「GipfelBackend」启动类型 Automatic，运行 daphne 监听 `127.0.0.1:8000`
-- 前端产物 `C:\gipfel\frontend-dist\` 交给 IIS（脚本若找到 IIS 会自动建站点 `Gipfel`；否则你可手动拷到任意静态目录）
-- 默认后台管理员：`admin / Admin@2026`（脚本首次运行自动把 admin123 → Admin@2026，避免泄露默认口令）
-
-### 方式 B：IIS + wfastcgi / httpplatformhandler（不推荐维护成本高）
-
-直接用脚本方案 A + IIS「URL Rewrite + ARR 反向代理到 127.0.0.1:8000」即可，
-等同 Linux nginx 的逻辑：`/api/*`、`/socket.io/*` → 8000；其余静态。
+- Django `:8000`（runserver）
+- Vite `:5173`（前端开发服务器）
+- 日志查看器 `:8120`（端口取 `backend/.env` 的 `LOG_VIEWER_PORT`，UI 与前端一致，登录账号 = Django 后台超管）
 
 ---
 

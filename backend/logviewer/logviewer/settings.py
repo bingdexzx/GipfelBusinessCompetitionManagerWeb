@@ -21,7 +21,7 @@ DEBUG = os.environ.get("LOGVIEWER_DEBUG", "true").lower() == "true"
 
 ALLOWED_HOSTS = ["*"]  # 内部工具，允许任意主机；生产可改为具体域名
 
-# 端口：仅作文档/启动脚本参考，实际端口由启动命令传入（见 scripts/start_logviewer.py）
+# 端口：由 .env 的 LOG_VIEWER_PORT 决定（默认 8120）；Windows 开发由 scripts/start-dev.bat 拉起
 LOG_VIEWER_PORT = int(os.environ.get("LOG_VIEWER_PORT", "8120"))
 
 # 复用主服务数据库（含 django.contrib.auth_user）
