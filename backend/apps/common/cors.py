@@ -15,7 +15,7 @@ class DynamicCorsMiddleware(MiddlewareMixin):
         origin = request.headers.get("Origin", "")
         if not origin:
             return response
-        if not settings.cors_origin_validator(origin):
+        if not settings.CORS_ORIGIN_VALIDATOR(origin):
             return response
         response["Access-Control-Allow-Origin"] = origin
         response["Access-Control-Allow-Credentials"] = "true"

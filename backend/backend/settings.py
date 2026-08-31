@@ -85,6 +85,12 @@ def cors_origin_validator(request_origin: str) -> bool:
     return is_local_or_private_origin(request_origin)
 
 
+# 暴露为大写设置项，供 DynamicCorsMiddleware 通过 settings.CORS_ORIGIN_VALIDATOR 调用。
+# Django 的 LazySettings 仅将「大写模块属性」识别为 settings 配置项，
+# 模块级小写函数 cors_origin_validator 不会被自动暴露，必须通过大写别名显式导出。
+CORS_ORIGIN_VALIDATOR = cors_origin_validator
+
+
 # 用信号在 corsheaders 之前接入自定义校验：通过中间件自行处理 OPTIONS 与响应头
 # （corsheaders 的 CORS_ORIGIN_WHITELIST 走静态判断，无法动态反射，故自定义中间件接管）
 
