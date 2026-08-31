@@ -532,6 +532,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  margin-top: 16px;
   min-height: 120px;
 }
 .empty-tip {
