@@ -10,6 +10,35 @@
       >
         <el-icon :size="20"><Menu /></el-icon>
       </el-button>
+      <!-- 手机端：当前比赛与财年直接显示在顶栏，避免仅藏在抽屉侧栏中 -->
+      <div v-if="isPhone" class="topbar-context">
+        <template v-if="compStore.competitionName">
+          <el-tag type="success" size="small" effect="plain" class="ctx-tag ctx-name">{{
+            compStore.competitionName
+          }}</el-tag>
+          <el-tag
+            v-if="compStore.fiscalYearLoading"
+            type="info"
+            size="small"
+            effect="plain"
+            class="ctx-tag ctx-loading"
+          >
+            <el-icon class="is-loading"><Loading /></el-icon> 财年加载中…
+          </el-tag>
+          <el-tag
+            v-else-if="compStore.currentFiscalYear !== null"
+            type="primary"
+            size="small"
+            effect="plain"
+            class="ctx-tag"
+            >第 {{ compStore.currentFiscalYear }} 财年</el-tag
+          >
+          <el-tag v-else type="warning" size="small" effect="plain" class="ctx-tag">未开启财年</el-tag>
+        </template>
+        <span v-else class="ctx-hint">
+          未选择比赛 — <router-link to="/competitions">比赛管理</router-link>
+        </span>
+      </div>
       <el-breadcrumb separator="/">
         <el-breadcrumb-item :to="{ path: '/dashboard' }">首页</el-breadcrumb-item>
         <el-breadcrumb-item v-if="currentTitle">{{ currentTitle }}</el-breadcrumb-item>
@@ -30,12 +59,16 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Menu } from "@element-plus/icons-vue";
+import { Menu, Loading } from "@element-plus/icons-vue";
 import { useAuthStore } from "@/stores/auth";
+import { useCompetitionStore } from "@/stores/competition";
+import { useBreakpoint } from "@/composables/useBreakpoint";
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const compStore = useCompetitionStore();
+const { isPhone } = useBreakpoint();
 
 // 由父级 AppLayout 注入：平板/手机（抽屉模式）下显示汉堡按钮
 const props = defineProps<{
@@ -123,6 +156,43 @@ function handleLogout() {
 }
 .menu-toggle:hover {
   color: var(--color-primary);
+}
+/* 手机端顶栏上下文：当前比赛 + 财年，直接可见，避免藏在抽屉侧栏 */
+.topbar-context {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+.topbar-context .ctx-tag {
+  flex-shrink: 0;
+  height: 22px;
+  line-height: 20px;
+}
+.topbar-context .ctx-name {
+  flex-shrink: 1;
+  max-width: 38vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topbar-context .ctx-loading .el-icon {
+  vertical-align: -2px;
+  margin-right: 3px;
+}
+.topbar-context .ctx-hint {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+.topbar-context .ctx-hint a {
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+.topbar-context .ctx-hint a:hover {
+  text-decoration: underline;
 }
 .user-info {
   display: flex;
