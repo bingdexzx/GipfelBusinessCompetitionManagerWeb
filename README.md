@@ -209,6 +209,14 @@ powershell -ExecutionPolicy Bypass -File scripts\deploy-windows.ps1 `
   --username comp01admin --password "S3cret!" --competition-id 1
 ```
 
+### Django 管理后台（/admin）
+
+除前端 Vue 界面外，后端还完整启用了 Django 自带管理后台，可直接在网页上查看 / 增删改查全部业务数据。仅建议运维临时排查与修数，详细说明（账号、警示、命令、技术改动）见 [backend/README.md](backend/README.md) 的「Django 管理后台（Admin）」一节：
+
+- 访问：`http://<host>:8000/admin/`
+- 账号：`admin` / `GipfelAdmin2026!`（建议首次登录后立即改密）
+- **⚠️ 警示**：后台直接写库会绕过业务校验（合同引擎 / 股票计算 / 权限派生等），可能导致账实不符；常规管理请走前端界面。
+
 ---
 
 ## 8. 常用命令速查

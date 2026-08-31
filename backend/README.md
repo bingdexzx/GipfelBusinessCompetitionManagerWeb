@@ -132,3 +132,49 @@ u.save()
 from apps.realtime.emit import emit_permissions_changed
 emit_permissions_changed(u.id, u.permission_version)
 ```
+
+## Django 管理后台（Admin）
+
+项目已完整启用 Django 自带管理后台，可直接在网页上查看 / 增删改查全部业务数据，便于运维临时排查与修数。
+
+### 访问与账号
+
+- 访问地址：`http://<host>:8000/admin/`（与 API、Socket.IO 同源同端口）
+- 超级管理员账号：
+
+  | 用户名 | 密码 | 说明 |
+  | --- | --- | --- |
+  | `admin` | `GipfelAdmin2026!` | 通过 `createsuperuser` 创建；**建议首次登录后立即改密** |
+
+- 登录后可见 39 个业务模型（公司 / 比赛 / 合同 / 股票 / 原料 / 零件 / 产品 / 地图节点 / 基础设施 / 燃料 / 车辆 / 仓库 / 生产线 / 行业类型 / 区域 / 消费需求 / 消息 / 技术树 / 审计等）+ Django 内置的 用户 / 组。
+
+### ⚠️ 重要警示：后台仅用于临时排查 / 修数
+
+> Django 后台直接写 SQLite，**会绕过所有后端业务校验**：
+> - 合同执行引擎（DRAFT 直接改 EXECUTED 会导致账实不符、字段效果不触发）
+> - 股票 K 线计算、行情推进轮次
+> - 权限派生（前端简化界面自动生成的 permissions 与四个 Scopes）
+> - 公司字段乐观锁级联重算、删除影响预览（两步确认）等
+>
+> 因此，**常规管理请一律走前端 Vue 界面**；后台只适合运维临时修数、补救脏数据，改完务必回到前端核对数据一致性。
+
+### 创建 / 重置超级管理员
+
+```bash
+cd backend
+# 交互式创建（按提示输入用户名 / 邮箱 / 密码）
+.\.venv\Scripts\python.exe manage.py createsuperuser
+
+# 无交互式（CI / 脚本）
+set DJANGO_SUPERUSER_USERNAME=admin
+set DJANGO_SUPERUSER_EMAIL=admin@example.com
+set DJANGO_SUPERUSER_PASSWORD=YourNewPass!
+.\.venv\Scripts\python.exe manage.py createsuperuser --no-input
+```
+
+> 注意：超级管理员只存在于当前 `db.sqlite3`。**重新 `migrate`（换库 / 换机器 / 清空数据库）后需再次执行 `createsuperuser`**。
+
+### 后台能正常工作的两个关键改动（技术说明）
+
+1. **`backend/urls.py`** 挂载了 `path("admin/", admin.site.urls)`，并额外用 `re_path` 无条件托管 `STATIC_ROOT`，使 `DEBUG=False` 时后台样式与脚本也能加载（`django.conf.urls.static.static` 仅在 `DEBUG=True` 时挂载）。
+2. **`apps/common/middleware.py`** 的 `SecurityHeadersMiddleware` 对 `/admin` 路径跳过 CSP 等安全头——否则全局 `default-src 'none'; form-action 'none'` 会直接拦截登录与所有表单提交。该豁免仅作用于 `/admin`，`/api` 等接口的安全头保持不变。
