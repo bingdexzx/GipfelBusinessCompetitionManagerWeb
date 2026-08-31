@@ -22,7 +22,6 @@
       show-icon
       :closable="false"
       title="暂无产业类型"
-      description="产业类型完全由你自定义。新建产业类型后，可为其添加产业字段（如矿点数量、产能、月度产量等），这些字段会出现在公司数据与合同可视化编辑器中。"
       style="margin-bottom: 12px"
     />
 
