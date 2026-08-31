@@ -18,12 +18,6 @@
     </div>
     <div class="settings-section" v-if="isSuperAdmin">
       <h3>后端管理</h3>
-      <p>
-        打开 Django 管理后台，可直接对业务数据做临时排查 / 修数（注意：后台写库会绕过前端业务校验，
-        仅建议管理员使用）。将跳转到后端地址
-        <code>{{ adminUrl }}</code>（在新标签页打开，需后端以 daphne 运行；端口取自后端
-        <code>.env</code> 的 <code>PORT</code>）。
-      </p>
       <el-button type="primary" @click="openAdmin">进入后端管理界面</el-button>
     </div>
   </div>
