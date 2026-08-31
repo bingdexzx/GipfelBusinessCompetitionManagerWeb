@@ -52,16 +52,23 @@ class HealthView(APIView):
 
 
 class VersionView(APIView):
-    """GET /api/version → {code:0, message:"成功", data:{version:"1.3.18", port: <后端监听端口>}}
+    """GET /api/version → {code:0, message:"成功", data:{version:"1.3.18", port: <后端监听端口>, log_viewer_port: <日志查看器端口>}}
 
-    port 来自 settings.PORT（即 .env 的 PORT），供前端「后端管理」跳转按钮动态拼后台地址，
+    port 来自 settings.PORT（即 .env 的 PORT），log_viewer_port 来自 settings.LOG_VIEWER_PORT
+    （即 .env 的 LOG_VIEWER_PORT），供前端「后端管理」与「日志查看器」跳转按钮动态拼地址，
     避免后端改端口后按钮仍硬编码旧端口。
     """
 
     permission_classes = (AllowAny,)
 
     def get(self, request):
-        return Response({"version": VERSION, "port": settings.PORT})
+        return Response(
+            {
+                "version": VERSION,
+                "port": settings.PORT,
+                "log_viewer_port": settings.LOG_VIEWER_PORT,
+            }
+        )
 
 
 # ==================== 登录 ====================

@@ -35,6 +35,9 @@ ALLOWED_HOSTS = ["*"]  # CORS 与来源校验由自定义中间件统一管控�
 
 PORT = int(os.environ.get("PORT", "8000"))
 
+# 日志查看器端口（与主后端共用同一 .env；默认 8120，经 /api/version 下发给前端「日志查看器」跳转按钮）
+LOG_VIEWER_PORT = int(os.environ.get("LOG_VIEWER_PORT", "8120"))
+
 # JWT 配置（与原 main.ts / jwt.strategy.ts 一致）
 JWT_ISSUER = os.environ.get("JWT_ISSUER", "gipfel-competition")
 JWT_AUDIENCE = os.environ.get("JWT_AUDIENCE", "gipfel-competition-client")

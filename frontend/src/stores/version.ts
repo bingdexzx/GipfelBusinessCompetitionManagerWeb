@@ -9,6 +9,7 @@ export const useVersionStore = defineStore("version", () => {
   const showDialog = ref(false);
   const serverVersion = ref<string | null>(null);
   const backendPort = ref<number>(8000); // 后端监听端口（来自 /api/version 的 port，默认 8000）
+  const logViewerPort = ref<number>(8120); // 日志查看器端口（来自 /api/version 的 log_viewer_port，默认 8120）
   const announcement = ref<string>(ANNOUNCEMENT);
   let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -22,6 +23,9 @@ export const useVersionStore = defineStore("version", () => {
       serverVersion.value = data?.version ?? null;
       if (typeof data?.port === "number" && data.port > 0) {
         backendPort.value = data.port;
+      }
+      if (typeof data?.log_viewer_port === "number" && data.log_viewer_port > 0) {
+        logViewerPort.value = data.log_viewer_port;
       }
       const client = getClientVersion();
       const blocked = !!serverVersion.value && serverVersion.value !== client;
@@ -49,5 +53,5 @@ export const useVersionStore = defineStore("version", () => {
     }
   }
 
-  return { showDialog, serverVersion, backendPort, announcement, checkVersion };
+  return { showDialog, serverVersion, backendPort, logViewerPort, announcement, checkVersion };
 });

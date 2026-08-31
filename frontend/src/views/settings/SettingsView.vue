@@ -13,7 +13,8 @@
     </div>
     <div class="settings-section" v-if="isSuperAdmin">
       <h3>后端管理</h3>
-      <el-button type="primary" @click="openAdmin">进入后端管理界面</el-button>
+      <el-button type="danger" @click="openAdmin">后端管理界面</el-button>
+      <el-button type="warning" @click="openLogViewer">日志查看器</el-button>
     </div>
   </div>
 </template>
@@ -63,6 +64,14 @@ const adminUrl = computed(
 );
 function openAdmin() {
   window.open(adminUrl.value, "_blank", "noopener,noreferrer");
+}
+
+// 日志查看器地址：端口取自后端 .env 的 LOG_VIEWER_PORT（经 /api/version 下发），默认 8120。
+const logViewerUrl = computed(
+  () => `http://127.0.0.1:${versionStore.logViewerPort || 8120}/`,
+);
+function openLogViewer() {
+  window.open(logViewerUrl.value, "_blank", "noopener,noreferrer");
 }
 </script>
 
