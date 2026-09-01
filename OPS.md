@@ -182,7 +182,7 @@ sudo bash scripts/deploy-linux.sh --install-dir /opt/gipfel --with-nginx
 # 有域名时加 --domain：sudo bash scripts/deploy-linux.sh --domain 你的域名 --install-dir /opt/gipfel --with-nginx
 ```
 
-> GitHub 直连超时（`curl 28` / 443 连不上）时，用镜像前缀 clone：`git clone https://ghproxy.com/https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git`；服务器完全连不上 GitHub 时，在能联网的机器上打包源码 `tar czf ...` 再 `scp` 传到服务器解包部署（详见 deploy/README.md）。
+> GitHub 直连超时（`curl 28` / 443 连不上）时，可用镜像前缀 clone：`git clone https://ghproxy.com/https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git`；或按 `deploy/README.md` 安装 FastGitHub 本地代理后走 `http://127.0.0.1:38457`。服务器完全连不上 GitHub 时，在能联网的机器上打包源码 `tar czf ...` 再 `scp` 传到服务器解包部署（详见 deploy/README.md）。
 
 ### 增量升级（保留数据）
 

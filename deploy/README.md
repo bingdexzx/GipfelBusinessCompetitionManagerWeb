@@ -36,6 +36,28 @@ sudo bash scripts/deploy-linux.sh --install-dir /opt/gipfel --with-nginx
 >   `git config --global url."https://ghproxy.com/https://github.com/".insteadOf "https://github.com/"`
 > - 其他可用镜像：`https://mirror.ghproxy.com/`、`https://kgithub.com/`、`https://gitclone.com/github.com/`（可用性各异，挑能连的）。
 
+> **镜像也不稳、想直接用 GitHub 地址拉取？** 可在服务器上安装 FastGitHub（本地代理加速/恢复 GitHub 连接），之后所有 git/curl 命令自动走 `127.0.0.1:38457` 即可正常访问 GitHub：
+> ```bash
+> # 1) 下载 FastGitHub（从 Gitee Release，适合 GitHub 连不上的环境）
+> wget -c -O /opt/fastgithub_linux-x64.zip \
+>   https://gitee.com/chcrazy/FastGitHub/releases/download/latest/fastgithub_linux-x64.zip
+> 
+> # 2) 解压
+> unzip -d /opt /opt/fastgithub_linux-x64.zip
+> rm /opt/fastgithub_linux-x64.zip
+> 
+> # 3) 启动 FastGitHub（后台代理，占用 38457 端口）
+> sudo /opt/fastgithub_linux-x64/fastgithub start
+> 
+> # 4) 设置代理（当前 shell；如需永久生效，写入 /etc/profile 后重新登录）
+> export http_proxy=http://127.0.0.1:38457
+> export https_proxy=http://127.0.0.1:38457
+> 
+> # 5) 之后即可正常 clone GitHub 仓库
+> git clone https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git
+> ```
+> 注意：FastGitHub 进程需保持运行；生产服务器建议用 `systemd` 或 `nohup/screen` 常驻。apt/pip/npm 等流量也会走该代理，通常无碍；若只想让 git 走代理，可用上方 `git config --global url...insteadOf` 方案。
+
 > **服务器完全连不上 GitHub（连镜像也不行）？** 在能访问 GitHub / 已含代码的机器上打包源码传上去，再在服务器本地跑脚本（不需要服务器联网到 GitHub）：
 > ```bash
 > # 在「源机器」打包（排除重型/生成目录）
