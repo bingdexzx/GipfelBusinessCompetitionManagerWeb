@@ -45,7 +45,8 @@ sudo bash scripts/deploy-linux.sh --install-dir /opt/gipfel --with-nginx
 > # 2) 解压
 > unzip -d /opt /opt/fastgithub_linux-x64.zip
 > rm /opt/fastgithub_linux-x64.zip
-> 
+>
+> sudo apt-get install libicu-dev
 > # 3) 启动 FastGitHub（后台代理，占用 38457 端口）
 > sudo /opt/fastgithub_linux-x64/fastgithub start
 > 
