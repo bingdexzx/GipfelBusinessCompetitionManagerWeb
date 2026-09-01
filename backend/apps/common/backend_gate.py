@@ -4,7 +4,12 @@
 - 主后端签发一次性签名令牌：POST /api/auth/backend-token（仅 SUPER_ADMIN，默认 120s 有效）；
 - 前端「系统设置 → 后端管理界面」按钮点击时取令牌拼入 /admin/?token=... 打开；
 - 本中间件校验令牌，缺失/无效/过期则 302 重定向到 /（前端 SPA 根路径），实现「不能直连」；
-- 校验通过写入会话标记 bk_gate，后续 /admin/*（含后台自身登录/登出/改密）凭标记放行，无需每次带令牌。
+- 校验通过写入会话标记 bk_gate，仅用于本次登录流程（/admin/ → /admin/login/ → 登录）放行；
+- 已登录（Django 认证）后凭 bk_gate 标记 + Django 会话正常访问后台；
+- 退出登录（/admin/logout/）时清除 bk_gate 标记，使随后直接访问 /admin/ 必须重新经令牌网关，
+  避免「已登录/曾进入过的会话」被直接复用而绕过令牌；
+- 标记存在但既未登录也非登录流程（如会话过期后直连后台深层页面）则清除标记并退回前端，
+  强制重新经令牌网关。
 
 受控路径仅 /admin/（前缀匹配）。/api、/socket.io、/static、/uploads 等前端运行必需的入口不受影响。
 """
@@ -45,8 +50,12 @@ class BackendGateMiddleware(MiddlewareMixin):
         if not request.path.startswith(BACKEND_GATE_PREFIX):
             return None
 
-        # 已通过网关：会话标记存在即放行（含 Django 后台自身的登录/登出/改密等子请求）
-        if request.session.get(BACKEND_GATE_SESSION_KEY):
+        # 退出登录：清除网关标记（本次登出请求仍放行，交由 Django 处理），
+        # 使随后直接访问 /admin/ 必须重新经令牌网关，避免会话被直接复用绕过令牌。
+        if request.path == "/admin/logout/":
+            if request.session.get(BACKEND_GATE_SESSION_KEY):
+                del request.session[BACKEND_GATE_SESSION_KEY]
+                request.session.modified = True
             return None
 
         # 携带一次性令牌：校验通过 → 写入会话标记并 302 重定向到干净地址（去除 token 防泄漏）
@@ -54,8 +63,22 @@ class BackendGateMiddleware(MiddlewareMixin):
         if _verify_token(token):
             request.session[BACKEND_GATE_SESSION_KEY] = True
             request.session.modified = True
-            clean = request.path  # request.path 不含查询串
-            return HttpResponseRedirect(clean)
+            return HttpResponseRedirect(request.path)  # request.path 不含查询串
 
-        # 无令牌/令牌无效：直连视为非法，重定向回前端 SPA 根路径
+        # 已通过网关（会话标记存在）：
+        if request.session.get(BACKEND_GATE_SESSION_KEY):
+            # 已登录（Django 认证）或处于登录流程（/admin/ 根路径与 /admin/login/ 由 Django 重定向衔接）
+            # 均放行，保障本次后台访问可用。
+            if request.session.get("_auth_user_id") or request.path in (
+                BACKEND_GATE_PREFIX,
+                "/admin/login/",
+            ):
+                return None
+            # 标记存在但既未登录也非登录流程（如会话过期后直连后台深层页面）：
+            # 清除标记并退回前端，强制重新经令牌网关。
+            del request.session[BACKEND_GATE_SESSION_KEY]
+            request.session.modified = True
+            return HttpResponseRedirect(BACKEND_GATE_REDIRECT_TO)
+
+        # 无令牌、无网关标记：直连视为非法，重定向回前端 SPA 根路径
         return HttpResponseRedirect(BACKEND_GATE_REDIRECT_TO)
