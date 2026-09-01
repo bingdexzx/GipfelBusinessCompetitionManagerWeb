@@ -266,13 +266,29 @@ if [[ $WITH_NGINX -eq 1 ]]; then
     cp -f "$VHOST_FILE" /etc/nginx/sites-available/gipfel.conf
     [[ -f /etc/nginx/sites-enabled/gipfel.conf ]] || \
         ln -sf /etc/nginx/sites-available/gipfel.conf /etc/nginx/sites-enabled/gipfel.conf
-    # 禁用默认欢迎页（避免抢占端口 80）
-    [[ -f /etc/nginx/sites-enabled/default ]] && \
-        mv /etc/nginx/sites-enabled/default /etc/nginx/sites-enabled/default.disabled 2>/dev/null || true
+    # 禁用 nginx 自带默认欢迎页（避免与 gipfel 主站点 server_name _ 在 80 端口冲突）
+    # 注意：nginx 按 sites-enabled/* 通配包含，「改名 default.disabled」无法禁用（仍被 * 匹配），
+    #       必须删除该软链才能真正禁用（sites-available/default 源文件保留，可随时恢复）。
+    if [[ -e /etc/nginx/sites-enabled/default ]]; then
+        rm -f /etc/nginx/sites-enabled/default
+        log "已禁用 nginx 默认站点（删除 sites-enabled/default 软链）"
+    fi
+    # 部分镜像把默认站点放在 conf.d/default.conf，同样移除避免抢占 80
+    if [[ -e /etc/nginx/conf.d/default.conf ]]; then
+        rm -f /etc/nginx/conf.d/default.conf
+        log "已移除 conf.d/default.conf"
+    fi
 
     nginx -t || err "nginx -t 失败，请修正"
-    systemctl reload nginx
-    ok "nginx 配置已 reload"
+    # 全新服务器 nginx 可能尚未启动，reload 对未运行服务会失败；按状态选择 start / reload
+    systemctl enable nginx 2>/dev/null || true
+    if systemctl is-active --quiet nginx; then
+        systemctl reload nginx
+        ok "nginx 配置已 reload"
+    else
+        systemctl start nginx
+        ok "nginx 已启动"
+    fi
 
     if [[ -n "$DOMAIN" ]]; then
         if command -v certbot >/dev/null 2>&1; then
