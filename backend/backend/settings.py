@@ -190,10 +190,20 @@ DATABASES = {
 
 
 # ==================== 密码哈希 ====================
-# 与原 bcryptjs cost=12 兼容
+# 与原 bcryptjs cost=12 兼容（业务 users 表为自定义 User，自行用 bcrypt 校验 password_hash，
+# 不走本列表，故下方顺序/增删不影响业务登录）。
+#
+# 注意：必须同时保留 Django 默认算法。/admin 后台使用 django.contrib.auth.User，
+# 其密码由 createsuperuser / migrate 播种为 pbkdf2_sha256；若此处只留 bcrypt，
+# identify_hasher() 会因找不到 pbkdf2 算法使 check_password 恒返回 False，
+# 表现为「后台账号密码正确却永远登录失败」。保留默认算法不影响 bcrypt 已有的哈希。
 PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.BCryptSHA256PasswordHasher",
     "django.contrib.auth.hashers.BCryptPasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher",
+    "django.contrib.auth.hashers.Argon2PasswordHasher",
+    "django.contrib.auth.hashers.ScryptPasswordHasher",
 ]
 
 
