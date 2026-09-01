@@ -15,6 +15,7 @@ sudo bash scripts/deploy-linux.sh \
 ### 获取源码（clone 到服务器）
 
 部署脚本必须在源码树内执行（`scripts/deploy-linux.sh` 的相对路径依赖它所在目录），所以**先 clone 到服务器，再进去跑脚本**。
+sudo apt-get install -y git
 
 ```bash
 # 1) 克隆仓库到 /opt（默认分支 master；克隆目录不要叫 /opt/gipfel，否则会与安装目录 rsync 自拷贝冲突）
