@@ -48,7 +48,7 @@
     <!-- 主体三栏布局 -->
     <div class="mm-body">
       <!-- 左侧节点列表 -->
-      <div v-if="canEdit" class="mm-left-panel">
+      <div v-if="canEdit" :class="['mm-left-panel', { 'is-open': leftOpen }]">
         <div class="panel-header">
           <span class="panel-title">节点列表</span>
           <el-button
@@ -192,10 +192,18 @@
             </div>
           </div>
         </div>
+
+        <!-- 手机模式：左右面板改为可滑出抽屉，避免遮挡地图；悬浮按钮开关 + 遮罩点击关闭 -->
+        <template v-if="isPhone && canEdit">
+          <div class="mm-drawer-mask" v-show="leftOpen || rightOpen" @click="closeDrawers"></div>
+          <el-button class="mm-fab mm-fab-left" type="primary" size="small" @click="leftOpen = !leftOpen">节点</el-button>
+          <el-button class="mm-fab mm-fab-right" type="primary" size="small" @click="rightOpen = !rightOpen">属性</el-button>
+        </template>
+
       </div>
 
       <!-- 右侧属性面板 -->
-      <div v-if="canEdit" class="mm-right-panel">
+      <div v-if="canEdit" :class="['mm-right-panel', { 'is-open': rightOpen }]">
         <!-- 节点属性-->
         <template v-if="selectedNode">
           <div class="panel-header">
@@ -883,6 +891,13 @@ async function confirmCreateEdge() {
 const selectedNode = ref<MapNode | null>(null);
 const selectedEdge = ref<MapEdge | null>(null);
 const nodeSearch = ref("");
+// 手机模式(≤640)：左右面板改为抽屉，用状态控制开合（仅手机生效，桌面/平板仍是三栏布局）
+const leftOpen = ref(false);
+const rightOpen = ref(false);
+function closeDrawers() {
+  leftOpen.value = false;
+  rightOpen.value = false;
+}
 
 const filteredNodes = computed(() => {
   if (!nodeSearch.value) return nodes.value;
@@ -915,6 +930,11 @@ watch(selectedEdge, (e) => {
     edgeForm.distance = e.distance;
     edgeForm.pathTypeId = e.pathTypeId;
   }
+});
+
+// 手机模式：选中节点/边时自动展开右侧属性抽屉，便于查看/编辑（桌面/平板下右侧栏本就常驻，无影响）
+watch([selectedNode, selectedEdge], ([n, e]) => {
+  if (isPhone.value && (n || e)) rightOpen.value = true;
 });
 
 // ===================== 新建节点对话框 =====================
@@ -2107,6 +2127,8 @@ onMounted(async () => {
   await loadBackground();
 
   updateStageSize();
+  // 手机模式默认折叠图例浮窗，避免遮挡只读视图下的地图区域
+  if (isPhone.value) legendCollapsed.value = true;
 
   resizeObserver = new ResizeObserver(() => {
     updateStageSize();
@@ -2570,5 +2592,69 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   color: #b45309;
   font-size: 13px;
+}
+
+/* 手机模式(≤640)：左右信息面板改为可滑出抽屉，避免遮挡中央地图显示区域 */
+@media (max-width: 640px) {
+  .mm-body {
+    position: relative;
+  }
+  .mm-left-panel,
+  .mm-right-panel {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 40;
+    width: min(82vw, 320px);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.28);
+    transition: transform 0.25s ease;
+  }
+  .mm-left-panel {
+    left: 0;
+    transform: translateX(-100%);
+    border-radius: 0 8px 8px 0;
+  }
+  .mm-right-panel {
+    right: 0;
+    transform: translateX(100%);
+    border-radius: 8px 0 0 8px;
+  }
+  .mm-left-panel.is-open {
+    transform: translateX(0);
+  }
+  .mm-right-panel.is-open {
+    transform: translateX(0);
+  }
+  .mm-canvas-wrapper {
+    min-width: 0;
+  }
+  /* 抽屉遮罩：点击空白关闭 */
+  .mm-drawer-mask {
+    position: absolute;
+    inset: 0;
+    z-index: 39;
+    background: rgba(0, 0, 0, 0.25);
+  }
+  /* 悬浮开关按钮 */
+  .mm-fab {
+    position: absolute;
+    top: 12px;
+    z-index: 45;
+  }
+  .mm-fab-left {
+    left: 12px;
+  }
+  .mm-fab-right {
+    right: 12px;
+  }
+  /* 背景编辑面板与图例在窄屏避免超出视口 */
+  .bg-edit-panel {
+    width: auto;
+    max-width: calc(100vw - 32px);
+  }
+  .mm-legend-panel {
+    width: auto;
+    max-width: calc(100vw - 32px);
+  }
 }
 </style>
