@@ -172,7 +172,8 @@ ok "文件归属已切换为 gipfel，.env 权限收紧为 600"
 
 # 自愈：无域名部署时，若 .env 中 LOG_VIEWER_PUBLIC_URL 指向内网/私网 IP，
 # 自动纠正为公网 IP（升级脚本只备份/恢复 .env、不重新生成，故首次部署误写的内网 IP
-# 会在多次升级后持续生效；此处兜底纠正。已是公网 IP 或域名形态时不改动）。
+# 会在多次升级后持续生效；此处兜底纠正。已是公网 IP 或域名形态时不改动；
+# 公网 IP 探测失败则移除该行，改由后端按请求 Host 推导（nginx 透传 $host=公网 IP）。
 if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
     LV_CUR="$(grep -E '^LOG_VIEWER_PUBLIC_URL=' "$INSTALL_DIR/backend/.env" | tail -n1 | sed -E 's#^LOG_VIEWER_PUBLIC_URL=https?://##; s#[/:].*##')"
     if [[ -n "$LV_CUR" ]]; then
@@ -181,10 +182,16 @@ if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
            [[ "$LV_CUR" =~ ^172\.(1[6-9]|2[0-9]|3[01])\. ]] || \
            [[ "$LV_CUR" =~ ^169\.254\. ]] || \
            [[ "$LV_CUR" =~ ^127\. ]]; then
-            LV_PUBLIC_IP="$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+            # 多服务兜底探测公网 IP（任一可达即可）；均失败则回退「移除该行，交给后端按 Host 推导」
+            LV_PUBLIC_IP="$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null)"
+            [ -z "$LV_PUBLIC_IP" ] && LV_PUBLIC_IP="$(curl -s --max-time 5 https://ifconfig.me 2>/dev/null)"
+            [ -z "$LV_PUBLIC_IP" ] && LV_PUBLIC_IP="$(curl -s --max-time 5 https://icanhazip.com 2>/dev/null)"
             if [[ -n "$LV_PUBLIC_IP" && "$LV_PUBLIC_IP" != "$LV_CUR" ]]; then
                 sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/|" "$INSTALL_DIR/backend/.env"
                 warn "检测到 LOG_VIEWER_PUBLIC_URL 指向内网 IP(${LV_CUR})，已自动纠正为公网 IP(${LV_PUBLIC_IP})。"
+            else
+                sed -i -E "/^LOG_VIEWER_PUBLIC_URL=/d" "$INSTALL_DIR/backend/.env"
+                warn "公网 IP 探测失败，已移除 .env 中指向内网 IP(${LV_CUR}) 的 LOG_VIEWER_PUBLIC_URL，改由后端按请求 Host 推导公网地址。"
             fi
         fi
     fi
