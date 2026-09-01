@@ -160,9 +160,32 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
         [ -z "$LV_PUBLIC_IP" ] && LV_PUBLIC_IP="$(curl -s --max-time 5 https://ifconfig.me 2>/dev/null)"
         [ -z "$LV_PUBLIC_IP" ] && LV_PUBLIC_IP="$(curl -s --max-time 5 https://icanhazip.com 2>/dev/null)"
         if [[ -n "$LV_PUBLIC_IP" ]]; then
-            echo "LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/" >> "$INSTALL_DIR/backend/.env"
+            # IPv6 需加方括号：http://[IPv6]:8120/
+            if [[ "$LV_PUBLIC_IP" == *:* ]]; then
+                echo "LOG_VIEWER_PUBLIC_URL=http://[${LV_PUBLIC_IP}]:8120/" >> "$INSTALL_DIR/backend/.env"
+            else
+                echo "LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/" >> "$INSTALL_DIR/backend/.env"
+            fi
+        elif [[ -t 0 ]]; then
+            # 自动探测全部失败：交互式请运维手动填写公网 IP（仅首次部署且标准输入为终端时；
+            # 非交互环境不阻塞，跳过手动填写）。
+            echo ""
+            read -r -p "未能自动探测到公网 IP。请手动输入本机公网 IP（日志查看器将使用 http://<IP>:8120/）： " LV_MANUAL_IP || true
+            if [[ "$LV_MANUAL_IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || [[ "$LV_MANUAL_IP" == \[* ]] || [[ "$LV_MANUAL_IP" == *:* ]]; then
+                # 规范化：IPv6 加方括号
+                if [[ "$LV_MANUAL_IP" == \[* ]]; then
+                    echo "LOG_VIEWER_PUBLIC_URL=http://${LV_MANUAL_IP}:8120/" >> "$INSTALL_DIR/backend/.env"
+                elif [[ "$LV_MANUAL_IP" == *:* ]]; then
+                    echo "LOG_VIEWER_PUBLIC_URL=http://[${LV_MANUAL_IP}]:8120/" >> "$INSTALL_DIR/backend/.env"
+                else
+                    echo "LOG_VIEWER_PUBLIC_URL=http://${LV_MANUAL_IP}:8120/" >> "$INSTALL_DIR/backend/.env"
+                fi
+                ok "已用你填写的公网 IP(${LV_MANUAL_IP}) 写入 LOG_VIEWER_PUBLIC_URL。"
+            else
+                warn "输入的不是合法 IP（${LV_MANUAL_IP}），未写入 LOG_VIEWER_PUBLIC_URL；日志查看器地址将由后端按请求 Host 推导（请确保经公网 IP 访问）。"
+            fi
         else
-            warn "未能自动获取公网 IP，未写入 LOG_VIEWER_PUBLIC_URL；日志查看器地址将由后端按请求 Host 推导（请确保经公网 IP 访问）。"
+            warn "未能自动获取公网 IP（非交互环境，跳过手动填写），未写入 LOG_VIEWER_PUBLIC_URL；日志查看器地址将由后端按请求 Host 推导（请确保经公网 IP 访问）。"
         fi
     fi
     # 日志查看器防直连令牌密钥：缺失则生成随机值（与主后端共用同一 .env，保证两端密钥一致）
@@ -189,7 +212,11 @@ if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
             [ -z "$LV_PUBLIC_IP" ] && LV_PUBLIC_IP="$(curl -s --max-time 5 https://ifconfig.me 2>/dev/null)"
             [ -z "$LV_PUBLIC_IP" ] && LV_PUBLIC_IP="$(curl -s --max-time 5 https://icanhazip.com 2>/dev/null)"
             if [[ -n "$LV_PUBLIC_IP" && "$LV_PUBLIC_IP" != "$LV_CUR" ]]; then
-                sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/|" "$INSTALL_DIR/backend/.env"
+                if [[ "$LV_PUBLIC_IP" == *:* ]]; then
+                    sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://[${LV_PUBLIC_IP}]:8120/|" "$INSTALL_DIR/backend/.env"
+                else
+                    sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/|" "$INSTALL_DIR/backend/.env"
+                fi
                 warn "检测到 LOG_VIEWER_PUBLIC_URL 指向内网 IP(${LV_CUR})，已自动纠正为公网 IP(${LV_PUBLIC_IP})。"
             else
                 # 公网 IP 探测全部失败：直接移除该行，避免内网 IP 继续生效；

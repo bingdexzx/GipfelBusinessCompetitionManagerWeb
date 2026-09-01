@@ -187,7 +187,11 @@ if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
             [ -z "$LV_PUBLIC_IP" ] && LV_PUBLIC_IP="$(curl -s --max-time 5 https://ifconfig.me 2>/dev/null)"
             [ -z "$LV_PUBLIC_IP" ] && LV_PUBLIC_IP="$(curl -s --max-time 5 https://icanhazip.com 2>/dev/null)"
             if [[ -n "$LV_PUBLIC_IP" && "$LV_PUBLIC_IP" != "$LV_CUR" ]]; then
-                sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/|" "$INSTALL_DIR/backend/.env"
+                if [[ "$LV_PUBLIC_IP" == *:* ]]; then
+                    sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://[${LV_PUBLIC_IP}]:8120/|" "$INSTALL_DIR/backend/.env"
+                else
+                    sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/|" "$INSTALL_DIR/backend/.env"
+                fi
                 warn "检测到 LOG_VIEWER_PUBLIC_URL 指向内网 IP(${LV_CUR})，已自动纠正为公网 IP(${LV_PUBLIC_IP})。"
             else
                 sed -i -E "/^LOG_VIEWER_PUBLIC_URL=/d" "$INSTALL_DIR/backend/.env"
