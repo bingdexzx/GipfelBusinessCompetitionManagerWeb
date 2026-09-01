@@ -5,11 +5,18 @@
 """
 from django.urls import path
 
-from .views import ChangePasswordView, LoginView, LogViewerTokenView, MeView
+from .views import (
+    BackendTokenView,
+    ChangePasswordView,
+    LoginView,
+    LogViewerTokenView,
+    MeView,
+)
 
 urlpatterns = [
     path("login", LoginView.as_view(), name="auth-login"),
     path("me", MeView.as_view(), name="auth-me"),
     path("change-password", ChangePasswordView.as_view(), name="auth-change-password"),
     path("logviewer-token", LogViewerTokenView.as_view(), name="auth-logviewer-token"),
+    path("backend-token", BackendTokenView.as_view(), name="auth-backend-token"),
 ]

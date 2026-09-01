@@ -142,6 +142,29 @@ class LogViewerTokenView(APIView):
         return Response({"token": token})
 
 
+# ==================== 后端管理后台防直连令牌 ====================
+class BackendTokenView(APIView):
+    """POST /api/auth/backend-token → {token}
+
+    签发一次性/短时（默认 120s）防直连令牌，供前端「系统设置 → 后端管理界面」按钮点击后拼入
+    /admin/?token=...。后端 BackendGateMiddleware 校验该令牌，缺失/无效/过期则 302 重定向回前端 SPA，
+    从而实现「仅按钮点击可跳转、直接输入网址无法跳转」。
+
+    仅 SUPER_ADMIN 可获取（与前端按钮 v-if="isSuperAdmin" 一致）；令牌本身不替代 Django 后台
+    自身的超级管理员登录，仅作为「来源合法性」网关。
+    """
+
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request):
+        if getattr(request.user, "role", None) != "SUPER_ADMIN":
+            raise BusinessError("仅超级管理员可生成后端管理访问令牌", code=403, status_code=403)
+        # 用与主后端/日志查看器共用的 LOGVIEWER_SECRET_KEY 签名；盐固定以便 BackendGateMiddleware 一致校验。
+        signer = TimestampSigner(key=settings.LOGVIEWER_SECRET_KEY, salt="backend-gate")
+        token = signer.sign(f"bk:{request.user.id}")
+        return Response({"token": token})
+
+
 # ==================== 当前用户 ====================
 class MeView(APIView):
     """GET /api/auth/me → 当前登录用户资料"""

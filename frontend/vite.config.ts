@@ -41,6 +41,12 @@ export default defineConfig({
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
       },
+      // 后端管理后台 /admin/*：开发态同样需经网关（携带一次性令牌），
+      // 否则 Vite 会按 SPA 路由兜底返回 index.html，导致管理后台在开发环境不可达。
+      "/admin": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+      },
     },
   },
   build: {

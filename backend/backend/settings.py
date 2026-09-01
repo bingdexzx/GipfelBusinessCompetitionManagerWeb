@@ -30,6 +30,10 @@ if not JWT_SECRET:
 # 与主后端共用同一 .env；缺失时回退 JWT_SECRET（保证两服务能协商一致即可）。
 LOGVIEWER_SECRET_KEY = (os.environ.get("LOGVIEWER_SECRET_KEY") or JWT_SECRET).strip()
 
+# 后端管理后台防直连网关：一次性令牌有效期（秒）。与日志查看器网关同构，仅作用 /admin/ 入口。
+# 令牌由主后端用 LOGVIEWER_SECRET_KEY + salt="backend-gate" 签发，BackendGateMiddleware 用同密钥同盐校验。
+BACKEND_GATE_MAX_AGE = int(os.environ.get("BACKEND_GATE_MAX_AGE", "120"))
+
 
 # ==================== 通用配置 ====================
 SECRET_KEY = JWT_SECRET  # Django 自身 SECRET_KEY 复用 JWT_SECRET（生产应独立，迁移期简化）
@@ -155,6 +159,9 @@ MIDDLEWARE = [
     "apps.common.middleware.LoginRateLimitMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    # 后端管理后台防直连网关：仅 /admin/* 受控，缺失/无效令牌则 302 重定向回前端 SPA。
+    # 必须位于 SessionMiddleware 之后，以便使用 request.session 写入网关标记。
+    "apps.common.backend_gate.BackendGateMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",

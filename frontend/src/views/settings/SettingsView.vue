@@ -61,8 +61,24 @@ async function clearLocalData() {
 // 后端管理后台地址：前端经同源 nginx 提供，直接走相对路径 /admin/（无需拼端口/域名）。
 // 既兼容本机开发，也兼容公网同域部署。
 const adminUrl = computed(() => `/admin/`);
-function openAdmin() {
-  window.open(adminUrl.value, "_blank", "noopener,noreferrer");
+
+// 后端管理后台跳转：需「仅按钮点击可跳转、直接输入网址自动跳转回前端」。
+// 点击时向后端请求一次性防直连令牌（仅 SUPER_ADMIN 可获取），拼入 /admin/?token=... 打开；
+// 后端 BackendGateMiddleware 校验令牌，缺失/无效/过期则 302 重定向回前端 SPA
+// （见后端 BackendTokenView + BackendGateMiddleware 网关）。
+async function openAdmin() {
+  try {
+    const res = (await api.post("/auth/backend-token")) as { token?: string };
+    const token = res?.token;
+    if (!token) throw new Error("未获取到访问令牌");
+    const base = adminUrl.value; // "/admin/"
+    const sep = base.includes("?") ? "&" : "?";
+    const url = `${base}${sep}token=${encodeURIComponent(token)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  } catch (e: unknown) {
+    const msg = (e as { message?: string })?.message || "打开后端管理界面失败";
+    ElMessage.error(msg);
+  }
 }
 
 // 日志查看器跳转：需「仅按钮点击可跳转、直接输入网址无法跳转」。

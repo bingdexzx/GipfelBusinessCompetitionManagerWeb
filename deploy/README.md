@@ -48,6 +48,16 @@ curl -sS -I http://127.0.0.1/         # 200（nginx 托管 index.html）
 - **共享密钥**：主后端与日志查看器共用 `.env` 的 `LOGVIEWER_SECRET_KEY` 签发/校验令牌。deploy 脚本首次部署自动生成随机值；已部署实例升级时 `.env` 保留不变，两端始终一致。
 - **双重认证**：令牌只放行「进入日志查看器站点的网关」，进入后仍需用 Django 后台超级管理员凭据登录才能真正读取日志。
 
+### 后端管理后台公网访问（防直连）
+
+后端 `/admin` 管理后台经 nginx 主站点（同域）代理到 `127.0.0.1:8000`，并由 `BackendGateMiddleware` 网关保护：
+
+- **仅按钮跳转**：前端「系统设置 → 后端管理界面」按钮在点击时向后端 `POST /api/auth/backend-token` 获取一次性（默认 120s）签名令牌（仅 `SUPER_ADMIN` 可获取），拼入 `/admin/?token=...` 打开。后端 `BackendGateMiddleware` 校验令牌，缺失/无效/过期均 302 重定向回前端 SPA——因此直接输入网址、书签、复制链接都会被跳回前端。
+- **nginx 路由前提**：`deploy/nginx-gipfel.conf` 中 `location /admin/` 必须显式代理到后端；若缺失，该路径会被 SPA 兜底 `location /` 吞掉返回 `index.html`，管理后台在公网不可达（该 `location` 已在部署模板中内置）。
+- **共享密钥**：网关令牌与主后端/日志查看器共用 `.env` 的 `LOGVIEWER_SECRET_KEY` 签发与校验（salt 为 `backend-gate` 以与日志查看器令牌隔离）。deploy 脚本首次部署自动生成随机值；已部署实例升级时 `.env` 保留不变，密钥始终一致。
+- **双重认证**：令牌只放行「进入管理后台的网关」，进入后仍需用 Django 后台超级管理员凭据登录才能真正操作。
+- **令牌有效期**：`.env` 的 `BACKEND_GATE_MAX_AGE`（秒，默认 120）可调。
+
 ### 更新部署（升级版本，保留数据）
 
 ```bash
