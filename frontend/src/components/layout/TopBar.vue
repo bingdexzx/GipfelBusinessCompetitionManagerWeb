@@ -10,8 +10,8 @@
       >
         <el-icon :size="20"><Menu /></el-icon>
       </el-button>
-      <!-- 手机端：当前比赛与财年直接显示在顶栏，避免仅藏在抽屉侧栏中 -->
-      <div v-if="isPhone" class="topbar-context">
+      <!-- 抽屉模式(平板/手机)：左侧栏收起时，当前比赛与财年直接显示在顶栏，避免仅藏在抽屉侧栏中 -->
+      <div v-if="isCompact" class="topbar-context">
         <template v-if="compStore.competitionName">
           <el-tag type="success" size="small" effect="plain" class="ctx-tag ctx-name">{{
             compStore.competitionName
@@ -68,7 +68,7 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const compStore = useCompetitionStore();
-const { isPhone } = useBreakpoint();
+const { isCompact } = useBreakpoint();
 
 // 由父级 AppLayout 注入：平板/手机（抽屉模式）下显示汉堡按钮
 const props = defineProps<{
@@ -157,7 +157,7 @@ function handleLogout() {
 .menu-toggle:hover {
   color: var(--color-primary);
 }
-/* 手机端顶栏上下文：当前比赛 + 财年，直接可见，避免藏在抽屉侧栏 */
+/* 抽屉模式(平板/手机)顶栏上下文：当前比赛 + 财年，直接可见，避免藏在抽屉侧栏 */
 .topbar-context {
   display: flex;
   align-items: center;
