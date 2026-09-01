@@ -157,6 +157,12 @@ function handleLogout() {
 .menu-toggle:hover {
   color: var(--color-primary);
 }
+/* 手机/平板(抽屉)模式：左上角汉堡按钮整体往左靠一点，贴近屏幕左缘 */
+@media (max-width: 1024px) {
+  .menu-toggle {
+    margin-left: -6px;
+  }
+}
 /* 抽屉模式(平板/手机)顶栏上下文：当前比赛 + 财年，直接可见，避免藏在抽屉侧栏；
    外部套框，与电脑模式侧栏 .brand-meta 的呈现一致（边框 + 浅灰底 + 圆角） */
 .topbar-context {
