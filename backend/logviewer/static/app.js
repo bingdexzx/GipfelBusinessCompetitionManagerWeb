@@ -25,7 +25,7 @@
       options.headers["Content-Type"] = "application/json";
     }
     if ((options.method || "GET").toUpperCase() !== "GET") {
-      options.headers["X-CSRFToken"] = getCookie("csrftoken");
+      options.headers["X-CSRFToken"] = getCookie("lv_csrftoken");
     }
     const resp = await fetch(url, options);
     let data = null;

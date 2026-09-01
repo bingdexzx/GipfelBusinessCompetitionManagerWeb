@@ -68,6 +68,14 @@ SESSION_ENGINE = "django.contrib.sessions.backends.signed_cookies"
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 
+# 与主服务(backend)使用不同的 cookie 名称，避免同主机(localhost)下的命名冲突：
+# 主服务把 csrftoken 设为 HttpOnly，会覆盖本服务前端需要读取的可读 csrftoken，
+# 导致前端读不到 token → 登录 403「CSRF token ... incorrect length」；
+# 同理 sessionid 也会互相覆盖，导致登录成功后会话立即丢失。
+CSRF_COOKIE_NAME = "lv_csrftoken"
+SESSION_COOKIE_NAME = "lv_sessionid"
+CSRF_COOKIE_HTTPONLY = False  # 显式：前端 JS 需读取 csrftoken 再写入 X-CSRFToken 头
+
 ROOT_URLCONF = "logviewer.urls"
 
 TEMPLATES = [
