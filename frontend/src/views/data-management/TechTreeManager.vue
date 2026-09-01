@@ -411,8 +411,8 @@ function renderTree() {
     }
   });
 
-  // Custom pan/zoom on the wrapper — leaves ECharts canvas alone
-  const wrap = panWrapRef.value!;
+  // 自定义平移/缩放作用于内部 .tt-chart（图谱内容），白色背景卡片 .tt-pan-wrap 固定不动
+  const wrap = chartRef.value!;
   wrap.style.transformOrigin = "0 0";
   let panning = false,
     panStart: [number, number] = [0, 0];
@@ -585,15 +585,16 @@ async function handleDelete(row: any) {
   width: 100%;
   height: 100%;
   min-height: 500px;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  background: #fff;
 }
 .tt-pan-wrap {
   flex: 1;
   overflow: hidden;
   position: relative;
   min-height: 500px;
+  /* 白色背景/边框固定在视口卡片上，不被平移拖动；平移只作用于内部 .tt-chart 图谱内容 */
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: #fff;
 }
 .tt-tree-info {
   width: 260px;
