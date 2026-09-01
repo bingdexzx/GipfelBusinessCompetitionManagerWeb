@@ -24,6 +24,7 @@ WITH_NGINX=0
 SKIP_INSTALL_DEPS=0
 FORCE_OVERWRITE=0
 PUBLIC_IP=""   # 显式指定公网 IP（无域名纯 IP 部署日志查看器用）；非空则跳过自动探测与交互填写
+PUBLIC_IP_SET=0  # 标记 --public-ip 是否由用户显式传入（用于结尾提示区分「用户指定」与「自动探测」）
 
 usage() {
     cat <<EOF
@@ -43,7 +44,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --domain)             DOMAIN="$2"; shift 2 ;;
         --install-dir)        INSTALL_DIR="$2"; shift 2 ;;
-        --public-ip)          PUBLIC_IP="$2"; shift 2 ;;
+        --public-ip)          PUBLIC_IP="$2"; PUBLIC_IP_SET=1; shift 2 ;;
         --with-nginx)         WITH_NGINX=1; shift ;;
         --skip-install-deps)  SKIP_INSTALL_DEPS=1; shift ;;
         --force-overwrite)    FORCE_OVERWRITE=1; shift ;;
@@ -464,14 +465,18 @@ fi
 echo
 ok "部署完成！"
 
-# 公网 IP（尽力获取，用于公网访问提示；受限网络获取失败则给出手动查询提示）
-PUBLIC_IP=""
-if command -v curl >/dev/null 2>&1; then
-    PUBLIC_IP="$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+# 公网 IP 提示：优先采用用户显式 --public-ip；否则尽力自动探测（受限网络失败时给手动查询提示）。
+# 注意：此处【不可】重置 PUBLIC_IP，否则会覆盖用户传入的值，导致结尾误报「未获取到 IP」。
+if [[ -z "$PUBLIC_IP" ]]; then
+    if command -v curl >/dev/null 2>&1; then
+        PUBLIC_IP="$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+    fi
 fi
 if [[ -z "$PUBLIC_IP" ]]; then
     PUBLIC_IP_HINT="（未能自动获取公网 IP，可访问 https://ifconfig.me 或云控制台查看）"
     PUBLIC_IP="<公网IP>"
+elif [[ $PUBLIC_IP_SET -eq 1 ]]; then
+    PUBLIC_IP_HINT="（使用你通过 --public-ip 指定的公网 IP）"
 else
     PUBLIC_IP_HINT=""
 fi
