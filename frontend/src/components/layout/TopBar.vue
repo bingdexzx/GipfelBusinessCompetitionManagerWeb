@@ -165,6 +165,8 @@ function handleLogout() {
   gap: 6px;
   min-width: 0;
   overflow: hidden;
+  /* 平板/手机(抽屉)模式下，套框与右侧标题(面包屑)之间留出间距，避免紧贴 */
+  margin-right: 12px;
   padding: 3px 8px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
