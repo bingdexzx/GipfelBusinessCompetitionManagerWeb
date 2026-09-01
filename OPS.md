@@ -171,6 +171,21 @@ npm run typecheck    # 类型检查（CI 必跑）
 
 ## 11. 升级流程
 
+### 首次部署（Linux 一键部署）
+
+完整步骤见 [`deploy/README.md`](deploy/README.md) 的「获取源码」一节。最简流程（默认分支 `master`，纯 IP 省略 `--domain`）：
+
+```bash
+git clone https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git
+cd GipfelBusinessCompetitionManagerWeb
+sudo bash scripts/deploy-linux.sh --install-dir /opt/gipfel --with-nginx
+# 有域名时加 --domain：sudo bash scripts/deploy-linux.sh --domain 你的域名 --install-dir /opt/gipfel --with-nginx
+```
+
+> GitHub 直连超时（`curl 28` / 443 连不上）时，用镜像前缀 clone：`git clone https://ghproxy.com/https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git`；服务器完全连不上 GitHub 时，在能联网的机器上打包源码 `tar czf ...` 再 `scp` 传到服务器解包部署（详见 deploy/README.md）。
+
+### 增量升级（保留数据）
+
 ```bash
 git pull                         # 拉取代码
 # 后端

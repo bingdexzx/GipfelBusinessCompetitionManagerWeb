@@ -12,6 +12,45 @@ sudo bash scripts/deploy-linux.sh \
 
 > **依赖说明**：脚本默认会自动 `apt-get install` 所需系统包（`python3` / `nginx` / `nodejs` / **`rsync`** 等）。若使用 `--skip-install-deps` 跳过安装，需确保目标机**已装好 `rsync`**——代码同步阶段强依赖它，缺失会报 `rsync: command not found`。
 
+### 获取源码（clone 到服务器）
+
+部署脚本必须在源码树内执行（`scripts/deploy-linux.sh` 的相对路径依赖它所在目录），所以**先 clone 到服务器，再进去跑脚本**。
+
+```bash
+# 1) 克隆仓库（默认分支 master）
+git clone https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git
+cd GipfelBusinessCompetitionManagerWeb
+
+# 2) 一键部署：纯 IP 先用「无 --domain」，有域名加 --domain
+sudo bash scripts/deploy-linux.sh --install-dir /opt/gipfel --with-nginx
+#   有域名时：
+#   sudo bash scripts/deploy-linux.sh --domain comp.example.com --install-dir /opt/gipfel --with-nginx
+```
+
+> **网络前提**：部署过程中服务器需能出网到 **apt 源 / PyPI（`pip install`）/ npm 源（`npm ci`）**。仅 GitHub 不通、但 apt/npm/PyPI 可达时，可用下方镜像绕过；若全部都不通，走「服务器完全连不上 GitHub」的 tar 包方案（前端 dist 也可在能联网的机器预构建后整体传入）。
+
+> **GitHub 直连超时（`curl 28` / 443 连不上）？** 国内或受限网络常见，两种绕过方式：
+> - 用镜像前缀直接 clone：
+>   `git clone https://ghproxy.com/https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git`
+> - 或让本机后续所有 git 操作自动走代理（之后普通 `git clone` / `git pull` 即可）：
+>   `git config --global url."https://ghproxy.com/https://github.com/".insteadOf "https://github.com/"`
+> - 其他可用镜像：`https://mirror.ghproxy.com/`、`https://kgithub.com/`、`https://gitclone.com/github.com/`（可用性各异，挑能连的）。
+
+> **服务器完全连不上 GitHub（连镜像也不行）？** 在能访问 GitHub / 已含代码的机器上打包源码传上去，再在服务器本地跑脚本（不需要服务器联网到 GitHub）：
+> ```bash
+> # 在「源机器」打包（排除重型/生成目录）
+> tar czf gipfel-deploy-src.tgz --exclude='.git' \
+>   --exclude='backend/.venv' --exclude='backend/db.sqlite3' --exclude='backend/uploads' \
+>   --exclude='backend/logs' --exclude='backend/staticfiles' --exclude='backend/logviewer/staticfiles' \
+>   --exclude='frontend/node_modules' --exclude='frontend/dist' \
+>   backend frontend deploy scripts OPS.md README.md Vue-Django迁移设计.md
+> # 传到服务器
+> scp gipfel-deploy-src.tgz root@<服务器IP>:/tmp/
+> # 服务器上解包并部署（脚本从解包后的源码树内运行，无需 --source-dir）
+> mkdir -p /opt/gipfel-src && tar xzf /tmp/gipfel-deploy-src.tgz -C /opt/gipfel-src
+> cd /opt/gipfel-src && sudo bash scripts/deploy-linux.sh --install-dir /opt/gipfel --with-nginx
+> ```
+
 ### 脚本执行完之后
 
 | 产物 | 位置 |
