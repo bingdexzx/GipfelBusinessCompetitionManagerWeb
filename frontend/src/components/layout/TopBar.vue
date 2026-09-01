@@ -46,7 +46,7 @@
     </div>
     <div class="topbar-right">
       <span class="user-info">
-        <span>{{ authStore.user?.displayName || authStore.user?.username || "用户" }}</span>
+        <span class="user-name">{{ authStore.user?.displayName || authStore.user?.username || "用户" }}</span>
         <el-tag size="small" :type="roleTagType" class="role-tag">{{ roleLabel }}</el-tag>
       </span>
       <el-button size="small" type="danger" plain style="margin-left: 16px" @click="handleLogout"
@@ -207,17 +207,21 @@ function handleLogout() {
   color: var(--color-text-primary);
   min-width: 0;
 }
+/* 显示名称：过长时省略，避免与角色标签/退出按钮挤爆顶栏 */
+.user-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
 .role-tag {
   font-size: 11px;
   height: 20px;
   line-height: 18px;
 }
-/* 手机(≤640px)：隐藏面包屑与用户名，仅留角色标签 + 退出，避免顶栏拥挤 */
+/* 手机(≤640px)：隐藏面包屑（显示名 + 角色标签 + 退出 与电脑模式一致，均保留） */
 @media (max-width: 640px) {
   .topbar-left .el-breadcrumb {
-    display: none;
-  }
-  .user-info > span:first-child {
     display: none;
   }
 }
