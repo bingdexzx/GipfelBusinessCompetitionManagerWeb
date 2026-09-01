@@ -329,14 +329,34 @@ fi
 # ---------------- 收尾 ----------------
 echo
 ok "部署完成！"
+
+# 公网 IP（尽力获取，用于公网访问提示；受限网络获取失败则给出手动查询提示）
+PUBLIC_IP=""
+if command -v curl >/dev/null 2>&1; then
+    PUBLIC_IP="$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+fi
+if [[ -z "$PUBLIC_IP" ]]; then
+    PUBLIC_IP_HINT="（未能自动获取公网 IP，可访问 https://ifconfig.me 或云控制台查看）"
+    PUBLIC_IP="<公网IP>"
+else
+    PUBLIC_IP_HINT=""
+fi
+
 echo "  目录：        $INSTALL_DIR"
 echo "  后端状态：    systemctl status gipfel"
 if [[ $WITH_NGINX -eq 1 ]]; then
-echo "  网站：        ${DOMAIN:-http://$(hostname -I | awk '{print $1}')}"
-if [[ -z "$DOMAIN" ]]; then
-echo "  日志查看器：  http://$(hostname -I | awk '{print $1}'):8120/ （前端「系统设置 → 日志查看器」按钮，需放行 8120）"
-fi
-echo "  Nginx 状态：  systemctl status nginx"
+    SERVER_IP="$(hostname -I | awk '{print $1}')"
+    if [[ -n "$DOMAIN" ]]; then
+        echo "  网站(公网)：   http://${DOMAIN}/"
+        echo "  网站(内网)：   http://${SERVER_IP}/"
+    else
+        echo "  网站(内网)：   http://${SERVER_IP}/"
+        echo "  网站(公网)：   http://${PUBLIC_IP}/${PUBLIC_IP_HINT}"
+        echo "  日志查看器(内)： http://${SERVER_IP}:8120/"
+        echo "  日志查看器(公)： http://${PUBLIC_IP}:8120/${PUBLIC_IP_HINT}"
+        echo "                 （需放行防火墙 8120；前端「系统设置 → 日志查看器」按钮跳转）"
+    fi
+    echo "  Nginx 状态：  systemctl status nginx"
 fi
 echo "  默认超管：    admin / admin23（首次登录强制改密）"
 echo "  日志：        journalctl -u gipfel -f   /   tail -F $INSTALL_DIR/backend/logs/app.log"
