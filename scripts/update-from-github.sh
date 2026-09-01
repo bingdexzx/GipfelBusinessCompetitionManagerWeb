@@ -203,9 +203,20 @@ if [[ $WITH_NGINX -eq 1 ]]; then
     sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" \
         -e "s|__DOMAIN__|${DOMAIN:-_}|g" \
         "$VHOST_TMPL" > /etc/nginx/sites-available/gipfel.conf
-    # 始终刷新 gipfel vhost 软链（修复任何陈旧/损坏软链）
-    ln -sf /etc/nginx/sites-available/gipfel.conf /etc/nginx/sites-enabled/gipfel.conf
-    ok "已启用 gipfel nginx 虚拟主机（sites-enabled/gipfel.conf）"
+    # 按 nginx.conf 实际 include 风格放置 gipfel 配置（兼容 sites-enabled 与仅 include conf.d 的精简镜像）
+    if grep -q 'sites-enabled' /etc/nginx/nginx.conf 2>/dev/null; then
+        ln -sf /etc/nginx/sites-available/gipfel.conf /etc/nginx/sites-enabled/gipfel.conf
+        rm -f /etc/nginx/conf.d/gipfel.conf
+        ok "已启用 gipfel nginx 虚拟主机（sites-enabled/gipfel.conf）"
+    elif grep -q 'conf.d' /etc/nginx/nginx.conf 2>/dev/null; then
+        cp -f /etc/nginx/sites-available/gipfel.conf /etc/nginx/conf.d/gipfel.conf
+        rm -f /etc/nginx/sites-enabled/gipfel.conf
+        ok "已启用 gipfel nginx 虚拟主机（conf.d/gipfel.conf，因 nginx.conf 仅 include conf.d）"
+    else
+        ln -sf /etc/nginx/sites-available/gipfel.conf /etc/nginx/sites-enabled/gipfel.conf
+        cp -f /etc/nginx/sites-available/gipfel.conf /etc/nginx/conf.d/gipfel.conf
+        ok "已启用 gipfel nginx 虚拟主机（sites-enabled + conf.d 均放置，兜底）"
+    fi
     # 禁用 nginx 自带默认欢迎页：枚举所有已知变体并删除，否则 80 端口可能被默认站点抢走
     for f in /etc/nginx/sites-enabled/default \
              /etc/nginx/sites-enabled/default.disabled \

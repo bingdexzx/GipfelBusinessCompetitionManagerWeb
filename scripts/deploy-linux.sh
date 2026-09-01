@@ -265,10 +265,23 @@ if [[ $WITH_NGINX -eq 1 ]]; then
 
     cp -f "$VHOST_FILE" /etc/nginx/sites-available/gipfel.conf
 
-    # 刷新 gipfel vhost 软链（始终指向最新生成的 sites-available/gipfel.conf，
-    # 修复任何陈旧/损坏软链；sites-available/gipfel.conf 源文件保留，可随时恢复）
-    ln -sf /etc/nginx/sites-available/gipfel.conf /etc/nginx/sites-enabled/gipfel.conf
-    ok "已启用 gipfel nginx 虚拟主机（sites-enabled/gipfel.conf）"
+    # 按 nginx.conf 实际 include 风格放置 gipfel 配置（兼容 Debian 的 sites-enabled 与
+    # 仅 include conf.d 的精简镜像），避免放错位置导致配置根本不被加载、或两处重复 server 块。
+    # 同时清理另一处的残留 gipfel 软链/文件，防止重复。
+    if grep -q 'sites-enabled' /etc/nginx/nginx.conf 2>/dev/null; then
+        ln -sf /etc/nginx/sites-available/gipfel.conf /etc/nginx/sites-enabled/gipfel.conf
+        rm -f /etc/nginx/conf.d/gipfel.conf
+        ok "已启用 gipfel nginx 虚拟主机（sites-enabled/gipfel.conf）"
+    elif grep -q 'conf.d' /etc/nginx/nginx.conf 2>/dev/null; then
+        cp -f /etc/nginx/sites-available/gipfel.conf /etc/nginx/conf.d/gipfel.conf
+        rm -f /etc/nginx/sites-enabled/gipfel.conf
+        ok "已启用 gipfel nginx 虚拟主机（conf.d/gipfel.conf，因 nginx.conf 仅 include conf.d）"
+    else
+        # 兜底：两处都放（绝大多数默认配置两者至少含其一；若都无 include 则属异常环境）
+        ln -sf /etc/nginx/sites-available/gipfel.conf /etc/nginx/sites-enabled/gipfel.conf
+        cp -f /etc/nginx/sites-available/gipfel.conf /etc/nginx/conf.d/gipfel.conf
+        ok "已启用 gipfel nginx 虚拟主机（sites-enabled + conf.d 均放置，兜底）"
+    fi
 
     # 禁用 nginx 自带默认欢迎页（避免与 gipfel 主站点 server_name _ 在 80 端口冲突 → 显示 "Welcome to nginx"）
     # 注意：nginx 按 sites-enabled/* 通配包含，「改名 default.disabled」无法禁用（仍被 * 匹配），必须删除才能真正禁用。
