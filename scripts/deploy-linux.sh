@@ -125,6 +125,11 @@ fi
 if [[ -f "$BACKUP_DIR/.env" && ! -f "$INSTALL_DIR/backend/.env" ]]; then
     cp -a "$BACKUP_DIR/.env" "$INSTALL_DIR/backend/.env"
 fi
+# 恢复备份的数据库（核心业务数据，必须随部署保留，否则重部署会丢失全部数据）
+if [[ -f "$BACKUP_DIR/db.sqlite3" && ! -f "$INSTALL_DIR/backend/db.sqlite3" ]]; then
+    cp -a "$BACKUP_DIR/db.sqlite3" "$INSTALL_DIR/backend/db.sqlite3"
+    log "已从备份恢复数据库 $BACKUP_DIR/db.sqlite3"
+fi
 
 # 首次部署无 .env → 从 example 复制，生成随机 JWT_SECRET
 if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
@@ -132,14 +137,21 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
     cp "$INSTALL_DIR/backend/.env.example" "$INSTALL_DIR/backend/.env"
     SECRET="$(openssl rand -base64 32 | tr -d '\n=')"
     sed -i "s|^JWT_SECRET=.*|JWT_SECRET=${SECRET}|" "$INSTALL_DIR/backend/.env"
-    sed -i "s|^DEBUG=true|DEBUG=false|"                  "$INSTALL_DIR/backend/.env"
+    # 显式关闭 DEBUG（.env.example 可能无此行，确保生产环境 DEBUG=false）
+    if ! grep -q '^DEBUG=' "$INSTALL_DIR/backend/.env"; then
+        echo 'DEBUG=false' >> "$INSTALL_DIR/backend/.env"
+    else
+        sed -i 's/^DEBUG=.*/DEBUG=false/' "$INSTALL_DIR/backend/.env"
+    fi
     if [[ -n "$DOMAIN" ]]; then
-        sed -i "s|^CORS_ORIGIN=|CORS_ORIGIN=https://${DOMAIN},http://${DOMAIN}|" "$INSTALL_DIR/backend/.env"
+        # 取消注释并设置 CORS 白名单（兼容已注释 #CORS_ORIGIN=... 与未注释两种写法）
+        sed -i -E "s|^#?[[:space:]]*CORS_ORIGIN=.*|CORS_ORIGIN=https://${DOMAIN},http://${DOMAIN}|" "$INSTALL_DIR/backend/.env"
+        grep -q '^CORS_ORIGIN=' "$INSTALL_DIR/backend/.env" || \
+            echo "CORS_ORIGIN=https://${DOMAIN},http://${DOMAIN}" >> "$INSTALL_DIR/backend/.env"
     fi
 fi
 
 mkdir -p "$INSTALL_DIR/backend/uploads" "$INSTALL_DIR/backend/logs"
-chown -R gipfel:gipfel "$INSTALL_DIR"
 ok "代码同步完成"
 
 # ---------------- 3. 虚拟环境 + pip ----------------
@@ -158,7 +170,8 @@ ok "Python 依赖安装完成"
 log "执行 migrate（首次会自动建 admin/admin23）"
 ".venv/bin/python" manage.py check --fail-level ERROR
 ".venv/bin/python" manage.py migrate --noinput
-ok "数据库迁移完成"
+".venv/bin/python" manage.py collectstatic --noinput
+ok "数据库迁移完成，静态资源收集完成"
 
 # ---------------- 5. 前端构建 ----------------
 log "构建前端（npm ci + build）"
@@ -175,6 +188,12 @@ mkdir -p "$INSTALL_DIR/frontend-dist"
 cp -a dist/. "$INSTALL_DIR/frontend-dist/"
 chown -R gipfel:gipfel "$INSTALL_DIR/frontend-dist"
 ok "前端构建完成 → $INSTALL_DIR/frontend-dist"
+
+# 以 root 身份完成 venv/pip/migrate/collectstatic/build 后，统一把整棵安装树归属运行用户 gipfel，
+# 否则 systemd 以 gipfel 启动时对 root 所有的 db.sqlite3/uploads/logs 无写权限会启动失败。
+chown -R gipfel:gipfel "$INSTALL_DIR"
+chmod 600 "$INSTALL_DIR/backend/.env" 2>/dev/null || true
+ok "文件归属已切换为 gipfel（运行时可写 db/uploads/logs），.env 权限收紧为 600"
 
 # ---------------- 6. systemd unit ----------------
 log "写入 systemd 服务 gipfel.service"

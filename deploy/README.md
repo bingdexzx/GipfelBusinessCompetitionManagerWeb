@@ -40,12 +40,13 @@ curl -sS -I http://127.0.0.1/         # 200（nginx 托管 index.html）
 cd GipfelBusinessCompetitionManagerWeb
 sudo scripts/deploy-linux.sh --domain comp.example.com --install-dir /opt/gipfel --with-nginx --skip-install-deps
 # 脚本自动：
-#   1) 备份 db.sqlite3 + uploads 到 /opt/gipfel/_backup/$(date +%F_%H%M)
-#   2) 更新代码
-#   3) pip install -r requirements.txt（如有新依赖）
-#   4) migrate（种子幂等）
-#   5) npm ci && npm run build → frontend-dist/
-#   6) systemctl restart gipfel
+#   1) 备份 db.sqlite3 + uploads + .env 到 /opt/gipfel/_backup/$(date +%F_%H%M%S)
+#   2) 更新代码（排除 db.sqlite3/uploads/.env，避免覆盖线上数据）
+#   3) 从备份恢复 db.sqlite3 + uploads + .env（保留业务数据）
+#   4) pip install -r requirements.txt（如有新依赖）
+#   5) migrate（种子幂等）+ collectstatic（收集 admin 等静态资源）
+#   6) npm ci && npm run build → frontend-dist/
+#   7) systemctl restart gipfel
 ```
 
 ### 回滚
