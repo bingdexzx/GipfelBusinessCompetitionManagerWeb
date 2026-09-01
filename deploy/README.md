@@ -10,6 +10,8 @@ sudo bash scripts/deploy-linux.sh \
   --with-nginx
 ```
 
+> **依赖说明**：脚本默认会自动 `apt-get install` 所需系统包（`python3` / `nginx` / `nodejs` / **`rsync`** 等）。若使用 `--skip-install-deps` 跳过安装，需确保目标机**已装好 `rsync`**——代码同步阶段强依赖它，缺失会报 `rsync: command not found`。
+
 ### 脚本执行完之后
 
 | 产物 | 位置 |

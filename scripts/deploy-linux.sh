@@ -7,7 +7,7 @@
 #   sudo bash deploy-linux.sh --install-dir /opt/gipfel --with-nginx --skip-install-deps
 #
 # 步骤：
-#   1. 系统依赖（python3-venv python3-dev nodejs npm nginx）
+#   1. 系统依赖（python3-venv python3-dev nodejs npm nginx rsync）
 #   2. 同步代码到 $INSTALL_DIR，备份已有数据
 #   3. 虚拟环境 + pip
 #   4. migrate（自动 seed 默认 admin）
@@ -71,13 +71,13 @@ check_exists "$PROJECT_ROOT/deploy/nginx-gipfel.conf"
 
 # ---------------- 1. 系统依赖 ----------------
 if [[ $SKIP_INSTALL_DEPS -eq 0 ]]; then
-    log "安装系统依赖：python3-venv python3-dev nodejs npm nginx curl ca-certificates"
+    log "安装系统依赖：python3-venv python3-dev nodejs npm nginx rsync curl ca-certificates"
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -y
     apt-get install -y \
         python3 python3-venv python3-dev python3-pip \
         curl ca-certificates gnupg lsb-release \
-        nginx openssl
+        nginx openssl rsync
 
     # NodeSource 20 LTS（apt 默认 node 太老）
     if ! command -v node >/dev/null 2>&1 || [[ "$(node -v | cut -d. -f1 | tr -d v)" -lt 18 ]]; then
@@ -90,6 +90,9 @@ if [[ $SKIP_INSTALL_DEPS -eq 0 ]]; then
 else
     log "跳过系统依赖安装（--skip-install-deps）"
 fi
+
+# rsync 是代码同步的硬依赖（即便 --skip-install-deps 也必须存在，否则下方 rsync 直接 command not found）
+command -v rsync >/dev/null 2>&1 || err "缺少 rsync，请先执行：apt-get install -y rsync（或重跑本脚本去掉 --skip-install-deps 以自动安装）"
 
 # ---------------- 1.5 创建专用运行用户 ----------------
 if ! id gipfel >/dev/null 2>&1; then
