@@ -24,14 +24,24 @@ if /i "%~1"=="--skip-frontend" set "SKIPFE=1"
 
 REM ---------- 1. Environment checks ----------
 echo [INFO]  Checking environment...
+REM 探测可用的 Python 命令：优先 python，其次 py -3，最后退而用已存在的 .venv
+set "PYCMD="
 where python >nul 2>nul
-if errorlevel 1 (
-  echo [ERROR] python not found. Install Python 3.10+ and add to PATH.
+if not errorlevel 1 set "PYCMD=python"
+if not defined PYCMD (
+  py -3 --version >nul 2>nul
+  if not errorlevel 1 set "PYCMD=py -3"
+)
+if not defined PYCMD (
+  if exist "%BACKEND%\.venv\Scripts\python.exe" set "PYCMD=%BACKEND%\.venv\Scripts\python.exe"
+)
+if not defined PYCMD (
+  echo [ERROR] Python 3.10+ not found. Install Python 3.10+ (add to PATH) or the Windows Store 'py' launcher.
   goto :fail
 )
-for /f "tokens=*" %%v in ('python -c "import sys;print(sys.version_info.major)"') do set "PYMAJOR=%%v"
-for /f "tokens=*" %%v in ('python -c "import sys;print(sys.version_info.minor)"') do set "PYMINOR=%%v"
-echo [INFO]   python: %PYMAJOR%.%PYMINOR%
+for /f "tokens=*" %%v in ('%PYCMD% -c "import sys;print(sys.version_info.major)"') do set "PYMAJOR=%%v"
+for /f "tokens=*" %%v in ('%PYCMD% -c "import sys;print(sys.version_info.minor)"') do set "PYMINOR=%%v"
+echo [INFO]   python: %PYMAJOR%.%PYMINOR%  (using: %PYCMD%)
 if %PYMAJOR% LSS 3 (
   echo [ERROR] Python too old: %PYMAJOR%.%PYMINOR% -- need 3.10 or newer
   goto :fail
@@ -86,7 +96,7 @@ set "PY=%BACKEND%\.venv\Scripts\python.exe"
 set "PIP=%BACKEND%\.venv\Scripts\pip.exe"
 if not exist "%PY%" (
   echo [INFO]  Creating virtualenv .venv ...
-  python -m venv .venv
+  %PYCMD% -m venv .venv
   if not exist "%PY%" (
     echo [ERROR] venv creation failed
     goto :fail
@@ -144,6 +154,8 @@ echo    1) Start Django + Vite + LogViewer: scripts\start-dev.bat
 echo    2) Open http://localhost:5173  login admin / admin123 (force-change on first login)
 echo.
 cd /d "%~dp0"
+echo [TIP]  Press any key to close this window...
+pause
 exit /b 0
 
 :fail
@@ -151,4 +163,6 @@ echo.
 echo [ERROR] Bootstrap FAILED. See messages above.
 echo.
 cd /d "%~dp0"
+echo [TIP]  Press any key to close this window...
+pause
 exit /b 1
