@@ -153,11 +153,14 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
         grep -q '^CORS_ORIGIN=' "$INSTALL_DIR/backend/.env" || \
             echo "CORS_ORIGIN=https://${DOMAIN},http://${DOMAIN}" >> "$INSTALL_DIR/backend/.env"
     else
-        # 无域名（纯 IP）部署：日志查看器走 8120 端口，显式下发公网地址，
-        # 避免前端 /api/version 把 Host 推导成错误的 https://log.<IP>/
-        SERVER_IP="$(hostname -I | awk '{print $1}')"
-        if [[ -n "$SERVER_IP" ]]; then
-            echo "LOG_VIEWER_PUBLIC_URL=http://${SERVER_IP}:8120/" >> "$INSTALL_DIR/backend/.env"
+        # 无域名（纯 IP）部署：日志查看器走 8120 端口，显式下发【公网】地址，
+        # 避免前端 /api/version 把 Host 推导成错误的 https://log.<IP>/ 或误用内网 IP。
+        # 重要：必须用公网 IP（用户从公网访问），不能用 hostname -I 首地址（通常为内网/私网 IP）。
+        LV_PUBLIC_IP="$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+        if [[ -n "$LV_PUBLIC_IP" ]]; then
+            echo "LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/" >> "$INSTALL_DIR/backend/.env"
+        else
+            warn "未能自动获取公网 IP，未写入 LOG_VIEWER_PUBLIC_URL；日志查看器地址将由后端按请求 Host 推导（请确保经公网 IP 访问）。"
         fi
     fi
     # 日志查看器防直连令牌密钥：缺失则生成随机值（与主后端共用同一 .env，保证两端密钥一致）

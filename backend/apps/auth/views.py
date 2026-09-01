@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 from django.conf import settings
 from django.core.signing import TimestampSigner
@@ -71,11 +72,16 @@ class VersionView(APIView):
         log_viewer_url = os.environ.get("LOG_VIEWER_PUBLIC_URL", "").strip()
         if not log_viewer_url:
             host = (request.get_host().split(":") or [""])[0]
-            log_viewer_url = (
-                f"https://log.{host}/"
-                if host
-                else f"http://127.0.0.1:{settings.LOG_VIEWER_PORT}/"
-            )
+            if host:
+                # 纯 IP 部署：日志查看器与前端同主机、走 8120 端口，用 http://<ip>:8120/；
+                # 域名部署：用 https://log.<domain>/（需配套 DNS A 记录 + certbot 覆盖子域）。
+                # 注意：Host 是客户端实际访问地址（经公网即公网 IP），故纯 IP 形态能正确推导公网地址。
+                if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", host) or host.startswith("["):
+                    log_viewer_url = f"http://{host}:{settings.LOG_VIEWER_PORT}/"
+                else:
+                    log_viewer_url = f"https://log.{host}/"
+            else:
+                log_viewer_url = f"http://127.0.0.1:{settings.LOG_VIEWER_PORT}/"
         return Response(
             {
                 "version": VERSION,
