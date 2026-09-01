@@ -547,12 +547,8 @@ body.modal-open .app-layout {
     row-gap: 8px;
     justify-content: flex-start;
   }
-  // 顶栏工具栏：平板/手机下保证标题单行——标题可收缩省略，操作区可换行，
-  // 配合 SearchToggle 把搜索收成按钮，搜索栏不再挤压标题
-  .mm-toolbar,
-  .dm-toolbar {
-    flex-wrap: wrap;
-  }
+  // 顶栏工具栏：平板/手机下标题与操作区(搜索按钮+新建)保持同一行；
+  // 标题可收缩省略，不挤压操作区。配合 SearchToggle 把搜索收成按钮，搜索栏不再占位。
   .app-content .mm-title,
   .app-content .dm-title,
   .mm-title,

@@ -380,14 +380,7 @@ function resetForm() {
   gap: 8px;
 }
 @media (max-width: 640px) {
-  .dm-toolbar {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 12px;
-  }
-  .dm-actions {
-    width: 100%;
-  }
+  /* 手机下工具栏仍保持「标题 + 操作区」同一行：标题省略，搜索收成按钮不挤压 */
   /* 表单标签在窄屏改为顶部堆叠，避免 label-width 挤压输入框 */
   .dm-form :deep(.el-form-item) {
     display: block;

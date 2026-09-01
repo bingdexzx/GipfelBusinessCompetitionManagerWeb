@@ -3,13 +3,7 @@
     <div class="mm-toolbar">
       <h2 class="mm-title">{{ authStore.can("data:material:edit") ? "原料管理" : "原料" }}</h2>
       <div class="mm-actions">
-        <el-input
-          v-model="searchText"
-          placeholder="搜索原料"
-          clearable
-          style="width: 200px"
-          size="default"
-        />
+        <SearchToggle v-model="searchText" placeholder="搜索原料" />
         <el-button v-if="authStore.can('data:material:edit')" type="primary" @click="openCreate"
           >+ 新建</el-button
         >
@@ -200,6 +194,7 @@ import { confirmDeleteWithImpact } from "@/utils/deleteConfirm";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
+import SearchToggle from "@/components/common/SearchToggle.vue";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 
 const compStore = useCompetitionStore();
