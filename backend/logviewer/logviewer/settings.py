@@ -75,6 +75,9 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    # 运行时把当前请求来源动态纳入 CSRF_TRUSTED_ORIGINS，避免 Django 4+ 的 Origin 校验在
+    # 动态 IP/端口部署下误拒同源 POST（如 /api/auth/login 报 403）。须位于 CsrfViewMiddleware 之前。
+    "logviewer.middleware.LogViewerCsrfTrustMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
