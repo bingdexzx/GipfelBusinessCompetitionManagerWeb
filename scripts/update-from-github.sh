@@ -23,8 +23,11 @@
 #   3. 更新后端：pip install -r requirements.txt → migrate → collectstatic
 #   4. 更新前端：npm ci && npm run build → frontend-dist
 #   5. chown 归属运行用户 gipfel，.env 权限 600
-#   6. systemctl restart gipfel（+ gipfel-logviewer 日志查看器）
-#   7. [可选] --with-nginx：用最新 deploy/nginx-gipfel.conf 重新生成 vhost 并 reload
+#   6. 刷新并重启 systemd 服务：把最新 deploy/*.service 重新落到 /etc/systemd/system/（替换 __INSTALL_DIR__，
+#      daemon-reload），再 systemctl restart gipfel（+ gipfel-logviewer 日志查看器）。这一步保证仓库对服务单元
+#      的改动（如 8121 端口修复）能传播到 live 单元，与 deploy-linux.sh 第 6 步一致。
+#   7. [可选] --with-nginx：用最新 deploy/nginx-gipfel.conf 重新生成 vhost（按 --domain 保留对应日志查看器块）
+#      并 reload（含 80 端口校验、默认站点禁用、防火墙放行）
 #
 # 注意：
 #   - 数据文件（db.sqlite3 / uploads / .env / logs / staticfiles / .venv / node_modules / frontend-dist）
@@ -167,7 +170,23 @@ chown -R gipfel:gipfel "$INSTALL_DIR"
 chmod 600 "$INSTALL_DIR/backend/.env" 2>/dev/null || true
 ok "文件归属已切换为 gipfel，.env 权限收紧为 600"
 
-# ---------------- 5. 重启服务 ----------------
+# ---------------- 5. 刷新并重启 systemd 服务 ----------------
+# 重要：升级时必须把最新的 deploy/*.service 重新落到 /etc/systemd/system/（替换 __INSTALL_DIR__），
+#        否则仓库中对服务单元的改动（如日志查看器 8121 端口修复、ExecStart 变更）不会传播到 live 单元，
+#        重启后仍使用旧配置。与 deploy-linux.sh 第 6 步保持一致。
+refresh_unit() {
+    local src="$1" name="$2"
+    [[ -f "$src" ]] || { warn "找不到服务单元模板 $src，跳过刷新 $name"; return; }
+    local tmp="$INSTALL_DIR/deploy/$(basename "$src")"
+    sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$src" > "$tmp"
+    cp -f "$tmp" "/etc/systemd/system/$name"
+    systemctl enable "$name" 2>/dev/null || true
+    ok "已刷新并启用服务单元 $name → /etc/systemd/system/$name"
+}
+refresh_unit "$INSTALL_DIR/deploy/gipfel.service" gipfel.service
+refresh_unit "$INSTALL_DIR/deploy/logviewer.service" gipfel-logviewer.service
+systemctl daemon-reload
+
 if systemctl cat gipfel.service >/dev/null 2>&1; then
     log "重启 gipfel.service"
     systemctl restart gipfel
@@ -199,10 +218,19 @@ fi
 if [[ $WITH_NGINX -eq 1 ]]; then
     VHOST_TMPL="$INSTALL_DIR/deploy/nginx-gipfel.conf"
     [[ -f "$VHOST_TMPL" ]] || err "找不到 nginx 模板：$VHOST_TMPL"
+    VHOST_OUT="/etc/nginx/sites-available/gipfel.conf"
     log "重新生成 nginx 虚拟主机"
     sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" \
         -e "s|__DOMAIN__|${DOMAIN:-_}|g" \
-        "$VHOST_TMPL" > /etc/nginx/sites-available/gipfel.conf
+        "$VHOST_TMPL" > "$VHOST_OUT"
+    # 按是否传 --domain 保留日志查看器对应的 server 块（与 deploy-linux.sh 一致）：
+    #   有域名 → 保留 log.<DOMAIN> 子域块，删除 8120 端口块；
+    #   无域名（纯 IP）→ 保留 8120 端口块，删除子域块（server_name log._ 形同失效，移除避免歧义）。
+    if [[ -n "$DOMAIN" ]]; then
+        sed -i '/# === LOGVIEWER_PORT8120_START ===/,/# === LOGVIEWER_PORT8120_END ===/d' "$VHOST_OUT"
+    else
+        sed -i '/# === LOGVIEWER_SUBDOMAIN_START ===/,/# === LOGVIEWER_SUBDOMAIN_END ===/d' "$VHOST_OUT"
+    fi
     # 按 nginx.conf 实际 include 风格放置 gipfel 配置（兼容 sites-enabled 与仅 include conf.d 的精简镜像）
     if grep -q 'sites-enabled' /etc/nginx/nginx.conf 2>/dev/null; then
         ln -sf /etc/nginx/sites-available/gipfel.conf /etc/nginx/sites-enabled/gipfel.conf
@@ -228,8 +256,36 @@ if [[ $WITH_NGINX -eq 1 ]]; then
         fi
     done
     nginx -t || err "nginx -t 失败，请修正"
-    systemctl reload nginx
-    ok "nginx 配置已 reload"
+    # 全新服务器 nginx 可能尚未启动，reload 对未运行服务会失败；按状态选择 start / reload
+    systemctl enable nginx 2>/dev/null || true
+    if systemctl is-active --quiet nginx; then
+        systemctl reload nginx
+        ok "nginx 配置已 reload"
+    else
+        systemctl start nginx
+        ok "nginx 已启动"
+    fi
+    # 验证：80 端口不应再返回 nginx 默认欢迎页；若后端未起则给出 502 排查提示而非误判
+    sleep 1
+    if command -v curl >/dev/null 2>&1; then
+        _body="$(curl -s --max-time 5 http://127.0.0.1/ 2>/dev/null || true)"
+        if printf '%s' "$_body" | grep -qi 'Welcome to nginx'; then
+            warn "80 端口仍返回 nginx 默认欢迎页：默认站点未被完全禁用。请检查 /etc/nginx/nginx.conf 是否内联了默认 server 块，或仍有其它 sites-enabled/* 配置冲突"
+        elif ! systemctl is-active --quiet gipfel; then
+            warn "nginx 已正确接管 80 端口，但后端 gipfel 服务未运行，访问将出现 502；请执行：sudo systemctl restart gipfel"
+        else
+            ok "80 端口验证通过：gipfel 站点已生效（非默认欢迎页）"
+        fi
+    fi
+    # 无域名：日志查看器经 8120 端口暴露公网，需放行防火墙（与 deploy-linux.sh 一致）
+    if [[ -z "$DOMAIN" ]]; then
+        if command -v ufw >/dev/null 2>&1; then
+            ufw allow 8120/tcp >/dev/null 2>&1 || true
+            ok "已放行防火墙 8120 端口（ufw 规则已添加；若 ufw 未启用则该规则暂未生效）"
+        else
+            warn "无域名部署：请确认云/系统防火墙放行 TCP 8120，否则 http://<IP>:8120/ 不可达。"
+        fi
+    fi
 fi
 
 # ---------------- 收尾 ----------------
