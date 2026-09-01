@@ -157,13 +157,18 @@ function handleLogout() {
 .menu-toggle:hover {
   color: var(--color-primary);
 }
-/* 抽屉模式(平板/手机)顶栏上下文：当前比赛 + 财年，直接可见，避免藏在抽屉侧栏 */
+/* 抽屉模式(平板/手机)顶栏上下文：当前比赛 + 财年，直接可见，避免藏在抽屉侧栏；
+   外部套框，与电脑模式侧栏 .brand-meta 的呈现一致（边框 + 浅灰底 + 圆角） */
 .topbar-context {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
   overflow: hidden;
+  padding: 3px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: #f7f8fa;
 }
 .topbar-context .ctx-tag {
   flex-shrink: 0;
