@@ -47,7 +47,7 @@ JWT_EXPIRES_IN = os.environ.get("JWT_EXPIRES_IN", "24h")
 # · 后台超管：django.contrib.auth.User（/admin 登录用，is_staff/is_superuser）
 SEED_ADMIN_USERNAME = os.environ.get("SEED_ADMIN_USERNAME", "admin")
 SEED_ADMIN_EMAIL = os.environ.get("SEED_ADMIN_EMAIL", "admin@example.com")
-SEED_ADMIN_PASSWORD = os.environ.get("SEED_ADMIN_PASSWORD", "admin123")
+SEED_ADMIN_PASSWORD = os.environ.get("SEED_ADMIN_PASSWORD", "admin23")
 
 # 日志
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()

@@ -37,7 +37,7 @@ src/
 │   ├── index.ts            axios 实例（baseURL=/api）+ 所有业务接口（与原 NestJS 路由签名一致）
 │   └── types.ts            业务类型（Company/Material/Part/...），同步后端序列化 camelCase 契约
 ├── utils/
-│   ├── permissions/        31 权限键 / 角色动作等级继承表 / has_permission / can()
+│   ├── permissions/        41 权限键 / 角色动作等级继承表 / has_permission / can()
 │   ├── case.ts             toCamel/toSnake 工具
 │   └── constants.ts        枚举
 ├── realtime/

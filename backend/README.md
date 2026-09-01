@@ -13,7 +13,9 @@ pip install -r requirements.txt
 python manage.py migrate
 
 # 3. 启动 daphne（HTTP + Socket.IO 同源同端口，端口来自 .env 的 PORT，默认 8000）
-#    注意：必须用 daphne（ASGI）而非 runserver，否则 Socket.IO 的 WebSocket 升级无法处理。
+#    daphne 已在 INSTALLED_APPS 首位并接管 Django 自带的 runserver 命令，因此
+#    `manage.py runserver` 实际即以 ASGI/daphne 运行，HTTP + Socket.IO WebSocket 同源同端口；
+#    生产推荐用项目自带 rundaphne 命令（端口自动取 .env 的 PORT，前端跳转按钮跟随）：
 #    推荐用自带的 rundaphne 命令，端口自动取 .env 的 PORT（前端后台跳转按钮也会跟随该端口）：
 python manage.py rundaphne
 #    如需局域网/容器访问（绑定所有网卡）：

@@ -1,6 +1,6 @@
 """权限目录与 RBAC：对应原 server/src/permissions/catalog.ts。
 
-31 个权限 key，18 个域，动作等级蕴含：
+41 个权限 key，20 个域，动作等级蕴含：
     manage ⊇ execute ⊇ audit ⊇ edit ⊇ view
 （合同域自定义：manage ⊇ execute ⊇ audit ⊇ view）
 """

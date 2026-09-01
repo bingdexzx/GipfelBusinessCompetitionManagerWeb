@@ -155,7 +155,7 @@ fi
 ok "Python 依赖安装完成"
 
 # ---------------- 4. 数据库迁移 + seed 默认 admin ----------------
-log "执行 migrate（首次会自动建 admin/admin123）"
+log "执行 migrate（首次会自动建 admin/admin23）"
 ".venv/bin/python" manage.py check --fail-level ERROR
 ".venv/bin/python" manage.py migrate --noinput
 ok "数据库迁移完成"
@@ -229,5 +229,5 @@ if [[ $WITH_NGINX -eq 1 ]]; then
 echo "  网站：        ${DOMAIN:-http://$(hostname -I | awk '{print $1}')}"
 echo "  Nginx 状态：  systemctl status nginx"
 fi
-echo "  默认超管：    admin / admin123（首次登录强制改密）"
+echo "  默认超管：    admin / admin23（首次登录强制改密）"
 echo "  日志：        journalctl -u gipfel -f   /   tail -F $INSTALL_DIR/backend/logs/app.log"
