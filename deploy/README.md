@@ -132,7 +132,22 @@ sudo bash scripts/deploy-linux.sh \
 #                 日志查看器改为 :8120 端口块，访问 http://<IP>:8120/；
 #                 .env 自动写入 LOG_VIEWER_PUBLIC_URL=http://<IP>:8120/；
 #                 ufw 自动放行 8120（若无 ufw 则提示手动放行云安全组）。
+
+# 受限网络自动探测不到公网 IP、或非交互环境（CI/管道）想避免卡在手动输入时，
+# 直接显式传 --public-ip（脚本会跳过探测与交互，绝不卡住）：
+sudo bash scripts/deploy-linux.sh \
+  --install-dir /opt/gipfel \
+  --with-nginx \
+  --public-ip 43.142.77.225
 ```
+
+**`LOG_VIEWER_PUBLIC_URL` 取值优先级**（deploy 与 update 脚本一致）：
+1. `--public-ip <IP>` 显式指定 → 直接采用（最优先，非交互）；
+2. 多服务探测兜底（ipify → ifconfig.me → icanhazip）成功 → 采用探测到的公网 IP；
+3. 探测全失败且是交互终端 → 提示手动输入（**带 60s 超时**，超时则跳过，不卡部署）；
+4. 探测全失败且非交互终端 → 不写该行，由后端按请求 Host（nginx 透传 `$host`=公网 IP）推导为 `http://<公网IP>:8120/`。
+
+> ⚠️ 切勿用 `hostname -I` 首地址或 Docker 网桥 IP（`172.16–31.x.x`、`10.x`、`192.168.x`、`169.254.x`）充当日志查看器公网地址——这些会暴露内网入口或导致前端跳转打不开。脚本已对 `.env` 中误写的内网 IP 做「自愈」纠正（重部署/升级时自动替换为公网 IP；探测仍失败则移除该行交后端推导）。
 
 - **HTTP 非 HTTPS**：无域名时全站走 HTTP，cookie 非 Secure，功能正常；后续买了域名重跑 `deploy-linux.sh --domain 你的域名 --with-nginx` 即可平滑切换到子域 + HTTPS。
 - **访问入口**：浏览器 `http://<IP>/`；日志查看器 `http://<IP>:8120/`（前端「系统设置 → 日志查看器」按钮，需超级管理员登录）。

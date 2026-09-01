@@ -42,6 +42,7 @@ INSTALL_DIR=""
 SOURCE_DIR=""
 REPO=""
 WITH_NGINX=0
+PUBLIC_IP=""   # 显式指定公网 IP（无域名纯 IP 部署日志查看器用）；非空则跳过自动探测
 
 usage() {
     cat <<EOF
@@ -50,6 +51,8 @@ Usage: $0 [options]
   --source-dir PATH        本地源码 checkout；git pull 后 rsync 同步到 INSTALL_DIR（兼容 deploy-linux.sh 模型）
   --repo URL               仓库地址；当 INSTALL_DIR 非 git 仓库且目录为空时用于克隆
   --domain DOMAIN          公网域名（仅在 --with-nginx 时用于重写 nginx server_name）
+  --public-ip IP           公网 IP（无 --domain 部署时日志查看器使用 http://<IP>:8120/）；
+                          显式传入可跳过自动探测，确保受限网络下也能纠正内网 IP 或补全缺失行
   --with-nginx             更新后重新生成 nginx 虚拟主机并 reload
   -h, --help               显示本帮助
 EOF
@@ -61,6 +64,7 @@ while [[ $# -gt 0 ]]; do
         --source-dir)       SOURCE_DIR="$2"; shift 2 ;;
         --repo)             REPO="$2"; shift 2 ;;
         --domain)           DOMAIN="$2"; shift 2 ;;
+        --public-ip)        PUBLIC_IP="$2"; shift 2 ;;
         --with-nginx)       WITH_NGINX=1; shift ;;
         -h|--help)          usage; exit 0 ;;
         *) echo "未知参数 $1"; usage; exit 2 ;;
@@ -79,6 +83,23 @@ log()   { printf "\033[36m[INFO]\033[0m %s\n" "$*"; }
 ok()    { printf "\033[32m[OK]\033[0m   %s\n" "$*"; }
 warn()  { printf "\033[33m[WARN]\033[0m %s\n" "$*"; }
 err()   { printf "\033[31m[ERROR]\033[0m %s\n" "$*"; exit 1; }
+
+# 规范化用户/探测得到的地址：去 http(s):// 前缀、去路径/端口后缀；IPv6 保留方括号。
+# 用法：normalize_ip "$RAW"  （结果经 stdout 返回）
+normalize_ip() {
+    local s="$1"
+    s="${s#http://}"; s="${s#https://}"
+    if [[ "$s" == \[* ]]; then
+        s="${s%%]*}]"     # IPv6 带方括号：仅保留 [....]
+    else
+        s="${s%%/*}"      # 去掉 /path 或 :port/path
+        # IPv4（含点）再去掉尾随 :port；裸 IPv6 不动，避免误伤其冒号分隔
+        if [[ "$s" == *.* && "$s" == *:* ]]; then
+            s="${s%%:*}"
+        fi
+    fi
+    printf '%s' "$s"
+}
 
 # ---------------- 确定代码来源并拉取最新 ----------------
 if [[ -d "$INSTALL_DIR/.git" ]]; then
@@ -170,24 +191,45 @@ chown -R gipfel:gipfel "$INSTALL_DIR"
 chmod 600 "$INSTALL_DIR/backend/.env" 2>/dev/null || true
 ok "文件归属已切换为 gipfel，.env 权限收紧为 600"
 
-# 自愈：无域名部署时，若 .env 中 LOG_VIEWER_PUBLIC_URL 指向内网/私网 IP，
-# 自动纠正为公网 IP（升级脚本只备份/恢复 .env、不重新生成，故首次部署误写的内网 IP
-# 会在多次升级后持续生效；此处兜底纠正。已是公网 IP 或域名形态时不改动；
+# 自愈：无域名部署时，纠正/补全 .env 中 LOG_VIEWER_PUBLIC_URL。
+#   - 显式 --public-ip：无论当前有无/对错，都以它为准写入（覆盖内网 IP 或缺失该行）
+#   - 否则：仅当当前值指向内网/私网 IP 才纠正；已是公网 IP/域名/缺失行则不动
 # 公网 IP 探测失败则移除该行，改由后端按请求 Host 推导（nginx 透传 $host=公网 IP）。
 if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
     LV_CUR="$(grep -E '^LOG_VIEWER_PUBLIC_URL=' "$INSTALL_DIR/backend/.env" | tail -n1 | sed -E 's#^LOG_VIEWER_PUBLIC_URL=https?://##; s#[/:].*##')"
-    if [[ -n "$LV_CUR" ]]; then
+    LV_NEED_FIX=0
+    if [[ -n "$PUBLIC_IP" ]]; then
+        LV_NEED_FIX=1   # 显式指定：强制以 --public-ip 为准（覆盖内网 IP 或缺失行）
+    elif [[ -n "$LV_CUR" ]]; then
         if [[ "$LV_CUR" =~ ^10\. ]] || \
            [[ "$LV_CUR" =~ ^192\.168\. ]] || \
            [[ "$LV_CUR" =~ ^172\.(1[6-9]|2[0-9]|3[01])\. ]] || \
            [[ "$LV_CUR" =~ ^169\.254\. ]] || \
            [[ "$LV_CUR" =~ ^127\. ]]; then
+            LV_NEED_FIX=1
+        fi
+    fi
+    if [[ $LV_NEED_FIX -eq 1 ]]; then
+        if [[ -n "$PUBLIC_IP" ]]; then
+            LV_PUBLIC_IP="$(normalize_ip "$PUBLIC_IP")"
+            if grep -q '^LOG_VIEWER_PUBLIC_URL=' "$INSTALL_DIR/backend/.env"; then
+                if [[ "$LV_PUBLIC_IP" == *:* && "$LV_PUBLIC_IP" != \[* ]]; then
+                    sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://[${LV_PUBLIC_IP}]:8120/|" "$INSTALL_DIR/backend/.env"
+                else
+                    sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/|" "$INSTALL_DIR/backend/.env"
+                fi
+            else
+                echo "LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/" >> "$INSTALL_DIR/backend/.env"
+            fi
+            warn "已按 --public-ip 写入 LOG_VIEWER_PUBLIC_URL=${LV_PUBLIC_IP}（原值：${LV_CUR:-无}）。"
+        else
             # 多服务兜底探测公网 IP（任一可达即可）；均失败则回退「移除该行，交给后端按 Host 推导」
             LV_PUBLIC_IP="$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null)"
             [ -z "$LV_PUBLIC_IP" ] && LV_PUBLIC_IP="$(curl -s --max-time 5 https://ifconfig.me 2>/dev/null)"
             [ -z "$LV_PUBLIC_IP" ] && LV_PUBLIC_IP="$(curl -s --max-time 5 https://icanhazip.com 2>/dev/null)"
             if [[ -n "$LV_PUBLIC_IP" && "$LV_PUBLIC_IP" != "$LV_CUR" ]]; then
-                if [[ "$LV_PUBLIC_IP" == *:* ]]; then
+                LV_PUBLIC_IP="$(normalize_ip "$LV_PUBLIC_IP")"
+                if [[ "$LV_PUBLIC_IP" == *:* && "$LV_PUBLIC_IP" != \[* ]]; then
                     sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://[${LV_PUBLIC_IP}]:8120/|" "$INSTALL_DIR/backend/.env"
                 else
                     sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/|" "$INSTALL_DIR/backend/.env"
