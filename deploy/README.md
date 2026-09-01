@@ -17,9 +17,9 @@ sudo bash scripts/deploy-linux.sh \
 部署脚本必须在源码树内执行（`scripts/deploy-linux.sh` 的相对路径依赖它所在目录），所以**先 clone 到服务器，再进去跑脚本**。
 
 ```bash
-# 1) 克隆仓库（默认分支 master）
-git clone https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git
-cd GipfelBusinessCompetitionManagerWeb
+# 1) 克隆仓库到 /opt（默认分支 master；克隆目录不要叫 /opt/gipfel，否则会与安装目录 rsync 自拷贝冲突）
+git clone https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git /opt/GipfelBusinessCompetitionManagerWeb
+cd /opt/GipfelBusinessCompetitionManagerWeb
 
 # 2) 一键部署：纯 IP 先用「无 --domain」，有域名加 --domain
 sudo bash scripts/deploy-linux.sh --install-dir /opt/gipfel --with-nginx
@@ -53,8 +53,9 @@ sudo bash scripts/deploy-linux.sh --install-dir /opt/gipfel --with-nginx
 > export http_proxy=http://127.0.0.1:38457
 > export https_proxy=http://127.0.0.1:38457
 > 
-> # 5) 之后即可正常 clone GitHub 仓库
-> git clone https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git
+> # 5) 之后即可正常 clone GitHub 仓库到 /opt
+> git clone https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git /opt/GipfelBusinessCompetitionManagerWeb
+> cd /opt/GipfelBusinessCompetitionManagerWeb
 > ```
 > 注意：FastGitHub 进程需保持运行；生产服务器建议用 `systemd` 或 `nohup/screen` 常驻。apt/pip/npm 等流量也会走该代理，通常无碍；若只想让 git 走代理，可用上方 `git config --global url...insteadOf` 方案。
 

@@ -176,8 +176,9 @@ npm run typecheck    # 类型检查（CI 必跑）
 完整步骤见 [`deploy/README.md`](deploy/README.md) 的「获取源码」一节。最简流程（默认分支 `master`，纯 IP 省略 `--domain`）：
 
 ```bash
-git clone https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git
-cd GipfelBusinessCompetitionManagerWeb
+# 克隆到 /opt（不要叫 /opt/gipfel，会与安装目录 rsync 自拷贝冲突）
+git clone https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git /opt/GipfelBusinessCompetitionManagerWeb
+cd /opt/GipfelBusinessCompetitionManagerWeb
 sudo bash scripts/deploy-linux.sh --install-dir /opt/gipfel --with-nginx
 # 有域名时加 --domain：sudo bash scripts/deploy-linux.sh --domain 你的域名 --install-dir /opt/gipfel --with-nginx
 ```
