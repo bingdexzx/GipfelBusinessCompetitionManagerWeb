@@ -149,18 +149,24 @@ sudo bash scripts/deploy-linux.sh \
 
 ### 更新部署（升级版本，保留数据）
 
+**推荐：使用专用升级脚本 [`update-from-github.sh`](../scripts/update-from-github.sh)**（自动「拉取最新 + 备份 + 迁移 + 收集静态 + 前端构建 + 重启」，保留数据，语义最贴合升级）：
+
 ```bash
-cd GipfelBusinessCompetitionManagerWeb
-sudo scripts/deploy-linux.sh --domain comp.example.com --install-dir /opt/gipfel --with-nginx --skip-install-deps
-# 脚本自动：
-#   1) 备份 db.sqlite3 + uploads + .env 到 /opt/gipfel/_backup/$(date +%F_%H%M%S)
-#   2) 更新代码（排除 db.sqlite3/uploads/.env，避免覆盖线上数据）
-#   3) 从备份恢复 db.sqlite3 + uploads + .env（保留业务数据）
-#   4) pip install -r requirements.txt（如有新依赖）
-#   5) migrate（种子幂等）+ collectstatic（主后端 + 日志查看器静态资源）
-#   6) npm ci && npm run build → frontend-dist/
-#   7) systemctl restart gipfel（+ gipfel-logviewer 日志查看器）
+# 情况一：按本文档流程（clone 到独立目录 /opt/GipfelBusinessCompetitionManagerWeb，再 rsync 到 /opt/gipfel）→ 模式 B
+cd /opt/GipfelBusinessCompetitionManagerWeb
+sudo bash scripts/update-from-github.sh --source-dir /opt/GipfelBusinessCompetitionManagerWeb --install-dir /opt/gipfel --with-nginx
+# 情况二：部署目录 /opt/gipfel 本身就是 git clone → 模式 A：sudo bash scripts/update-from-github.sh --install-dir /opt/gipfel --with-nginx
 ```
+
+脚本自动：
+1) 拉取最新代码 2) 备份 `db.sqlite3`+`uploads`+`.env` 到 `/opt/gipfel/_backup/$(date +%F_%H%M%S)` 3) 更新代码（排除数据文件）4) `pip install -r requirements.txt`（如有新依赖）5) `migrate`（种子幂等）+ `collectstatic`（主后端 + 日志查看器静态资源）6) `npm ci && npm run build` → `frontend-dist/` 7) `systemctl restart gipfel`（+ `gipfel-logviewer` 日志查看器）。
+
+> **等价做法（仍可用）**：重跑部署脚本（需先从 clone 目录 pull 代码）：
+> ```bash
+> cd /opt/GipfelBusinessCompetitionManagerWeb
+> sudo scripts/deploy-linux.sh --domain comp.example.com --install-dir /opt/gipfel --with-nginx --skip-install-deps
+> ```
+> `deploy-linux.sh` 同样会备份/恢复数据并 restart；`--skip-install-deps` 跳过 apt 装包。两种路径效果一致，`update-from-github.sh` 更契合「拉取最新 + 升级」语义，建议优先使用。
 
 ### 回滚
 

@@ -202,17 +202,36 @@ sudo bash scripts/deploy-linux.sh --install-dir /opt/gipfel --with-nginx
 
 ### 增量升级（保留数据）
 
+**推荐：使用专用升级脚本 [`update-from-github.sh`](../scripts/update-from-github.sh)**——自动完成「拉取最新 + 备份 db/uploads/.env + 迁移 + 收集静态 + 前端构建 + 权限归属 + 重启」，与首次部署一致且保留数据，无需手敲多步：
+
+```bash
+# 情况一：部署目录 /opt/gipfel 本身就是 git clone（首次直接用 git clone 拉起）→ 模式 A 原地 pull
+sudo bash scripts/update-from-github.sh --install-dir /opt/gipfel --with-nginx
+#   有域名时加 --domain：sudo bash scripts/update-from-github.sh --install-dir /opt/gipfel --domain 你的域名 --with-nginx
+
+# 情况二：按本文档流程（clone 到独立目录 /opt/GipfelBusinessCompetitionManagerWeb，再用 deploy-linux.sh rsync 到 /opt/gipfel）→ 模式 B
+cd /opt/GipfelBusinessCompetitionManagerWeb
+sudo bash scripts/update-from-github.sh --source-dir /opt/GipfelBusinessCompetitionManagerWeb --install-dir /opt/gipfel --with-nginx
+```
+
+> 脚本自动：① 拉取最新代码 ② 备份 `db.sqlite3`+`uploads`+`.env` 到 `_backup/<时间戳>` ③ 更新代码（排除数据文件）④ `pip install`+`migrate`+`collectstatic` ⑤ `npm ci`+`npm run build`→`frontend-dist/` ⑥ chown 归属 gipfel、`.env` 权限 600 ⑦ restart `gipfel`(+`gipfel-logviewer`) ⑧ [--with-nginx] 刷新 vhost 并 reload。完整细节见 [`deploy/README.md`](deploy/README.md) 的「更新部署」一节。
+
+<details>
+<summary>手动升级步骤（不依赖脚本时，需自行处理备份 / 静态 / 权限，否则易踩坑）</summary>
+
 ```bash
 git pull                         # 拉取代码
 # 后端
 cd backend && .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 python manage.py migrate
+python manage.py collectstatic --noinput   # 生产环境 /admin 等静态资源必需，漏了会 404
 # 前端
 cd ../frontend && npm ci && npm run build
-# 重启
+# 重启（Linux 需先 chown -R gipfel:gipfel /opt/gipfel 并 chmod 600 .env，否则权限拒绝）
 systemctl restart gipfel        # Linux
 # Windows 开发：Ctrl+C 停 start-dev.bat 后重跑
 ```
+</details>
 
 升级后务必跑一次第 5 节的健康检查。
