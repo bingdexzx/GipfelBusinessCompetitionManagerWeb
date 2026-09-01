@@ -3,12 +3,7 @@
     <div class="mm-toolbar">
       <h2 class="mm-title">合同类型管理</h2>
       <div class="mm-actions">
-        <el-input
-          v-model="searchText"
-          placeholder="搜索名称 / key"
-          clearable
-          style="width: 200px"
-        />
+        <SearchToggle v-model="searchText" placeholder="搜索名称 / key" />
         <el-button
           :disabled="!authStore.can('contractType:manage')"
           @click="openSimpleNew"
@@ -178,6 +173,7 @@ import ContractTypeGraphEditor from "@/components/contracts/ContractTypeGraphEdi
 import SimpleContractTypeEditor from "@/components/contracts/simple/SimpleContractTypeEditor.vue";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
+import SearchToggle from "@/components/common/SearchToggle.vue";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 
 const authStore = useAuthStore();

@@ -3,12 +3,7 @@
     <div class="mm-toolbar">
       <h2 class="mm-title">产业类型管理</h2>
       <div class="mm-actions">
-        <el-input
-          v-model="searchText"
-          placeholder="搜索名称 / 编号"
-          clearable
-          style="width: 200px"
-        />
+        <SearchToggle v-model="searchText" placeholder="搜索名称 / 编号" />
         <el-button
           type="primary"
           :disabled="!authStore.can('industryType:manage')"
@@ -701,6 +696,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import IndustryFieldGraphEditor from "@/components/industry-types/IndustryFieldGraphEditor.vue";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
+import SearchToggle from "@/components/common/SearchToggle.vue";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 import { toPinyinKey } from "@/utils/pinyin";
 

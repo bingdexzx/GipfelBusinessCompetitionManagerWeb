@@ -3,12 +3,7 @@
     <div class="mm-toolbar">
       <h2 class="mm-title">{{ authStore.can("contract:manage") ? "合同管理" : "合同" }}</h2>
       <div class="mm-actions">
-        <el-input
-          v-model="searchText"
-          placeholder="搜索合同编号或类型"
-          clearable
-          style="width: 200px"
-        />
+        <SearchToggle v-model="searchText" placeholder="搜索合同编号或类型" />
         <el-button
           v-if="authStore.can('contract:manage')"
           type="primary"
@@ -630,6 +625,7 @@ import { useCompetitionReload } from "@/composables/useCompetitionReload";
 import { onRealtime, offRealtime } from "@/realtime/socket";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
+import SearchToggle from "@/components/common/SearchToggle.vue";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 import { useAuthStore } from "@/stores/auth";
 import { contractTypesApi, contractsApi, mapsApi, companyFieldsApi, industryTypesApi } from "@/api";

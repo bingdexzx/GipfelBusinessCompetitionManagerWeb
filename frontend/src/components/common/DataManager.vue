@@ -3,13 +3,7 @@
     <div class="dm-toolbar">
       <h2 class="dm-title">{{ title }}</h2>
       <div class="dm-actions">
-        <el-input
-          v-model="searchText"
-          :placeholder="`搜索${title}`"
-          clearable
-          class="dm-search"
-          size="default"
-        />
+        <SearchToggle v-model="searchText" :placeholder="`搜索${title}`" />
         <el-button type="primary" v-if="canManage" @click="openCreate">+ 新建</el-button>
       </div>
     </div>
@@ -152,6 +146,7 @@ import { useCompetitionStore } from "@/stores/competition";
 import { useCompetitionReload } from "@/composables/useCompetitionReload";
 import { useAuthStore } from "@/stores/auth";
 import { useBreakpoint } from "@/composables/useBreakpoint";
+import SearchToggle from "@/components/common/SearchToggle.vue";
 import { confirmDeleteWithImpact } from "@/utils/deleteConfirm";
 
 interface Column {
@@ -384,9 +379,6 @@ function resetForm() {
   display: flex;
   gap: 8px;
 }
-.dm-search {
-  width: 200px;
-}
 @media (max-width: 640px) {
   .dm-toolbar {
     flex-direction: column;
@@ -395,11 +387,6 @@ function resetForm() {
   }
   .dm-actions {
     width: 100%;
-  }
-  .dm-search {
-    flex: 1;
-    width: auto;
-    min-width: 0;
   }
   /* 表单标签在窄屏改为顶部堆叠，避免 label-width 挤压输入框 */
   .dm-form :deep(.el-form-item) {
