@@ -28,7 +28,7 @@ LOGVIEWER_GATE_MAX_AGE = int(os.environ.get("LOGVIEWER_GATE_MAX_AGE", "120"))
 # 网关通过后写入会话的键名（signed_cookies 会话，无需数据库）
 LOGVIEWER_GATE_SESSION_KEY = "lv_gate"
 
-# ---------------- 反向代理（nginx 整站代理到 127.0.0.1:8120） ----------------
+# ---------------- 反向代理（nginx 整站代理到 127.0.0.1:8121；公网 8120 由 nginx 监听反代） ----------------
 # 让日志查看器正确识别 HTTPS（nginx 终止 TLS 后转发 X-Forwarded-Proto）
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 

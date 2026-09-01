@@ -103,10 +103,10 @@ curl -sS -I http://127.0.0.1/         # 200（nginx 托管 index.html）
 
 ### 日志查看器公网访问（防直连）
 
-日志查看器作为独立 Django 站点，经 nginx **整站代理**到 `127.0.0.1:8120`（不直连公网）。代理形态分两种：
+日志查看器作为独立 Django 站点，经 nginx **整站代理**到 `127.0.0.1:8121`（日志查看器 daphne 仅绑内网 8121，公网 8120 由 nginx 监听并反代；若 daphne 也用 8120 会与 nginx 抢端口导致 nginx 起不来）。代理形态分两种：
 
-- **有域名**：nginx 子域 `log.<DOMAIN>`（端口 80，建议 certbot 覆盖）→ `127.0.0.1:8120`。
-- **无域名（纯 IP）**：nginx `:8120` 端口（`server_name _`）→ `127.0.0.1:8120`，访问 `http://<IP>:8120/`。无需 DNS 子域，适合还没买域名的阶段。deploy 脚本**未传 `--domain` 时**会自动：① 把 vhost 里的日志查看器块改为 8120 端口版、② 在 `.env` 写入 `LOG_VIEWER_PUBLIC_URL=http://<本机IP>:8120/`、③ `ufw allow 8120/tcp` 放行防火墙（无 ufw 则提示手动放行）。
+- **有域名**：nginx 子域 `log.<DOMAIN>`（端口 80，建议 certbot 覆盖）→ `127.0.0.1:8121`。
+- **无域名（纯 IP）**：nginx `:8120` 端口（`server_name _`）→ `127.0.0.1:8121`，访问 `http://<IP>:8120/`。无需 DNS 子域，适合还没买域名的阶段。deploy 脚本**未传 `--domain` 时**会自动：① 把 vhost 里的日志查看器块改为 8120 端口版、② 在 `.env` 写入 `LOG_VIEWER_PUBLIC_URL=http://<本机IP>:8120/`、③ `ufw allow 8120/tcp` 放行防火墙（无 ufw 则提示手动放行）。
 
 不论哪种形态，均为**仅按钮跳转**：前端「系统设置 → 日志查看器」按钮在点击时向后端 `POST /api/auth/logviewer-token` 获取一次性（默认 120s）签名令牌（仅 `SUPER_ADMIN` 可获取），拼入跳转地址打开（有域名 `https://log.<DOMAIN>/?token=...`，无域名 `http://<IP>:8120/?token=...`，地址由 `/api/version` 下发的 `log_viewer_url` 决定，可用 `.env` 的 `LOG_VIEWER_PUBLIC_URL` 显式覆盖）。日志查看器 `index` 视图校验令牌，缺失/无效/过期均 **403 拒绝**——因此直接输入网址、书签、复制链接都无法进入。
 
