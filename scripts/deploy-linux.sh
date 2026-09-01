@@ -170,6 +170,26 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
     fi
 fi
 
+# 自愈：无域名部署且 .env 已存在时，若 LOG_VIEWER_PUBLIC_URL 指向内网/私网 IP，
+# 自动纠正为公网 IP（防止首次部署误写的内网 IP 在重部署/升级后持续生效）。
+# 已是公网 IP 或域名形态时不改动；公网 IP 探测失败则不动（保留原值）。
+if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
+    LV_CUR="$(grep -E '^LOG_VIEWER_PUBLIC_URL=' "$INSTALL_DIR/backend/.env" | tail -n1 | sed -E 's#^LOG_VIEWER_PUBLIC_URL=https?://##; s#[/:].*##')"
+    if [[ -n "$LV_CUR" ]]; then
+        if [[ "$LV_CUR" =~ ^10\. ]] || \
+           [[ "$LV_CUR" =~ ^192\.168\. ]] || \
+           [[ "$LV_CUR" =~ ^172\.(1[6-9]|2[0-9]|3[01])\. ]] || \
+           [[ "$LV_CUR" =~ ^169\.254\. ]] || \
+           [[ "$LV_CUR" =~ ^127\. ]]; then
+            LV_PUBLIC_IP="$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+            if [[ -n "$LV_PUBLIC_IP" && "$LV_PUBLIC_IP" != "$LV_CUR" ]]; then
+                sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/|" "$INSTALL_DIR/backend/.env"
+                warn "检测到 LOG_VIEWER_PUBLIC_URL 指向内网 IP(${LV_CUR})，已自动纠正为公网 IP(${LV_PUBLIC_IP})。"
+            fi
+        fi
+    fi
+fi
+
 mkdir -p "$INSTALL_DIR/backend/uploads" "$INSTALL_DIR/backend/logs"
 ok "代码同步完成"
 
