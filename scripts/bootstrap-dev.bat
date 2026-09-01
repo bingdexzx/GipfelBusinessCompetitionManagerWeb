@@ -19,7 +19,7 @@ REM  What it does:
 REM    1. Check Python >=3.10 and Node/npm
 REM    2. Copy backend\.env.example -> backend\.env if missing
 REM    3. Create backend\.venv + pip install -r requirements.txt
-REM    4. python manage.py check + migrate   first migrate seeds admin/admin123
+REM    4. python manage.py check + migrate   first migrate seeds admin/admin23
 REM    5. npm install in frontend
 REM
 REM  Optional: pass --skip-frontend to skip Node/npm steps.
@@ -145,7 +145,7 @@ if errorlevel 1 (
 echo [OK]    Python deps installed
 
 REM ---------- 4. migrate ----------
-echo [INFO]  Django check + migrate -- first migrate seeds admin/admin123 ...
+echo [INFO]  Django check + migrate -- first migrate seeds admin/admin23 ...
 "%PY%" manage.py check --fail-level ERROR
 if errorlevel 1 (
   echo [ERROR] Django check failed
@@ -183,7 +183,7 @@ REM ---------- done ----------
 echo.
 echo [OK]    Bootstrap finished. Next: double-click start-dev.bat
 echo    1. Start Django + Vite + LogViewer: scripts\start-dev.bat
-echo    2. Open http://localhost:5173 and login with admin / admin123
+echo    2. Open http://localhost:5173 and login with admin / admin23
 echo       force-change on first login
 echo.
 cd /d "%~dp0"

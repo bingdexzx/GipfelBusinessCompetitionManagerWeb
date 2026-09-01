@@ -9,7 +9,7 @@ python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-# 2. 数据库 + 种子（首次 migrate 自动建 admin/admin123）
+# 2. 数据库 + 种子（首次 migrate 自动建 admin/admin23）
 python manage.py migrate
 
 # 3. 启动 daphne（HTTP + Socket.IO 同源同端口，端口来自 .env 的 PORT，默认 8000）
@@ -50,14 +50,14 @@ curl http://127.0.0.1:8000/api/version
 ```bash
 TOKEN=$(curl -s -X POST http://127.0.0.1:8000/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"admin123"}' | jq -r .data.token)
+  -d '{"username":"admin","password":"admin23"}' | jq -r .data.token)
 
 # 此时若直接访问受保护接口会 401 initial_password_must_be_changed
 # 先改密:
 curl -s -X POST http://127.0.0.1:8000/api/auth/change-password \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"oldPassword":"admin123","newPassword":"Admin@2026"}'
+  -d '{"oldPassword":"admin23","newPassword":"Admin@2026"}'
 ```
 
 ## 环境变量
@@ -73,7 +73,7 @@ curl -s -X POST http://127.0.0.1:8000/api/auth/change-password \
 | `CORS_ORIGIN` | `""` | | 公网部署必填，逗号分隔白名单（或含 `*` 则全部放行）；未配置仅本地/私网 |
 | `SEED_ADMIN_USERNAME` | `admin` | | 首次 migrate 自动建的超级管理员用户名（业务超管 + 后台超管共用）；已存在则跳过 |
 | `SEED_ADMIN_EMAIL` | `admin@example.com` | | 后台超管邮箱 |
-| `SEED_ADMIN_PASSWORD` | `admin123` | | 首次 migrate 自动建的超级管理员密码；生产务必改强密码 |
+| `SEED_ADMIN_PASSWORD` | `admin23` | | 首次 migrate 自动建的超级管理员密码；生产务必改强密码 |
 | `JWT_ISSUER` | `gipfel-competition` | | JWT iss |
 | `JWT_AUDIENCE` | `gipfel-competition-client` | | JWT aud |
 | `JWT_EXPIRES_IN` | `24h` | | 支持 `Nh/Nm/Ns/Nd` |
@@ -168,7 +168,7 @@ emit_permissions_changed(u.id, u.permission_version)
 
   | 用户名 | 密码 | 说明 |
   | --- | --- | --- |
-  | `admin` | 默认 `admin123`（`SEED_ADMIN_PASSWORD` 在 `.env` 中默认被注释，由 `bootstrap.py` 兜底；取消注释可自定义） | 生产务必改用强密码；**建议首次登录后立即改密** |
+  | `admin` | 默认 `admin23`（`SEED_ADMIN_PASSWORD` 在 `.env` 中默认被注释，由 `bootstrap.py` 兜底；取消注释可自定义） | 生产务必改用强密码；**建议首次登录后立即改密** |
 
 - 登录后可见 39 个业务模型（公司 / 比赛 / 合同 / 股票 / 原料 / 零件 / 产品 / 地图节点 / 基础设施 / 燃料 / 车辆 / 仓库 / 生产线 / 行业类型 / 区域 / 消费需求 / 消息 / 技术树 / 审计等）+ Django 内置的 用户 / 组。
 

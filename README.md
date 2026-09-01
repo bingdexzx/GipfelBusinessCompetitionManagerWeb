@@ -12,13 +12,13 @@
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  Django 5 后端                                               │
+│  Django 5 后端                                              │
 │  · daphne ASGI server（HTTP + WebSocket 同源同端口 :8000）  │
-│  · DRF：34 张表 / 24 个 app / 统一 CRUD 基类                 │
-│  · JWT + RBAC：31 个权限键、角色动作等级继承                 │
+│  · DRF：39 张业务表 / 25 个 app / 统一 CRUD 基类            │
+│  · JWT + RBAC：41 个权限键（20 个域）、5 级动作等级         │
 │  · 实时广播：Socket.IO Rooms（comp-{id} + user-{id}）       │
-│  · 合同引擎 / 股票引擎 / 产业计算图                          │
-│  · SQLite（默认）/ PostgreSQL（生产）                        │
+│  · 合同引擎 / 股票引擎 / 产业计算图                         │
+│  · SQLite（默认）/ PostgreSQL（生产）                       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -41,11 +41,13 @@ REM 2. 一键开发启动：同时拉起 Django (:8000) + Vite (:5173) + 日志�
 scripts\start-dev.bat
 ```
 
+> **端口来源**：Django 的 `127.0.0.1:8000` 由 `start-dev.bat` 内部固定，**不读** `.env` 的 `PORT`（`PORT` 是 `manage.py rundaphne` 与 `/api/version` 下发的真源）；日志查看器端口才读 `.env` 的 `LOG_VIEWER_PORT`（默认 8120）。若改了 `PORT`，请改用 `manage.py rundaphne` 启动，或同步修改 `start-dev.bat` 里的 `BACKEND_BIND`。
+
 浏览器访问 `http://localhost:5173`，登录默认账号：
 
 | 用户名 | 初始密码 | 角色 |
 | --- | --- | --- |
-| `admin` | `admin123` | SUPER_ADMIN（首次登录强制改密） |
+| `admin` | `admin23` | SUPER_ADMIN（首次登录强制改密） |
 
 > 若想分别启动前后端，见 [backend/README.md](backend/README.md) 与 [frontend/README.md](frontend/README.md)。
 
@@ -56,7 +58,7 @@ scripts\start-dev.bat
 ```
 GipfelBusinessCompetitionManagerWeb/
 ├── backend/                         Django 5 后端
-│   ├── apps/                        24 个业务 + 基础设施 app
+│   ├── apps/                        25 个业务 + 基础设施 app
 │   │   ├── auth/                    JWT 登录/改密/顶号/默认超管种子
 │   │   ├── users/                   用户与权限版本
 │   │   ├── competitions/            比赛 / 财年
@@ -70,6 +72,7 @@ GipfelBusinessCompetitionManagerWeb/
 │   │   ├── stock/                   股票引擎（推进轮次 bulk 广播）
 │   │   ├── messages/                消息中心
 │   │   └── files/                   上传
+│   ├── logviewer/                   独立日志查看器站点（默认 :8120，见下）
 │   ├── manage.py
 │   ├── requirements.txt
 │   ├── .env.example
@@ -115,8 +118,9 @@ GipfelBusinessCompetitionManagerWeb/
 
 依赖亮点（详见 `requirements.txt` 与 `package.json`）：
 
-- 后端：`Django 5.0`、`djangorestframework 3.15`、`daphne 4.1`（ASGI）、`python-socketio 5.11`、`PyJWT`、`bcrypt`、`django-cors-headers`、`Pillow 11`、`drf-spectacular`（OpenAPI 可选）
-- 前端：`Vue 3.5`、`Vue Router 4.4`、`Pinia 2.2`、`Element Plus 2.7`、`Vite 5.3`、`axios 1.7`、`echarts 5.5`、`socket.io-client 4.7`、`pinia-plugin-persistedstate 3.2`、`pinyin-pro 3.25`
+- 后端（`backend/requirements.txt`）：`Django 5.0.6`、`djangorestframework 3.15`、`djangorestframework-simplejwt 5.3`（JWT，内含 PyJWT）、`daphne 4.1`（ASGI）、`python-socketio 5.11`、`bcrypt`、`django-cors-headers`、`Pillow 11`、`simpleeval`、`python-dotenv`
+- 前端（`frontend/package.json`）：`Vue 3.4`、`Vue Router 4.4`、`Pinia 4.0`、`Element Plus 2.7`、`Vite 5.3`、`axios 1.7`、`echarts 6.1`、`socket.io-client 4.7`、`konva 10.3` + `vue-konva 3.4`（地图画布）、`pinyin-pro 3.29`、`typescript 5.4`、`vue-tsc 2.0`
+- 状态持久化由各 store 手写 `localStorage` 完成，**未使用** `pinia-plugin-persistedstate`
 
 ---
 
@@ -165,14 +169,14 @@ scripts\start-dev.bat
 ## 6. 安全与合规
 
 - **JWT**：HS256，`JWT_SECRET`（必填，未配置进程 fail-fast 拒绝启动），默认 24h，`tokenVersion` 顶号立即失效
-- **RBAC**：31 个权限键、4 级动作等级继承（`view < edit < manage < admin`），`can(action, resource)` 前后端一致
+- **RBAC**：41 个权限键、20 个权限域；5 级动作等级蕴含（`view(10) < edit(20) < manage(30) < execute(40) < audit(50)`），合同域自定义为 `view(10) < audit(20) < execute(30) < manage(40)`；`can(action, resource)` 前后端一致
 - **比赛隔离**：所有业务查询自动按 `competition_id` 域过滤（`apply_competition_scope`）
 - **CORS**：未配置 `CORS_ORIGIN` 时仅本地/私网反射并带凭据；公网必须显式白名单
 - **安全头**：自定义中间件写入 CSP、X-Frame-Options=DENY、X-Content-Type-Options=nosniff、Strict-Transport-Security、Referrer-Policy
-- **限流**：`RateLimitMiddleware` 默认 600 req/min/IP、匿名登录 10/min/IP，可 `RATE_LIMIT_*` 环境变量调节
+- **登录限流**：`LoginRateLimitMiddleware` **只拦截** `POST /api/auth/login`——同一 IP + 用户名在 5 分钟窗口内累计失败 10 次即锁定 15 分钟并返回 429。阈值是 `apps/common/middleware.py` 里的常量（`_FAIL_WINDOW` / `_FAIL_THRESHOLD` / `_LOCK_DURATION`），非环境变量；锁定状态存进程内存，**重启后端即清空**。项目目前**没有**全局 HTTP 限流中间件
 - **乐观锁**：公司字段写操作携带 `version`，冲突 409 提示前端重试
 - **删公司两步确认**：`DELETE /api/companies/:id` 先返回「删除影响预览」，前端二次确认带 `confirmName` 才执行
-- **审计日志**：所有写操作（create/update/delete）统一信号 → `AuditLog` 表落库，含 operator、IP、changes JSON 快照
+- **审计日志**：`apps/common/signals.py` 对**已在 `MODEL_TO_RESOURCE` 注册**的模型统一挂 `post_save`/`post_delete` → `AuditLog` 表落库，含 operator、IP、changes JSON 快照；映射值为 `None` 的子表（仅列名映射、不广播）不落审计
 
 ---
 
@@ -182,7 +186,7 @@ scripts\start-dev.bat
 
 | 用户名 | 初始密码 | 角色 | 权限 |
 | --- | --- | --- | --- |
-| `admin` | `admin123` | SUPER_ADMIN | 全部 31 项 + 所有比赛域 |
+| `admin` | `admin23` | SUPER_ADMIN | 全部 41 项 + 所有比赛域 |
 
 > 同一套凭据也会在 `migrate` 时一并创建 Django 后台（`/admin`）超级管理员（见下方「Django 管理后台」一节）。
 
@@ -201,8 +205,23 @@ scripts\start-dev.bat
 除前端 Vue 界面外，后端还完整启用了 Django 自带管理后台，可直接在网页上查看 / 增删改查全部业务数据。仅建议运维临时排查与修数，详细说明（账号、警示、命令、技术改动）见 [backend/README.md](backend/README.md) 的「Django 管理后台（Admin）」一节：
 
 - 访问：`http://<host>:8000/admin/`
-- 账号：`admin` / 密码默认 `admin123`（来自 `apps/auth/bootstrap.py` 的兜底默认值；`.env` 中 `SEED_ADMIN_PASSWORD` 默认被注释，取消注释并赋值可自定义）；首次 `migrate` 自动创建，已存在则跳过（建议立即改密）
+- 账号：`admin` / 密码默认 `admin23`（来自 `apps/auth/bootstrap.py` 的兜底默认值；`.env` 中 `SEED_ADMIN_PASSWORD` 默认被注释，取消注释并赋值可自定义）；首次 `migrate` 自动创建，已存在则跳过（建议立即改密）
 - **⚠️ 警示**：后台直接写库会绕过业务校验（合同引擎 / 股票计算 / 权限派生等），可能导致账实不符；常规管理请走前端界面。
+
+### 日志查看器（:8120）
+
+独立 Django 站点（`backend/logviewer/`，有自己的 `manage.py`），**共享主后端的 `db.sqlite3`**，用于在线查看 `backend/logs/` 的运行日志。
+
+- 访问：`http://127.0.0.1:8120/`（端口取 `backend/.env` 的 `LOG_VIEWER_PORT`，默认 8120）
+- 登录：**与 `/admin` 共用同一套 `auth_user` 超管凭据**（校验 `is_superuser`），默认 `admin` / `admin23`。它与前端登录用的业务 `users` 表是**两套账号体系**，前端改密**不会**同步到这里
+- **cookie 必须隔离**：两者同在 `localhost`，若 cookie 同名，主后端那份 `HttpOnly` 的会盖掉前端要读的那份，登录报 403 `CSRF token ... has incorrect length`：
+
+  | 站点 | CSRF cookie | Session cookie | HttpOnly |
+  | --- | --- | --- | --- |
+  | 主后端 `:8000` | `csrftoken` | `sessionid` | 是 |
+  | 日志查看器 `:8120` | `lv_csrftoken` | `lv_sessionid` | 否（前端 JS 需读取后回传 `X-CSRFToken`） |
+
+- 排错：升级后若登录仍 403，多半是浏览器缓存了旧版 `app.js`（旧版读 `csrftoken`），硬刷新 `Ctrl+Shift+R` 或开无痕窗口
 
 ---
 
@@ -218,7 +237,9 @@ python manage.py makemigrations         # 生成模型迁移
 python manage.py migrate                # 应用迁移（+ 自动 seed 默认 admin）
 python manage.py createsuperuser        # 另一种建超管方式
 python manage.py shell                  # ORM shell
-python manage.py runserver 0.0.0.0:8000 # daphne 启动（HTTP + Socket.IO 同源）
+python manage.py runserver 0.0.0.0:8000 # 开发用；daphne 已在 INSTALLED_APPS 接管 runserver，实际跑的是 ASGI
+python manage.py rundaphne --bind 0.0.0.0  # 生产推荐；端口自动取 .env 的 PORT
+# 等价原生命令：daphne -b 0.0.0.0 -p 8000 backend.asgi:application
 ```
 
 ### 前端

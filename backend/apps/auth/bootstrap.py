@@ -20,7 +20,7 @@ logger = logging.getLogger("gipfel")
 def _seed_vars():
     username = getattr(settings, "SEED_ADMIN_USERNAME", "admin") or "admin"
     email = getattr(settings, "SEED_ADMIN_EMAIL", "admin@example.com") or "admin@example.com"
-    password = getattr(settings, "SEED_ADMIN_PASSWORD", "admin123") or "admin123"
+    password = getattr(settings, "SEED_ADMIN_PASSWORD", "admin23") or "admin23"
     return username, email, password
 
 
