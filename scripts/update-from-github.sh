@@ -203,8 +203,19 @@ if [[ $WITH_NGINX -eq 1 ]]; then
     sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" \
         -e "s|__DOMAIN__|${DOMAIN:-_}|g" \
         "$VHOST_TMPL" > /etc/nginx/sites-available/gipfel.conf
-    [[ -f /etc/nginx/sites-enabled/gipfel.conf ]] || \
-        ln -sf /etc/nginx/sites-available/gipfel.conf /etc/nginx/sites-enabled/gipfel.conf
+    # 始终刷新 gipfel vhost 软链（修复任何陈旧/损坏软链）
+    ln -sf /etc/nginx/sites-available/gipfel.conf /etc/nginx/sites-enabled/gipfel.conf
+    ok "已启用 gipfel nginx 虚拟主机（sites-enabled/gipfel.conf）"
+    # 禁用 nginx 自带默认欢迎页：枚举所有已知变体并删除，否则 80 端口可能被默认站点抢走
+    for f in /etc/nginx/sites-enabled/default \
+             /etc/nginx/sites-enabled/default.disabled \
+             /etc/nginx/sites-enabled/default.conf \
+             /etc/nginx/conf.d/default.conf; do
+        if [[ -e "$f" ]]; then
+            rm -f "$f"
+            log "已移除 nginx 默认站点配置：$f"
+        fi
+    done
     nginx -t || err "nginx -t 失败，请修正"
     systemctl reload nginx
     ok "nginx 配置已 reload"

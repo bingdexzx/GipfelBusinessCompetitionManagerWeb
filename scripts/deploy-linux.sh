@@ -264,20 +264,25 @@ if [[ $WITH_NGINX -eq 1 ]]; then
     fi
 
     cp -f "$VHOST_FILE" /etc/nginx/sites-available/gipfel.conf
-    [[ -f /etc/nginx/sites-enabled/gipfel.conf ]] || \
-        ln -sf /etc/nginx/sites-available/gipfel.conf /etc/nginx/sites-enabled/gipfel.conf
-    # 禁用 nginx 自带默认欢迎页（避免与 gipfel 主站点 server_name _ 在 80 端口冲突）
-    # 注意：nginx 按 sites-enabled/* 通配包含，「改名 default.disabled」无法禁用（仍被 * 匹配），
-    #       必须删除该软链才能真正禁用（sites-available/default 源文件保留，可随时恢复）。
-    if [[ -e /etc/nginx/sites-enabled/default ]]; then
-        rm -f /etc/nginx/sites-enabled/default
-        log "已禁用 nginx 默认站点（删除 sites-enabled/default 软链）"
-    fi
-    # 部分镜像把默认站点放在 conf.d/default.conf，同样移除避免抢占 80
-    if [[ -e /etc/nginx/conf.d/default.conf ]]; then
-        rm -f /etc/nginx/conf.d/default.conf
-        log "已移除 conf.d/default.conf"
-    fi
+
+    # 刷新 gipfel vhost 软链（始终指向最新生成的 sites-available/gipfel.conf，
+    # 修复任何陈旧/损坏软链；sites-available/gipfel.conf 源文件保留，可随时恢复）
+    ln -sf /etc/nginx/sites-available/gipfel.conf /etc/nginx/sites-enabled/gipfel.conf
+    ok "已启用 gipfel nginx 虚拟主机（sites-enabled/gipfel.conf）"
+
+    # 禁用 nginx 自带默认欢迎页（避免与 gipfel 主站点 server_name _ 在 80 端口冲突 → 显示 "Welcome to nginx"）
+    # 注意：nginx 按 sites-enabled/* 通配包含，「改名 default.disabled」无法禁用（仍被 * 匹配），必须删除才能真正禁用。
+    # 枚举所有已知变体：Debian/Ubuntu 的 sites-enabled/default（或旧脚本改名留下的 default.disabled）、
+    # RHEL 系的 conf.d/default.conf。漏删任一个都会让 80 端口被默认站点抢走。
+    for f in /etc/nginx/sites-enabled/default \
+             /etc/nginx/sites-enabled/default.disabled \
+             /etc/nginx/sites-enabled/default.conf \
+             /etc/nginx/conf.d/default.conf; do
+        if [[ -e "$f" ]]; then
+            rm -f "$f"
+            log "已移除 nginx 默认站点配置：$f"
+        fi
+    done
 
     nginx -t || err "nginx -t 失败，请修正"
     # 全新服务器 nginx 可能尚未启动，reload 对未运行服务会失败；按状态选择 start / reload
@@ -288,6 +293,19 @@ if [[ $WITH_NGINX -eq 1 ]]; then
     else
         systemctl start nginx
         ok "nginx 已启动"
+    fi
+
+    # 验证：80 端口不应再返回 nginx 默认欢迎页；若后端未起则给出 502 排查提示而非误判
+    sleep 1
+    if command -v curl >/dev/null 2>&1; then
+        _body="$(curl -s --max-time 5 http://127.0.0.1/ 2>/dev/null || true)"
+        if printf '%s' "$_body" | grep -qi 'Welcome to nginx'; then
+            warn "80 端口仍返回 nginx 默认欢迎页：默认站点未被完全禁用。请检查 /etc/nginx/nginx.conf 是否内联了默认 server 块，或仍有其它 sites-enabled/* 配置冲突"
+        elif ! systemctl is-active --quiet gipfel; then
+            warn "nginx 已正确接管 80 端口，但后端 gipfel 服务未运行，访问将出现 502；请执行：sudo systemctl restart gipfel"
+        else
+            ok "80 端口验证通过：gipfel 站点已生效（非默认欢迎页）"
+        fi
     fi
 
     if [[ -n "$DOMAIN" ]]; then

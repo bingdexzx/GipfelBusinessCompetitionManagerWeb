@@ -149,6 +149,21 @@ npm run typecheck    # 类型检查（CI 必跑）
 - **正确入口**：主系统「系统设置 → 后端管理界面」按钮（仅超级管理员可见）。点击时前端自动取令牌并拼入跳转 URL。
 - **仍打不开**：① 确认已用超级管理员账号登录；② 令牌 120s 内有效，超时重开按钮即可；③ 若持续重定向，检查 `.env` 的 `LOGVIEWER_SECRET_KEY` 是否与后端一致（网关验签依赖它）。
 
+### Q10. 打开网站显示「Welcome to nginx!」默认页
+
+- **现象**：访问 `http://<服务器IP>/` 看到 nginx 默认欢迎页，而不是商赛系统登录页。
+- **根因**：nginx 自带默认站点（`sites-enabled/default`，旧脚本可能改名成 `default.disabled`）仍然被加载，且其 `server_name _` 与 gipfel 主站点在 80 端口撞名，把 80 端口抢走了。gipfel 配置没失效，只是没拿到 80 端口。
+- **自动修复**：`deploy-linux.sh` / `update-from-github.sh` 的 `--with-nginx` 步骤现在会**自动删除**所有默认站点变体（`sites-enabled/default`、`sites-enabled/default.disabled`、`sites-enabled/default.conf`、`conf.d/default.conf`），始终刷新 `gipfel.conf` 软链，reload 后还会 `curl 127.0.0.1` 校验：若仍返回欢迎页会告警（提示检查 `nginx.conf` 是否内联了默认 server 块），若后端 `gipfel` 未起会提示 502 排查。**重跑部署脚本（加 `--with-nginx`）即可自动解决**。
+- **手动补救**（脚本跑过仍异常时）：
+  ```bash
+  sudo rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-enabled/default.disabled \
+            /etc/nginx/sites-enabled/default.conf /etc/nginx/conf.d/default.conf
+  sudo ln -sf /etc/nginx/sites-available/gipfel.conf /etc/nginx/sites-enabled/gipfel.conf
+  sudo nginx -t && sudo systemctl reload nginx
+  ```
+- **仍显示欢迎页**：`cat /etc/nginx/nginx.conf` 看是否内联了 `server { ... }` 默认块（去掉或注释它），或 `ls /etc/nginx/sites-enabled/` 是否还有其它非 gipfel 配置冲突。
+- **变为 502 Bad Gateway**：nginx 已正确接管，但后端 `gipfel` 服务没跑：`sudo systemctl restart gipfel`。
+
 ### Q6. Socket.IO / 实时数据不刷新
 
 - `start-dev.bat` 的 `runserver` 已被 daphne 接管为 ASGI，WebSocket 正常；若异常，确认 `daphne` 在 `INSTALLED_APPS` 首位。
