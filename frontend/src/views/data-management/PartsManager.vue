@@ -3,13 +3,7 @@
     <div class="pm-toolbar">
       <h2 class="pm-title">{{ authStore.can("data:part:edit") ? "零件管理" : "零件" }}</h2>
       <div class="pm-actions">
-        <el-input
-          v-model="searchText"
-          placeholder="搜索零件"
-          clearable
-          style="width: 200px"
-          size="default"
-        />
+                <SearchToggle v-model="searchText" placeholder="搜索零件" />
         <el-button v-if="authStore.can('data:part:edit')" type="primary" @click="openCreate"
           >+ 新建</el-button
         >
@@ -213,6 +207,7 @@ import { confirmDeleteWithImpact } from "@/utils/deleteConfirm";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
+import SearchToggle from "@/components/common/SearchToggle.vue";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 
 interface MaterialRow {

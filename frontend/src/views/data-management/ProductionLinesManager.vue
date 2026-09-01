@@ -4,13 +4,7 @@
       {{ authStore.can("data:productionLine:edit") ? "生产线管理" : "生产线" }}
     </h2>
     <div class="pm-actions">
-      <el-input
-        v-model="searchText"
-        placeholder="搜索生产线"
-        clearable
-        style="width: 200px"
-        size="default"
-      />
+            <SearchToggle v-model="searchText" placeholder="搜索生产线" />
       <el-button v-if="authStore.can('data:productionLine:edit')" type="primary" @click="openCreate"
         >+ 新建</el-button
       >
@@ -129,6 +123,7 @@ import api from "@/api/request";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
+import SearchToggle from "@/components/common/SearchToggle.vue";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 
 const compStore = useCompetitionStore();

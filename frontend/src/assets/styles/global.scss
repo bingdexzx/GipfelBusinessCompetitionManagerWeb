@@ -549,10 +549,19 @@ body.modal-open .app-layout {
   }
   // 顶栏工具栏：平板/手机下标题与操作区(搜索按钮+新建)保持同一行；
   // 标题可收缩省略，不挤压操作区。配合 SearchToggle 把搜索收成按钮，搜索栏不再占位。
+  // 覆盖所有内容页工具栏前缀：mm / dm / pm / vm / tt / prm
   .app-content .mm-title,
   .app-content .dm-title,
+  .app-content .pm-title,
+  .app-content .vm-title,
+  .app-content .tt-title,
+  .app-content .prm-title,
   .mm-title,
-  .dm-title {
+  .dm-title,
+  .pm-title,
+  .vm-title,
+  .tt-title,
+  .prm-title {
     flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
@@ -560,7 +569,11 @@ body.modal-open .app-layout {
     white-space: nowrap;
   }
   .mm-actions,
-  .dm-actions {
+  .dm-actions,
+  .pm-actions,
+  .vm-actions,
+  .tt-actions,
+  .prm-actions {
     flex-shrink: 0;
   }
 }

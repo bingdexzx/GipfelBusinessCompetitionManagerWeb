@@ -3,13 +3,7 @@
     <div class="vm-toolbar">
       <h2 class="vm-title">{{ authStore.can("data:vehicle:edit") ? "载具管理" : "载具" }}</h2>
       <div class="vm-actions">
-        <el-input
-          v-model="searchText"
-          placeholder="搜索载具"
-          clearable
-          style="width: 200px"
-          size="default"
-        />
+                <SearchToggle v-model="searchText" placeholder="搜索载具" />
         <el-button v-if="authStore.can('data:vehicle:edit')" type="primary" @click="openCreate"
           >+ 新建</el-button
         >
@@ -202,6 +196,7 @@ import api from "@/api/request";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
+import SearchToggle from "@/components/common/SearchToggle.vue";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 
 interface VehicleItem {

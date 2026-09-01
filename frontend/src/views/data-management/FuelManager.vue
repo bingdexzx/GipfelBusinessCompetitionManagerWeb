@@ -3,13 +3,7 @@
     <div class="pm-toolbar">
       <h2 class="pm-title">{{ authStore.can("data:fuel:edit") ? "燃料管理" : "燃料" }}</h2>
       <div class="pm-actions">
-        <el-input
-          v-model="searchText"
-          placeholder="搜索燃料"
-          clearable
-          style="width: 200px"
-          size="default"
-        />
+                <SearchToggle v-model="searchText" placeholder="搜索燃料" />
         <el-button
           v-if="authStore.can('data:fuel:edit')"
           type="primary"
@@ -97,6 +91,7 @@ import { confirmDeleteWithImpact } from "@/utils/deleteConfirm";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
+import SearchToggle from "@/components/common/SearchToggle.vue";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 
 interface FuelItem {
