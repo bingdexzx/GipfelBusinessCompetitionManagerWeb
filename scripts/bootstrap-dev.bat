@@ -4,15 +4,34 @@ REM  Gipfel - DEVELOPMENT - Bootstrap (self-contained batch, no PowerShell)
 REM  Double-click to set up the dev environment once.
 REM  Pure ASCII file (English comments only).
 REM
+REM  MAINTENANCE RULES - learned the hard way, read before editing:
+REM    1. NEVER put round brackets in text on a line that belongs to an
+REM       if / for block. cmd reads them as command grouping, aborts the
+REM       whole script with "<token> was unexpected at this time." and
+REM       silently skips every pause below: the window just flashes away.
+REM    2. Always initialise a variable before using it as "if %VAR% LSS 3".
+REM       An empty VAR rewrites the line to "if  LSS 3 (" = same hard abort.
+REM    3. Variables set inside a block are expanded when the block is parsed,
+REM       so echo them AFTER the block, not inside it.
+REM    4. Keep this file pure ASCII with CRLF line endings.
+REM
 REM  What it does:
-REM    1. Check Python (>=3.10) and Node/npm
-REM    2. Copy backend\.env.example -> backend\.env (if missing)
+REM    1. Check Python >=3.10 and Node/npm
+REM    2. Copy backend\.env.example -> backend\.env if missing
 REM    3. Create backend\.venv + pip install -r requirements.txt
-REM    4. python manage.py check + migrate  (first migrate seeds admin/admin123)
+REM    4. python manage.py check + migrate   first migrate seeds admin/admin123
 REM    5. npm install in frontend
 REM
 REM  Optional: pass --skip-frontend to skip Node/npm steps.
 REM ========================================================================
+
+REM --- keep the window open even if the script dies on a syntax error -----
+if not "%GIPFEL_NOEXIT%"=="1" (
+  set "GIPFEL_NOEXIT=1"
+  cmd /k call "%~f0" %*
+  exit /b
+)
+
 setlocal
 chcp 65001 >nul
 cd /d "%~dp0"
@@ -24,48 +43,59 @@ if /i "%~1"=="--skip-frontend" set "SKIPFE=1"
 
 REM ---------- 1. Environment checks ----------
 echo [INFO]  Checking environment...
-REM 探测可用的 Python 命令：优先 python，其次 py -3，最后退而用已存在的 .venv
 set "PYCMD="
-where python >nul 2>nul
-if not errorlevel 1 set "PYCMD=python"
+set "PYVER="
+set "PYPROBE=python"
+call :probe_python
 if not defined PYCMD (
-  py -3 --version >nul 2>nul
-  if not errorlevel 1 set "PYCMD=py -3"
+  set "PYPROBE=py -3"
+  call :probe_python
+)
+if not defined PYCMD if exist "%BACKEND%\.venv\Scripts\python.exe" (
+  set "PYPROBE="%BACKEND%\.venv\Scripts\python.exe""
+  call :probe_python
 )
 if not defined PYCMD (
-  if exist "%BACKEND%\.venv\Scripts\python.exe" set "PYCMD=%BACKEND%\.venv\Scripts\python.exe"
-)
-if not defined PYCMD (
-  echo [ERROR] Python 3.10+ not found. Install Python 3.10+ (add to PATH) or the Windows Store 'py' launcher.
+  echo [ERROR] Python 3.10+ not found.
+  echo         Install Python 3.10+ and enable "Add python.exe to PATH" in the installer,
+  echo         or install the Microsoft Store py launcher.
   goto :fail
 )
-for /f "tokens=*" %%v in ('%PYCMD% -c "import sys;print(sys.version_info.major)"') do set "PYMAJOR=%%v"
-for /f "tokens=*" %%v in ('%PYCMD% -c "import sys;print(sys.version_info.minor)"') do set "PYMINOR=%%v"
-echo [INFO]   python: %PYMAJOR%.%PYMINOR%  (using: %PYCMD%)
-if %PYMAJOR% LSS 3 (
-  echo [ERROR] Python too old: %PYMAJOR%.%PYMINOR% -- need 3.10 or newer
+echo %PYVER%| findstr /r "^[0-9][0-9]*\.[0-9][0-9]*$" >nul
+if errorlevel 1 (
+  echo [ERROR] Cannot parse the Python version reported by: %PYCMD%
+  echo         Raw output was: %PYVER%
   goto :fail
 )
-if %PYMAJOR%==3 if %PYMINOR% LSS 10 (
-  echo [ERROR] Python too old: %PYMAJOR%.%PYMINOR% -- need 3.10 or newer
-  goto :fail
-)
+set "PYMAJOR=0"
+set "PYMINOR=0"
+for /f "tokens=1,2 delims=." %%a in ("%PYVER%") do set "PYMAJOR=%%a" & set "PYMINOR=%%b"
+echo [INFO]   python: %PYVER%   using: %PYCMD%
+if %PYMAJOR% LSS 3 goto :py_old
+if %PYMAJOR%==3 if %PYMINOR% LSS 10 goto :py_old
+goto :py_ok
+:py_old
+echo [ERROR] Python too old: %PYVER% -- need 3.10 or newer
+goto :fail
+:py_ok
 
+set "NODEV=unknown"
+set "NPMV=unknown"
 if %SKIPFE%==0 (
   where node >nul 2>nul
   if errorlevel 1 (
-    echo [ERROR] node not found. Install Node.js 18+ (20 LTS recommended).
+    echo [ERROR] node not found. Install Node.js 18+ / 20 LTS recommended.
     goto :fail
   )
   where npm >nul 2>nul
   if errorlevel 1 (
-    echo [ERROR] npm not found (should ship with Node.js).
+    echo [ERROR] npm not found -- it ships with Node.js.
     goto :fail
   )
   for /f "tokens=*" %%v in ('node -v') do set "NODEV=%%v"
   for /f "tokens=*" %%v in ('npm -v') do set "NPMV=%%v"
-  echo [INFO]   node: %NODEV%  npm: %NPMV%
 )
+if %SKIPFE%==0 echo [INFO]   node: %NODEV%  npm: %NPMV%
 
 REM ---------- required files ----------
 if not exist "%BACKEND%\requirements.txt" (
@@ -83,7 +113,7 @@ if %SKIPFE%==0 if not exist "%FRONTEND%\package.json" (
 
 REM ---------- 2. .env ----------
 if not exist "%BACKEND%\.env" (
-  echo [INFO]  First run: copy .env.example -> .env
+  echo [INFO]  First run: copy .env.example to .env
   copy /Y "%BACKEND%\.env.example" "%BACKEND%\.env" >nul
   echo [WARN]  Production: change JWT_SECRET and CORS_ORIGIN in .env
 ) else (
@@ -106,7 +136,7 @@ if not exist "%PY%" (
 ) else (
   echo [INFO]  .venv exists, skip creation
 )
-echo [INFO]  Installing Python deps (requirements.txt)...
+echo [INFO]  Installing Python deps from requirements.txt ...
 "%PIP%" install -r requirements.txt
 if errorlevel 1 (
   echo [ERROR] pip install failed
@@ -114,8 +144,8 @@ if errorlevel 1 (
 )
 echo [OK]    Python deps installed
 
-REM ---------- 4. migrate (seeds admin/admin123 idempotently) ----------
-echo [INFO]  Django check + migrate (first migrate seeds admin/admin123)...
+REM ---------- 4. migrate ----------
+echo [INFO]  Django check + migrate -- first migrate seeds admin/admin123 ...
 "%PY%" manage.py check --fail-level ERROR
 if errorlevel 1 (
   echo [ERROR] Django check failed
@@ -127,17 +157,19 @@ if errorlevel 1 (
   goto :fail
 )
 echo [OK]    Database migrated
+del "%TEMP%\gipfel_admincount.txt" >nul 2>nul
 "%PY%" -c "import os,sys;os.environ.setdefault('DJANGO_SETTINGS_MODULE','backend.settings');import django;django.setup();from apps.users.models import User;sys.stdout.write(str(User.objects.filter(username='admin').count()))" > "%TEMP%\gipfel_admincount.txt" 2>nul
-set /p ADMINN=<"%TEMP%\gipfel_admincount.txt"
+if exist "%TEMP%\gipfel_admincount.txt" set /p ADMINN=<"%TEMP%\gipfel_admincount.txt"
+if not defined ADMINN set "ADMINN=unknown"
 echo [INFO]   admin user count = %ADMINN%
 
 REM ---------- 5. Frontend deps ----------
 if %SKIPFE%==0 (
   cd /d "%FRONTEND%"
   if exist "%FRONTEND%\node_modules\.package-lock.json" (
-    echo [INFO]  node_modules exists, npm install incremental...
+    echo [INFO]  node_modules exists, npm install incremental ...
   ) else (
-    echo [INFO]  First install frontend deps from package.json...
+    echo [INFO]  First install of frontend deps from package.json ...
   )
   npm install --no-audit --no-fund
   if errorlevel 1 (
@@ -149,14 +181,15 @@ if %SKIPFE%==0 (
 
 REM ---------- done ----------
 echo.
-echo [OK]    Bootstrap finished! Next: double-click start-dev.bat
-echo    1) Start Django + Vite + LogViewer: scripts\start-dev.bat
-echo    2) Open http://localhost:5173  login admin / admin123 (force-change on first login)
+echo [OK]    Bootstrap finished. Next: double-click start-dev.bat
+echo    1. Start Django + Vite + LogViewer: scripts\start-dev.bat
+echo    2. Open http://localhost:5173 and login with admin / admin123
+echo       force-change on first login
 echo.
 cd /d "%~dp0"
 echo [TIP]  Press any key to close this window...
 pause
-exit /b 0
+exit 0
 
 :fail
 echo.
@@ -165,4 +198,13 @@ echo.
 cd /d "%~dp0"
 echo [TIP]  Press any key to close this window...
 pause
-exit /b 1
+exit 1
+
+REM ---------- subroutine: probe one Python candidate ----------
+REM  Sets PYVER and PYCMD when PYPROBE points at a working interpreter.
+:probe_python
+for /f "tokens=*" %%v in ('%PYPROBE% -c "import sys;v=sys.version_info;print(str(v[0])+chr(46)+str(v[1]))" 2^>nul') do (
+  set "PYVER=%%v"
+  set "PYCMD=%PYPROBE%"
+)
+exit /b 0
