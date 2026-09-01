@@ -21,9 +21,9 @@ sudo bash scripts/deploy-linux.sh \
 | 日志-Django | `/opt/gipfel/backend/logs/` + `/var/log/gipfel/` |
 | 日志-nginx | `/var/log/nginx/gipfel.{access,error}.log` |
 | systemd 服务 | `/etc/systemd/system/gipfel.service`、`/etc/systemd/system/gipfel-logviewer.service` |
-| nginx vhost | `/etc/nginx/sites-available/gipfel.conf`（sites-enabled 软链，含 `log.<DOMAIN>` 日志查看器子域块） |
+| nginx vhost | `/etc/nginx/sites-available/gipfel.conf`（sites-enabled 软链）。**有域名**时含 `log.<DOMAIN>` 日志查看器子域块；**无域名（纯 IP）**时自动换成 `:8120` 端口块（`server_name _`）——deploy 脚本按是否传 `--domain` 保留对应一块、删除另一块 |
 | 前端静态 | `/opt/gipfel/frontend-dist/`（由 nginx root 直接托管） |
-| 日志查看器静态 | `/opt/gipfel/backend/logviewer/staticfiles/`（由 nginx `log.<DOMAIN>` 块 alias 托管） |
+| 日志查看器静态 | `/opt/gipfel/backend/logviewer/staticfiles/`（由 nginx 日志查看器块 alias 托管：有域名是 `log.<DOMAIN>` 块，无域名是 `:8120` 块） |
 
 ### 验证
 
@@ -38,15 +38,39 @@ curl -sS -I http://127.0.0.1/         # 200（nginx 托管 index.html）
 
 ### 日志查看器公网访问（防直连）
 
-日志查看器作为独立 Django 站点，经 nginx 子域 `log.<DOMAIN>` **整站代理**到 `127.0.0.1:8120`（不直连公网）。
+日志查看器作为独立 Django 站点，经 nginx **整站代理**到 `127.0.0.1:8120`（不直连公网）。代理形态分两种：
 
-- **仅按钮跳转**：前端「系统设置 → 日志查看器」按钮在点击时向后端 `POST /api/auth/logviewer-token` 获取一次性（默认 120s）签名令牌（仅 `SUPER_ADMIN` 可获取），拼入 `https://log.<DOMAIN>/?token=...` 打开。日志查看器 `index` 视图校验令牌，缺失/无效/过期均 **403 拒绝**——因此直接输入网址、书签、复制链接都无法进入。
-- **前置条件（运维侧）**：
+- **有域名**：nginx 子域 `log.<DOMAIN>`（端口 80，建议 certbot 覆盖）→ `127.0.0.1:8120`。
+- **无域名（纯 IP）**：nginx `:8120` 端口（`server_name _`）→ `127.0.0.1:8120`，访问 `http://<IP>:8120/`。无需 DNS 子域，适合还没买域名的阶段。deploy 脚本**未传 `--domain` 时**会自动：① 把 vhost 里的日志查看器块改为 8120 端口版、② 在 `.env` 写入 `LOG_VIEWER_PUBLIC_URL=http://<本机IP>:8120/`、③ `ufw allow 8120/tcp` 放行防火墙（无 ufw 则提示手动放行）。
+
+不论哪种形态，均为**仅按钮跳转**：前端「系统设置 → 日志查看器」按钮在点击时向后端 `POST /api/auth/logviewer-token` 获取一次性（默认 120s）签名令牌（仅 `SUPER_ADMIN` 可获取），拼入跳转地址打开（有域名 `https://log.<DOMAIN>/?token=...`，无域名 `http://<IP>:8120/?token=...`，地址由 `/api/version` 下发的 `log_viewer_url` 决定，可用 `.env` 的 `LOG_VIEWER_PUBLIC_URL` 显式覆盖）。日志查看器 `index` 视图校验令牌，缺失/无效/过期均 **403 拒绝**——因此直接输入网址、书签、复制链接都无法进入。
+
+- **前置条件（仅「有域名」形态需要，运维侧）**：
   1. DNS：`log.<DOMAIN>` 的 A 记录指向本服务器；
   2. 证书：`certbot --nginx -d <DOMAIN> -d log.<DOMAIN>`（deploy 脚本的 certbot 提示已纳入该子域）。未启用 HTTPS 时以 HTTP(80) 提供，功能正常（cookie 非 Secure）。
   3. 启用 HTTPS 后，建议在 `.env` 设 `LOGVIEWER_SECURE_COOKIES=true`，使网关会话/ CSRF cookie 标记 Secure。
+- **无域名防火墙**：8120 端口必须对外可达；云服务器还需在安全组/防火墙放行 TCP 8120（deploy 脚本已尽力 `ufw allow 8120/tcp`，但仍需确认云侧安全组）。
 - **共享密钥**：主后端与日志查看器共用 `.env` 的 `LOGVIEWER_SECRET_KEY` 签发/校验令牌。deploy 脚本首次部署自动生成随机值；已部署实例升级时 `.env` 保留不变，两端始终一致。
 - **双重认证**：令牌只放行「进入日志查看器站点的网关」，进入后仍需用 Django 后台超级管理员凭据登录才能真正读取日志。
+
+### 无域名纯 IP 部署（适合还没买域名）
+
+直接**省略 `--domain`** 即可：
+
+```bash
+cd GipfelBusinessCompetitionManagerWeb
+sudo bash scripts/deploy-linux.sh \
+  --install-dir /opt/gipfel \
+  --with-nginx
+# 不传 --domain → nginx 主站点 server_name 为 _（IP 可访问）；
+#                 日志查看器改为 :8120 端口块，访问 http://<IP>:8120/；
+#                 .env 自动写入 LOG_VIEWER_PUBLIC_URL=http://<IP>:8120/；
+#                 ufw 自动放行 8120（若无 ufw 则提示手动放行云安全组）。
+```
+
+- **HTTP 非 HTTPS**：无域名时全站走 HTTP，cookie 非 Secure，功能正常；后续买了域名重跑 `deploy-linux.sh --domain 你的域名 --with-nginx` 即可平滑切换到子域 + HTTPS。
+- **访问入口**：浏览器 `http://<IP>/`；日志查看器 `http://<IP>:8120/`（前端「系统设置 → 日志查看器」按钮，需超级管理员登录）。
+- **改域名后**：重跑部署脚本传 `--domain`，vhost 会自动把日志查看器切回 `log.<DOMAIN>` 子域块（8120 端口块被删除），并移除 `.env` 里旧的 `LOG_VIEWER_PUBLIC_URL`（需手动删或重跑首次部署）——注意切换后记得跑 certbot 覆盖子域。
 
 ### 后端管理后台公网访问（防直连）
 

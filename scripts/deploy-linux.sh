@@ -149,6 +149,13 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
         sed -i -E "s|^#?[[:space:]]*CORS_ORIGIN=.*|CORS_ORIGIN=https://${DOMAIN},http://${DOMAIN}|" "$INSTALL_DIR/backend/.env"
         grep -q '^CORS_ORIGIN=' "$INSTALL_DIR/backend/.env" || \
             echo "CORS_ORIGIN=https://${DOMAIN},http://${DOMAIN}" >> "$INSTALL_DIR/backend/.env"
+    else
+        # 无域名（纯 IP）部署：日志查看器走 8120 端口，显式下发公网地址，
+        # 避免前端 /api/version 把 Host 推导成错误的 https://log.<IP>/
+        SERVER_IP="$(hostname -I | awk '{print $1}')"
+        if [[ -n "$SERVER_IP" ]]; then
+            echo "LOG_VIEWER_PUBLIC_URL=http://${SERVER_IP}:8120/" >> "$INSTALL_DIR/backend/.env"
+        fi
     fi
     # 日志查看器防直连令牌密钥：缺失则生成随机值（与主后端共用同一 .env，保证两端密钥一致）
     if ! grep -q '^LOGVIEWER_SECRET_KEY=' "$INSTALL_DIR/backend/.env"; then
@@ -244,6 +251,15 @@ if [[ $WITH_NGINX -eq 1 ]]; then
         -e "s|__DOMAIN__|${DOMAIN:-_}|g" \
         "$PROJECT_ROOT/deploy/nginx-gipfel.conf" > "$VHOST_FILE"
 
+    # 日志查看器 server 块二选一（模板含两块，按是否传 --domain 删除另一块）：
+    #   有域名 → 保留 log.<DOMAIN> 子域块，删除 8120 端口块；
+    #   无域名 → 保留 8120 端口块，删除子域块（server_name log._ 形同失效，干脆移除避免歧义）。
+    if [[ -n "$DOMAIN" ]]; then
+        sed -i '/# === LOGVIEWER_PORT8120_START ===/,/# === LOGVIEWER_PORT8120_END ===/d' "$VHOST_FILE"
+    else
+        sed -i '/# === LOGVIEWER_SUBDOMAIN_START ===/,/# === LOGVIEWER_SUBDOMAIN_END ===/d' "$VHOST_FILE"
+    fi
+
     cp -f "$VHOST_FILE" /etc/nginx/sites-available/gipfel.conf
     [[ -f /etc/nginx/sites-enabled/gipfel.conf ]] || \
         ln -sf /etc/nginx/sites-available/gipfel.conf /etc/nginx/sites-enabled/gipfel.conf
@@ -262,6 +278,14 @@ if [[ $WITH_NGINX -eq 1 ]]; then
             warn "如需 HTTPS：apt-get install -y certbot python3-certbot-nginx && certbot --nginx -d $DOMAIN -d log.$DOMAIN --redirect"
         fi
         warn "另需：将 log.$DOMAIN 的 DNS A 记录指向本服务器（日志查看器子域代理前置条件）。"
+    else
+        # 无域名：日志查看器经 8120 端口暴露公网，需放行防火墙
+        if command -v ufw >/dev/null 2>&1; then
+            ufw allow 8120/tcp >/dev/null 2>&1 || true
+            ok "已放行防火墙 8120 端口（ufw 规则已添加；若 ufw 未启用则该规则暂未生效）"
+        else
+            warn "无域名部署：请确认云/系统防火墙放行 TCP 8120，否则 http://<IP>:8120/ 不可达。"
+        fi
     fi
 fi
 
@@ -272,6 +296,9 @@ echo "  目录：        $INSTALL_DIR"
 echo "  后端状态：    systemctl status gipfel"
 if [[ $WITH_NGINX -eq 1 ]]; then
 echo "  网站：        ${DOMAIN:-http://$(hostname -I | awk '{print $1}')}"
+if [[ -z "$DOMAIN" ]]; then
+echo "  日志查看器：  http://$(hostname -I | awk '{print $1}'):8120/ （前端「系统设置 → 日志查看器」按钮，需放行 8120）"
+fi
 echo "  Nginx 状态：  systemctl status nginx"
 fi
 echo "  默认超管：    admin / admin23（首次登录强制改密）"

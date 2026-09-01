@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | 前端（Vite / 生产 nginx 静态） | `:5173`（开发）/ 80·443（生产） | 浏览器访问入口 |
 | 后端（Django 5 + daphne ASGI） | `:8000` | HTTP REST + Socket.IO WebSocket 同源同端口；`/admin` 管理后台仅前端按钮携带一次性令牌可进，直连 302 回前端 |
-| 日志查看器（独立 Django 站点） | `:8120`（内部，仅绑定 127.0.0.1） | 在线查看 `backend/logs/`，**共享主后端 `db.sqlite3`**；公网经 nginx 子域 `log.<DOMAIN>` 整站代理，且**仅前端按钮点击（携带一次性令牌）可进入**，直接输入网址被 403 拒绝 |
+| 日志查看器（独立 Django 站点） | `:8120`（内部，仅绑定 127.0.0.1） | 在线查看 `backend/logs/`，**共享主后端 `db.sqlite3`**；公网整站代理到 `127.0.0.1:8120`，且**仅前端按钮点击（携带一次性令牌）可进入**，直接输入网址被 403 拒绝。有域名经 nginx 子域 `log.<DOMAIN>`（端口 80）；无域名（纯 IP）经 nginx `:8120` 端口（`server_name _`）访问 `http://<IP>:8120/`（详见 deploy/README.md「无域名纯 IP 部署」） |
 
 > 后端 `:8000` 由 `start-dev.bat` 固定，不读 `.env` 的 `PORT`；`PORT` 仅被 `manage.py rundaphne` 与 `/api/version` 下发的跳转按钮使用。日志查看器端口读 `.env` 的 `LOG_VIEWER_PORT`（默认 8120）。
 
@@ -88,7 +88,7 @@ npm run typecheck    # 类型检查（CI 必跑）
 ## 7. 日志
 
 - **后端运行日志**：`backend/logs/gipfel.log`（按天滚动，保留 14 天）；生产亦可用 `journalctl -u gipfel -f`。
-- **日志查看器**：公网经 `https://log.<DOMAIN>/`（或开发 `http://127.0.0.1:8120/`），**仅能从「系统设置 → 日志查看器」按钮（携带一次性令牌）进入**；直接输入网址会被 403 拒绝。进入后仍需用 Django 后台超级管理员凭据登录。
+- **日志查看器**：公网经 `https://log.<DOMAIN>/`（有域名）或 `http://<IP>:8120/`（无域名纯 IP 部署，见 deploy/README.md「无域名纯 IP 部署」）整站代理；开发环境 `http://127.0.0.1:8120/`。**仅能从「系统设置 → 日志查看器」按钮（携带一次性令牌）进入**；直接输入网址会被 403 拒绝。进入后仍需用 Django 后台超级管理员凭据登录。
 - **cookie 隔离**：两者同在 `localhost`，cookie 名必须不同，否则主后端 `HttpOnly` 的会盖掉前端要读的那份：
 
   | 站点 | CSRF cookie | Session cookie | HttpOnly |
@@ -140,7 +140,7 @@ npm run typecheck    # 类型检查（CI 必跑）
 
 - **这是预期的安全行为（防直连）**：日志查看器 `index` 视图要求携带主后端签发的一次性令牌（`POST /api/auth/logviewer-token`，仅 `SUPER_ADMIN` 可获取，默认 120s 有效）。直接输入网址、书签、复制链接都无令牌 → 403 拒绝。
 - **正确入口**：主系统「系统设置 → 日志查看器」按钮（仅超级管理员可见）。点击时前端自动取令牌并拼入跳转 URL。
-- **仍打不开**：① 确认已用超级管理员账号登录；② 令牌 120s 内有效，超时重开按钮即可；③ 若 403 持续，检查主后端与日志查看器 `.env` 的 `LOGVIEWER_SECRET_KEY` 是否**一致**（不一致会导致验签失败）；④ 经 nginx 子域 `log.<DOMAIN>` 访问需 DNS A 记录 + certbot 覆盖该子域（见 deploy/README.md）。
+- **仍打不开**：① 确认已用超级管理员账号登录；② 令牌 120s 内有效，超时重开按钮即可；③ 若 403 持续，检查主后端与日志查看器 `.env` 的 `LOGVIEWER_SECRET_KEY` 是否**一致**（不一致会导致验签失败）；④ 经 nginx 子域 `log.<DOMAIN>` 访问需 DNS A 记录 + certbot 覆盖该子域（见 deploy/README.md）；⑤ **无域名纯 IP 部署**经 `http://<IP>:8120/` 访问，需确认 `deploy/nginx-gipfel.conf` 的 8120 端口块已生效（deploy 脚本无 `--domain` 时自动保留），且云/系统防火墙放行 TCP 8120（deploy 脚本无域名时自动 `ufw allow 8120/tcp`，否则需手动放行）。
 - **底层**：`LOGVIEWER_GATE_MAX_AGE`（秒）/ `LOGVIEWER_GATE_SALT` 在 `backend/logviewer/logviewer/settings.py` 可调；`LOGVIEWER_SECRET_KEY` 在主后端 `settings.py` 读取，与日志查看器共用同一 `.env`。
 
 ### Q9. 直接输入网址打开 /admin 被跳回前端首页
@@ -165,7 +165,7 @@ npm run typecheck    # 类型检查（CI 必跑）
 - **比赛隔离**：业务查询按 `competition_id` 自动域过滤。
 - **CORS**：未配置 `CORS_ORIGIN` 时仅本地/私网反射并带凭据；公网必须显式白名单。
 - **登录限流**：见 Q7。
-- **日志查看器防直连**：公网仅经 nginx 子域 `log.<DOMAIN>` 整站代理；`index` 视图校验主后端签发的一次性签名令牌（`LOGVIEWER_SECRET_KEY` 共享密钥，默认 120s 有效），缺失/无效/过期即 403，实现「仅按钮点击可跳转、直连网址无法跳转」。进入后仍需后台超级管理员登录。
+- **日志查看器防直连**：公网整站代理到 `127.0.0.1:8120`；有域名经 nginx 子域 `log.<DOMAIN>`（端口 80），无域名纯 IP 经 nginx `:8120` 端口（`server_name _`）。`index` 视图校验主后端签发的一次性签名令牌（`LOGVIEWER_SECRET_KEY` 共享密钥，默认 120s 有效），缺失/无效/过期即 403，实现「仅按钮点击可跳转、直连网址无法跳转」。进入后仍需后台超级管理员登录。
 - **后端管理后台 `/admin` 防直连**：`BackendGateMiddleware` 网关保护 `/admin/*`，要求携带主后端签发的一次性签名令牌（`LOGVIEWER_SECRET_KEY` 共享密钥 + salt `backend-gate`，默认 120s 有效），缺失/无效/过期即 302 重定向回前端 SPA，实现「仅按钮点击可跳转、直连网址自动跳回前端」。进入后仍需 Django 后台超级管理员登录。令牌有效期由 `.env` 的 `BACKEND_GATE_MAX_AGE`（秒）控制。
 - **⚠️ 后台写库警示**：Django `/admin` 直接写 SQLite 会**绕过业务校验**（合同引擎、股票计算、权限派生、乐观锁级联重算等），常规管理请走前端界面；后台仅用于运维临时修数，改完回前端核对一致性。
 
