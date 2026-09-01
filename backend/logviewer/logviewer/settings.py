@@ -19,6 +19,24 @@ SECRET_KEY = os.environ.get("LOGVIEWER_SECRET_KEY", "logviewer-dev-insecure-key-
 
 DEBUG = os.environ.get("LOGVIEWER_DEBUG", "true").lower() == "true"
 
+# ---------------- 防直连网关（与主后端共享 LOGVIEWER_SECRET_KEY 签发） ----------------
+# index 视图据此校验前端按钮拼入 URL 的一次性令牌；缺失/无效/过期则拒绝访问。
+# 盐必须与被签方（主后端 LogViewerTokenView）一致。
+LOGVIEWER_GATE_SALT = "logviewer-gate"
+# 令牌最长有效秒数（默认 120s，足够完成一次按钮跳转）
+LOGVIEWER_GATE_MAX_AGE = int(os.environ.get("LOGVIEWER_GATE_MAX_AGE", "120"))
+# 网关通过后写入会话的键名（signed_cookies 会话，无需数据库）
+LOGVIEWER_GATE_SESSION_KEY = "lv_gate"
+
+# ---------------- 反向代理（nginx 整站代理到 127.0.0.1:8120） ----------------
+# 让日志查看器正确识别 HTTPS（nginx 终止 TLS 后转发 X-Forwarded-Proto）
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# 会话/CSRF cookie 是否标记 Secure：默认 False（兼容当前 HTTP 部署，避免网关会话 cookie
+# 在 HTTP 下不被浏览器存储导致反复要求令牌）；启用 HTTPS 后请将 LOGVIEWER_SECURE_COOKIES=true。
+_SECURE_COOKIES = os.environ.get("LOGVIEWER_SECURE_COOKIES", "false").lower()
+SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = (_SECURE_COOKIES == "true")
+
 ALLOWED_HOSTS = ["*"]  # 内部工具，允许任意主机；生产可改为具体域名
 
 # 端口：由 .env 的 LOG_VIEWER_PORT 决定（默认 8120）；Windows 开发由 scripts/start-dev.bat 拉起

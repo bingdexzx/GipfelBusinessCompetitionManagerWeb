@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | 前端（Vite / 生产 nginx 静态） | `:5173`（开发）/ 80·443（生产） | 浏览器访问入口 |
 | 后端（Django 5 + daphne ASGI） | `:8000` | HTTP REST + Socket.IO WebSocket 同源同端口 |
-| 日志查看器（独立 Django 站点） | `:8120` | 在线查看 `backend/logs/`，**共享主后端 `db.sqlite3`** |
+| 日志查看器（独立 Django 站点） | `:8120`（内部，仅绑定 127.0.0.1） | 在线查看 `backend/logs/`，**共享主后端 `db.sqlite3`**；公网经 nginx 子域 `log.<DOMAIN>` 整站代理，且**仅前端按钮点击（携带一次性令牌）可进入**，直接输入网址被 403 拒绝 |
 
 > 后端 `:8000` 由 `start-dev.bat` 固定，不读 `.env` 的 `PORT`；`PORT` 仅被 `manage.py rundaphne` 与 `/api/version` 下发的跳转按钮使用。日志查看器端口读 `.env` 的 `LOG_VIEWER_PORT`（默认 8120）。
 
@@ -29,6 +29,7 @@ systemctl start gipfel        # 后端 daphne
 systemctl stop gipfel         # 停止
 systemctl restart gipfel      # 重启（改代码/配置后）
 systemctl status gipfel       # 状态
+systemctl status gipfel-logviewer   # 日志查看器（独立站点）
 systemctl status nginx        # 反向代理 + 前端静态
 journalctl -u gipfel -f       # 实时日志
 ```
@@ -58,8 +59,9 @@ scripts\start-dev.bat         :: 并行拉起 Django(:8000) + Vite(:5173) + 日�
 
 ```bash
 curl -sS http://127.0.0.1:8000/api/health     # 期望 {"ok":true,"service":"gipfel-backend",...}
-curl -sS http://127.0.0.1:8000/api/version    # 期望 {"version":"...","environment":"development"}
+curl -sS http://127.0.0.1:8000/api/version    # 期望含 log_viewer_url 字段（日志查看器公网地址）
 curl -sS http://127.0.0.1:8120/api/health     # 日志查看器健康检查
+curl -sS -o /dev/null -w "%{http_code}" http://127.0.0.1:8120/   # 直连应为 403（防直连网关）
 ```
 
 ## 6. 常用运维命令
@@ -85,7 +87,7 @@ npm run typecheck    # 类型检查（CI 必跑）
 ## 7. 日志
 
 - **后端运行日志**：`backend/logs/gipfel.log`（按天滚动，保留 14 天）；生产亦可用 `journalctl -u gipfel -f`。
-- **日志查看器**：浏览器打开 `http://127.0.0.1:8120/`，登录后在线检索 `backend/logs/`。
+- **日志查看器**：公网经 `https://log.<DOMAIN>/`（或开发 `http://127.0.0.1:8120/`），**仅能从「系统设置 → 日志查看器」按钮（携带一次性令牌）进入**；直接输入网址会被 403 拒绝。进入后仍需用 Django 后台超级管理员凭据登录。
 - **cookie 隔离**：两者同在 `localhost`，cookie 名必须不同，否则主后端 `HttpOnly` 的会盖掉前端要读的那份：
 
   | 站点 | CSRF cookie | Session cookie | HttpOnly |
@@ -131,7 +133,14 @@ npm run typecheck    # 类型检查（CI 必跑）
 
 ### Q5. 改端口后前端跳转按钮还指向旧端口
 
-前端「系统设置 → 后端管理」的红色「后端管理界面」与黄色「日志查看器」跳转按钮地址由 `/api/version` 下发的 `PORT` / `LOG_VIEWER_PORT` 拼接。改 `.env` 的 `PORT` / `LOG_VIEWER_PORT` 后**重启后端**即可，无需改前端代码。
+前端「系统设置 → 后端管理」的红色「后端管理界面」按钮走同源相对路径 `/admin/`（不拼端口，随 nginx 域名自适应）；黄色「日志查看器」按钮地址由 `/api/version` 下发的 `log_viewer_url` 拼接（默认由请求 Host 派生 `https://log.<域名>/`，可用 `.env` 的 `LOG_VIEWER_PUBLIC_URL` 显式覆盖）。改 `.env` 的 `LOG_VIEWER_PORT` 或域名后**重启后端**即可，无需改前端代码。
+
+### Q8. 日志查看器直接输入网址打不开 / 提示「拒绝直接访问」
+
+- **这是预期的安全行为（防直连）**：日志查看器 `index` 视图要求携带主后端签发的一次性令牌（`POST /api/auth/logviewer-token`，仅 `SUPER_ADMIN` 可获取，默认 120s 有效）。直接输入网址、书签、复制链接都无令牌 → 403 拒绝。
+- **正确入口**：主系统「系统设置 → 日志查看器」按钮（仅超级管理员可见）。点击时前端自动取令牌并拼入跳转 URL。
+- **仍打不开**：① 确认已用超级管理员账号登录；② 令牌 120s 内有效，超时重开按钮即可；③ 若 403 持续，检查主后端与日志查看器 `.env` 的 `LOGVIEWER_SECRET_KEY` 是否**一致**（不一致会导致验签失败）；④ 经 nginx 子域 `log.<DOMAIN>` 访问需 DNS A 记录 + certbot 覆盖该子域（见 deploy/README.md）。
+- **底层**：`LOGVIEWER_GATE_MAX_AGE`（秒）/ `LOGVIEWER_GATE_SALT` 在 `backend/logviewer/logviewer/settings.py` 可调；`LOGVIEWER_SECRET_KEY` 在主后端 `settings.py` 读取，与日志查看器共用同一 `.env`。
 
 ### Q6. Socket.IO / 实时数据不刷新
 
@@ -149,6 +158,7 @@ npm run typecheck    # 类型检查（CI 必跑）
 - **比赛隔离**：业务查询按 `competition_id` 自动域过滤。
 - **CORS**：未配置 `CORS_ORIGIN` 时仅本地/私网反射并带凭据；公网必须显式白名单。
 - **登录限流**：见 Q7。
+- **日志查看器防直连**：公网仅经 nginx 子域 `log.<DOMAIN>` 整站代理；`index` 视图校验主后端签发的一次性签名令牌（`LOGVIEWER_SECRET_KEY` 共享密钥，默认 120s 有效），缺失/无效/过期即 403，实现「仅按钮点击可跳转、直连网址无法跳转」。进入后仍需后台超级管理员登录。
 - **⚠️ 后台写库警示**：Django `/admin` 直接写 SQLite 会**绕过业务校验**（合同引擎、股票计算、权限派生、乐观锁级联重算等），常规管理请走前端界面；后台仅用于运维临时修数，改完回前端核对一致性。
 
 ## 11. 升级流程

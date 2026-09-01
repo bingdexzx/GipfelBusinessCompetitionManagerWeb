@@ -66,6 +66,7 @@ check_exists() {
 check_exists "$PROJECT_ROOT/backend/requirements.txt"
 check_exists "$PROJECT_ROOT/frontend/package.json"
 check_exists "$PROJECT_ROOT/deploy/gipfel.service"
+check_exists "$PROJECT_ROOT/deploy/logviewer.service"
 check_exists "$PROJECT_ROOT/deploy/nginx-gipfel.conf"
 
 # ---------------- 1. 系统依赖 ----------------
@@ -149,6 +150,11 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
         grep -q '^CORS_ORIGIN=' "$INSTALL_DIR/backend/.env" || \
             echo "CORS_ORIGIN=https://${DOMAIN},http://${DOMAIN}" >> "$INSTALL_DIR/backend/.env"
     fi
+    # 日志查看器防直连令牌密钥：缺失则生成随机值（与主后端共用同一 .env，保证两端密钥一致）
+    if ! grep -q '^LOGVIEWER_SECRET_KEY=' "$INSTALL_DIR/backend/.env"; then
+        LVSECRET="$(openssl rand -base64 32 | tr -d '\n=')"
+        echo "LOGVIEWER_SECRET_KEY=${LVSECRET}" >> "$INSTALL_DIR/backend/.env"
+    fi
 fi
 
 mkdir -p "$INSTALL_DIR/backend/uploads" "$INSTALL_DIR/backend/logs"
@@ -171,6 +177,11 @@ log "执行 migrate（首次会自动建 admin/admin23）"
 ".venv/bin/python" manage.py check --fail-level ERROR
 ".venv/bin/python" manage.py migrate --noinput
 ".venv/bin/python" manage.py collectstatic --noinput
+# 日志查看器静态资源（独立项目，settings=logviewer.settings）
+log "收集日志查看器静态资源"
+cd "$INSTALL_DIR/backend/logviewer"
+"$INSTALL_DIR/backend/.venv/bin/python" manage.py collectstatic --noinput --settings=logviewer.settings
+cd "$INSTALL_DIR/backend"
 ok "数据库迁移完成，静态资源收集完成"
 
 # ---------------- 5. 前端构建 ----------------
@@ -196,11 +207,15 @@ chmod 600 "$INSTALL_DIR/backend/.env" 2>/dev/null || true
 ok "文件归属已切换为 gipfel（运行时可写 db/uploads/logs），.env 权限收紧为 600"
 
 # ---------------- 6. systemd unit ----------------
-log "写入 systemd 服务 gipfel.service"
+log "写入 systemd 服务 gipfel.service / gipfel-logviewer.service"
 UNIT_FILE="$INSTALL_DIR/deploy/gipfel.service"
 sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$PROJECT_ROOT/deploy/gipfel.service" > "$UNIT_FILE"
-
 cp -f "$UNIT_FILE" /etc/systemd/system/gipfel.service
+
+LV_UNIT_FILE="$INSTALL_DIR/deploy/logviewer.service"
+sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$PROJECT_ROOT/deploy/logviewer.service" > "$LV_UNIT_FILE"
+cp -f "$LV_UNIT_FILE" /etc/systemd/system/gipfel-logviewer.service
+
 systemctl daemon-reload
 systemctl enable --now gipfel
 sleep 2
@@ -210,6 +225,16 @@ if ! systemctl is-active --quiet gipfel; then
 fi
 systemctl is-active --quiet gipfel && ok "gipfel.service 运行中" || \
     { journalctl -u gipfel -n 30 --no-pager; err "gipfel 服务启动失败，见上方日志"; }
+
+# 日志查看器（独立站点，nginx 子域 log.<DOMAIN> 代理）
+systemctl enable --now gipfel-logviewer
+sleep 2
+if ! systemctl is-active --quiet gipfel-logviewer; then
+    warn "gipfel-logviewer 服务未立即激活，等待 5s 重试检查"
+    sleep 5
+fi
+systemctl is-active --quiet gipfel-logviewer && ok "gipfel-logviewer.service 运行中" || \
+    { journalctl -u gipfel-logviewer -n 30 --no-pager; err "gipfel-logviewer 服务启动失败，见上方日志"; }
 
 # ---------------- 7. nginx ----------------
 if [[ $WITH_NGINX -eq 1 ]]; then
@@ -232,10 +257,11 @@ if [[ $WITH_NGINX -eq 1 ]]; then
 
     if [[ -n "$DOMAIN" ]]; then
         if command -v certbot >/dev/null 2>&1; then
-            warn "已安装 certbot，可手动执行：certbot --nginx -d $DOMAIN --non-interactive --redirect"
+            warn "已安装 certbot，可手动执行：certbot --nginx -d $DOMAIN -d log.$DOMAIN --non-interactive --redirect"
         else
-            warn "如需 HTTPS：apt-get install -y certbot python3-certbot-nginx && certbot --nginx -d $DOMAIN --redirect"
+            warn "如需 HTTPS：apt-get install -y certbot python3-certbot-nginx && certbot --nginx -d $DOMAIN -d log.$DOMAIN --redirect"
         fi
+        warn "另需：将 log.$DOMAIN 的 DNS A 记录指向本服务器（日志查看器子域代理前置条件）。"
     fi
 fi
 

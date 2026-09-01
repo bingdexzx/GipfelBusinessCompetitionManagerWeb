@@ -6,7 +6,10 @@
 """
 from __future__ import annotations
 
+import os
+
 from django.conf import settings
+from django.core.signing import TimestampSigner
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -62,11 +65,23 @@ class VersionView(APIView):
     permission_classes = (AllowAny,)
 
     def get(self, request):
+        # 日志查看器公网地址：优先 LOG_VIEWER_PUBLIC_URL 显式覆盖；
+        # 否则由当前请求 Host 派生子域 log.<host>（部署需配套 DNS A 记录 + certbot -d log.<host>）；
+        # 均无则回退本地 127.0.0.1（开发）。前端「日志查看器」按钮据此拼跳转地址。
+        log_viewer_url = os.environ.get("LOG_VIEWER_PUBLIC_URL", "").strip()
+        if not log_viewer_url:
+            host = (request.get_host().split(":") or [""])[0]
+            log_viewer_url = (
+                f"https://log.{host}/"
+                if host
+                else f"http://127.0.0.1:{settings.LOG_VIEWER_PORT}/"
+            )
         return Response(
             {
                 "version": VERSION,
                 "port": settings.PORT,
                 "log_viewer_port": settings.LOG_VIEWER_PORT,
+                "log_viewer_url": log_viewer_url,
             }
         )
 
@@ -102,6 +117,29 @@ class LoginView(APIView):
 
         token = create_jwt(user)
         return Response({"token": token, "user": serialize_user(user)})
+
+
+# ==================== 日志查看器防直连令牌 ====================
+class LogViewerTokenView(APIView):
+    """POST /api/auth/logviewer-token → {token}
+
+    签发一次性/短时（默认 120s）防直连令牌，供前端「系统设置 → 日志查看器」按钮点击后拼入跳转 URL。
+    日志查看器 index 视图校验该令牌，缺失/无效/过期则拒绝访问，从而实现
+    「仅按钮点击可跳转、直接输入网址无法跳转」。
+
+    仅 SUPER_ADMIN 可获取（与前端按钮 v-if="isSuperAdmin" 一致）；令牌本身不替代日志查看器
+    自身的超级管理员登录，仅作为「来源合法性」网关。
+    """
+
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request):
+        if getattr(request.user, "role", None) != "SUPER_ADMIN":
+            raise BusinessError("仅超级管理员可生成日志查看器访问令牌", code=403, status_code=403)
+        # 用与主后端共用的 LOGVIEWER_SECRET_KEY 签名；盐固定以便日志查看器侧一致校验。
+        signer = TimestampSigner(key=settings.LOGVIEWER_SECRET_KEY, salt="logviewer-gate")
+        token = signer.sign(f"lv:{request.user.id}")
+        return Response({"token": token})
 
 
 # ==================== 当前用户 ====================

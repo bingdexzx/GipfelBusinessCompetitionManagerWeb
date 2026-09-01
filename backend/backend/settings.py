@@ -26,6 +26,10 @@ if not JWT_SECRET:
         "环境变量校验失败:\n  JWT_SECRET: JWT_SECRET is required"
     )
 
+# 日志查看器防直连令牌共享密钥：主后端用它签发一次性令牌，日志查看器用它校验。
+# 与主后端共用同一 .env；缺失时回退 JWT_SECRET（保证两服务能协商一致即可）。
+LOGVIEWER_SECRET_KEY = (os.environ.get("LOGVIEWER_SECRET_KEY") or JWT_SECRET).strip()
+
 
 # ==================== 通用配置 ====================
 SECRET_KEY = JWT_SECRET  # Django 自身 SECRET_KEY 复用 JWT_SECRET（生产应独立，迁移期简化）

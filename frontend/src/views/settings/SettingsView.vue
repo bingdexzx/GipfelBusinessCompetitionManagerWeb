@@ -24,6 +24,7 @@ import { ref, computed } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { clearCurrentAccountCache } from "@/api/cache";
 import { resetRequestMemo } from "@/api/request";
+import api from "@/api";
 import { removeAccountItem } from "@/utils/accountStorage";
 import { useVersionStore } from "@/stores/version";
 import { useAuthStore } from "@/stores/auth";
@@ -57,21 +58,32 @@ async function clearLocalData() {
   setTimeout(() => window.location.reload(), 300);
 }
 
-// 后端管理后台地址：端口取自后端 .env 的 PORT（经 /api/version 下发），默认 8000。
-// 后端改端口只需改 .env PORT 并重启，按钮自动跟随，无需改前端代码。
-const adminUrl = computed(
-  () => `http://127.0.0.1:${versionStore.backendPort || 8000}/admin/`,
-);
+// 后端管理后台地址：前端经同源 nginx 提供，直接走相对路径 /admin/（无需拼端口/域名）。
+// 既兼容本机开发，也兼容公网同域部署。
+const adminUrl = computed(() => `/admin/`);
 function openAdmin() {
   window.open(adminUrl.value, "_blank", "noopener,noreferrer");
 }
 
-// 日志查看器地址：端口取自后端 .env 的 LOG_VIEWER_PORT（经 /api/version 下发），默认 8120。
-const logViewerUrl = computed(
-  () => `http://127.0.0.1:${versionStore.logViewerPort || 8120}/`,
-);
-function openLogViewer() {
-  window.open(logViewerUrl.value, "_blank", "noopener,noreferrer");
+// 日志查看器跳转：需「仅按钮点击可跳转、直接输入网址无法跳转」。
+// 点击时向后端请求一次性防直连令牌（仅 SUPER_ADMIN 可获取），拼入日志查看器公网地址后打开；
+// 日志查看器 index 视图校验令牌，缺失/无效/过期则拒绝（见后端 LogViewerTokenView + 日志查看器网关）。
+// 公网地址来自 /api/version 的 log_viewer_url（默认 http://127.0.0.1:8120/，部署时由 Host 派生 log.<域名>）。
+async function openLogViewer() {
+  try {
+    const res = (await api.post("/auth/logviewer-token")) as { token?: string };
+    const token = res?.token;
+    if (!token) throw new Error("未获取到访问令牌");
+    const base =
+      versionStore.logViewerUrl ||
+      `http://127.0.0.1:${versionStore.logViewerPort || 8120}/`;
+    const sep = base.includes("?") ? "&" : "?";
+    const url = `${base}${sep}token=${encodeURIComponent(token)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  } catch (e: unknown) {
+    const msg = (e as { message?: string })?.message || "打开日志查看器失败";
+    ElMessage.error(msg);
+  }
 }
 </script>
 

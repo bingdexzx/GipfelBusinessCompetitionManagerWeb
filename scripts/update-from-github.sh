@@ -23,7 +23,7 @@
 #   3. 更新后端：pip install -r requirements.txt → migrate → collectstatic
 #   4. 更新前端：npm ci && npm run build → frontend-dist
 #   5. chown 归属运行用户 gipfel，.env 权限 600
-#   6. systemctl restart gipfel
+#   6. systemctl restart gipfel（+ gipfel-logviewer 日志查看器）
 #   7. [可选] --with-nginx：用最新 deploy/nginx-gipfel.conf 重新生成 vhost 并 reload
 #
 # 注意：
@@ -139,6 +139,11 @@ fi
 ".venv/bin/python" manage.py check --fail-level ERROR
 ".venv/bin/python" manage.py migrate --noinput
 ".venv/bin/python" manage.py collectstatic --noinput
+# 日志查看器静态资源（独立项目，settings=logviewer.settings）
+log "收集日志查看器静态资源"
+cd "$INSTALL_DIR/backend/logviewer"
+"$INSTALL_DIR/backend/.venv/bin/python" manage.py collectstatic --noinput --settings=logviewer.settings
+cd "$INSTALL_DIR/backend"
 ok "后端依赖与数据库迁移完成"
 
 # ---------------- 3. 更新前端构建 ----------------
@@ -176,6 +181,20 @@ else
     warn "gipfel.service 尚未注册（首次部署请先运行 deploy-linux.sh），跳过重启"
 fi
 
+# 日志查看器（独立站点）
+if systemctl cat gipfel-logviewer.service >/dev/null 2>&1; then
+    log "重启 gipfel-logviewer.service"
+    systemctl restart gipfel-logviewer
+    sleep 2
+    if ! systemctl is-active --quiet gipfel-logviewer; then
+        sleep 5
+    fi
+    systemctl is-active --quiet gipfel-logviewer && ok "gipfel-logviewer.service 已重启并运行中" || \
+        { journalctl -u gipfel-logviewer -n 30 --no-pager; err "gipfel-logviewer 启动失败，见上方日志（可用备份 $BACKUP_DIR 回滚）"; }
+else
+    warn "gipfel-logviewer.service 尚未注册（首次部署请先运行 deploy-linux.sh），跳过重启"
+fi
+
 # ---------------- 6. nginx（可选）----------------
 if [[ $WITH_NGINX -eq 1 ]]; then
     VHOST_TMPL="$INSTALL_DIR/deploy/nginx-gipfel.conf"
@@ -197,6 +216,7 @@ ok "更新完成！"
 echo "  部署目录：    $INSTALL_DIR"
 echo "  备份位置：    $BACKUP_DIR"
 echo "  后端状态：    systemctl status gipfel"
+echo "  日志查看器：  systemctl status gipfel-logviewer"
 echo "  健康检查：    curl -sS http://127.0.0.1:8000/api/health"
 if [[ $WITH_NGINX -eq 1 ]]; then
 echo "  网站：        ${DOMAIN:-http://$(hostname -I | awk '{print $1}')}"

@@ -10,6 +10,7 @@ export const useVersionStore = defineStore("version", () => {
   const serverVersion = ref<string | null>(null);
   const backendPort = ref<number>(8000); // 后端监听端口（来自 /api/version 的 port，默认 8000）
   const logViewerPort = ref<number>(8120); // 日志查看器端口（来自 /api/version 的 log_viewer_port，默认 8120）
+  const logViewerUrl = ref<string>("http://127.0.0.1:8120/"); // 日志查看器公网地址（来自 /api/version 的 log_viewer_url，默认本地）
   const announcement = ref<string>(ANNOUNCEMENT);
   let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -26,6 +27,9 @@ export const useVersionStore = defineStore("version", () => {
       }
       if (typeof data?.log_viewer_port === "number" && data.log_viewer_port > 0) {
         logViewerPort.value = data.log_viewer_port;
+      }
+      if (typeof data?.log_viewer_url === "string" && data.log_viewer_url) {
+        logViewerUrl.value = data.log_viewer_url;
       }
       const client = getClientVersion();
       const blocked = !!serverVersion.value && serverVersion.value !== client;
@@ -53,5 +57,5 @@ export const useVersionStore = defineStore("version", () => {
     }
   }
 
-  return { showDialog, serverVersion, backendPort, logViewerPort, announcement, checkVersion };
+  return { showDialog, serverVersion, backendPort, logViewerPort, logViewerUrl, announcement, checkVersion };
 });
