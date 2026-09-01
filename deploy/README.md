@@ -19,7 +19,7 @@ sudo bash scripts/deploy-linux.sh \
 ```bash
 # 1) 克隆仓库到 /opt（默认分支 master；克隆目录不要叫 /opt/gipfel，否则会与安装目录 rsync 自拷贝冲突）
 git clone https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git /opt/GipfelBusinessCompetitionManagerWeb
-cd /opt/GipfelBusinessCompetitionManagerWeb
+cd /opt/GipfelBusinessCompetitionManagerWeb/
 
 # 2) 一键部署：纯 IP 先用「无 --domain」，有域名加 --domain
 sudo bash scripts/deploy-linux.sh --install-dir /opt/gipfel --with-nginx
