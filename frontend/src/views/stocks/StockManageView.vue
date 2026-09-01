@@ -502,6 +502,12 @@ interface Stock {
   happinessFieldRef?: string | null;
   effectiveCurrentCarbon?: number;
   effectiveHappiness?: number;
+  // 以下为后端 _serialize_stock 返回的联动/计算字段
+  effectivePb?: number | null;
+  pbMode?: string; // "linked" | "random"
+  industryAvgCarbon?: number;
+  industryAvgCarbonRefs?: string | null; // JSON array
+  effectiveIndustryAvgCarbon?: number | null;
 }
 interface Account {
   id: number;
@@ -510,6 +516,9 @@ interface Account {
   companyId: number | null;
   userId: number | null;
   cashBalance: number;
+  // 以下为后端 _serialize_account(with_field_balance=True) 返回
+  bindFieldId?: number | null;
+  fieldBalance?: number | null;
 }
 interface Company {
   id: number;

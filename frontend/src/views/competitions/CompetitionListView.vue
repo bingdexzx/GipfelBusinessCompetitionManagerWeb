@@ -457,6 +457,7 @@ async function startNextFiscalYear() {
 }
 
 async function endFiscalYear(fy: any) {
+  if (!selectedComp.value) return;
   await ElMessageBox.confirm("确定结束当前财年？此操作不可撤销", { type: "warning" });
   try {
     await api.patch(`/competitions/fiscal-years/${fy.id}`, { status: "CLOSED" });
