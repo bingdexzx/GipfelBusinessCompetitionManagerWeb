@@ -4,7 +4,6 @@
       <el-button
         v-if="showMenuToggle"
         class="menu-toggle"
-        text
         aria-label="打开菜单"
         @click="$emit('toggle')"
       >
@@ -153,14 +152,26 @@ function handleLogout() {
 .menu-toggle {
   margin-right: 6px;
   color: var(--color-text-secondary);
+  /* 左上角汉堡按钮改为正方形：固定等宽高、内边距清零、图标居中、带边框浅底 */
+  width: 36px !important;
+  height: 36px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: 1px solid var(--color-border, #e4e7ed) !important;
+  border-radius: 6px !important;
+  background: var(--el-fill-color-blank, #fff) !important;
 }
 .menu-toggle:hover {
   color: var(--color-primary);
+  border-color: var(--color-primary, #409eff) !important;
+  background: var(--el-fill-color-light, #f5f7fa) !important;
 }
-/* 手机/平板(抽屉)模式：左上角汉堡按钮整体往左靠一点，贴近屏幕左缘 */
+/* 手机/平板(抽屉)模式：左上角正方形按钮整体往左靠，贴近屏幕左缘（比之前的 -6px 更靠左） */
 @media (max-width: 1024px) {
   .menu-toggle {
-    margin-left: -6px;
+    margin-left: -12px !important;
   }
 }
 /* 抽屉模式(平板/手机)顶栏上下文：当前比赛 + 财年，直接可见，避免藏在抽屉侧栏；
