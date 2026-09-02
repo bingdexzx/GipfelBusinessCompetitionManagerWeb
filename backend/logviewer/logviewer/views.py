@@ -6,7 +6,7 @@ import json
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
-from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
+from django.http import HttpResponseRedirect, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
@@ -29,20 +29,27 @@ def _superuser_or_401(request):
     return None
 
 
-def _gate_denied() -> HttpResponse:
-    """直接访问（无有效令牌、未通过网关）的拒绝页：实现「直接输入网址无法跳转」。"""
-    html = (
-        "<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'>"
-        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "<title>拒绝访问</title></head><body style='font-family:system-ui,sans-serif;"
-        "max-width:560px;margin:12vh auto;padding:0 16px;color:#333'>"
-        "<h2 style='color:#c0392b'>拒绝直接访问</h2>"
-        "<p>日志查看器仅允许从「系统设置 → 日志查看器」按钮跳转进入。</p>"
-        "<p>直接输入网址、书签或复制链接均无法访问。请回到主系统，"
-        "以超级管理员身份点击「日志查看器」按钮后再次进入。</p>"
-        "</body></html>"
-    )
-    return HttpResponse(html, status=403, content_type="text/html; charset=utf-8")
+def _frontend_url(request) -> str:
+    """前端主站地址：优先 .env 的 LOG_VIEWER_FRONTEND_URL；缺省按请求 Host 推导。
+
+    日志查看器挂在 log.<域名>（域名部署）或 :8120（纯 IP 部署），
+    前端主站在 <域名>（:80/:443）或 :80，故剥掉 log. 前缀或 :8120 端口即得主站。
+    """
+    cfg = (getattr(settings, "LOG_VIEWER_FRONTEND_URL", "") or "").strip()
+    if cfg:
+        return cfg
+    scheme = "https" if request.is_secure() else "http"
+    host = request.get_host()
+    if ":" in host:
+        host = host.rsplit(":", 1)[0]
+    if host.startswith("log."):
+        host = host[len("log."):]
+    return f"{scheme}://{host}/"
+
+
+def _frontend_redirect(request) -> HttpResponseRedirect:
+    """直连（无有效令牌）自动跳转回前端主站 SPA，避免展示后台或拒绝页。"""
+    return HttpResponseRedirect(_frontend_url(request))
 
 
 # ==================== 页面 ====================
@@ -50,11 +57,11 @@ def _gate_denied() -> HttpResponse:
 def index(request):
     """单页应用外壳；附带 ensure_csrf_cookie 写 csrftoken，供登录 POST 使用。
 
-    防直连网关（思路一：每次进入都必须带有效 token，不凭会话 cookie 永久放行）：
+    防直连网关（思路一：入口需令牌）：
     - 携带有效一次性 ?token= → 渲染 SPA（token 保留在 URL，不重定向到干净地址，
-      以保证刷新/重开仍带 token；令牌 120s 过期后直连即 403）；
-    - 其余（直接输入网址/书签/无令牌/令牌过期）→ 403 拒绝。
-    注意：此处【不】写长期会话标记，避免「点过一次按钮后 cookie 永久有效、随后直连总能进」。
+      以保证刷新/重开仍带 token；令牌 120s 过期后直连即跳转回前端）；
+    - 其余（直接输入网址/书签/无令牌/令牌过期）→ 302 自动重定向回前端主站，
+      既不展示后台、也不显示拒绝页，行为与主后端 /admin/ 网关一致。
     """
     token = request.GET.get("token")
     if token:
@@ -62,10 +69,10 @@ def index(request):
         try:
             signer.unsign(token, max_age=settings.LOGVIEWER_GATE_MAX_AGE)
         except (BadSignature, SignatureExpired):
-            return _gate_denied()
+            return _frontend_redirect(request)
         return render(request, "index.html")
 
-    return _gate_denied()
+    return _frontend_redirect(request)
 
 
 @ensure_csrf_cookie

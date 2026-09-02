@@ -81,9 +81,9 @@ async function openAdmin() {
   }
 }
 
-// 日志查看器跳转：需「仅按钮点击可跳转、直接输入网址无法跳转」。
+// 日志查看器跳转：需「仅按钮点击可跳转、直接输入网址自动跳转回前端」。
 // 点击时向后端请求一次性防直连令牌（仅 SUPER_ADMIN 可获取），拼入日志查看器公网地址后打开；
-// 日志查看器 index 视图校验令牌，缺失/无效/过期则拒绝（见后端 LogViewerTokenView + 日志查看器网关）。
+// 日志查看器 index 视图校验令牌，缺失/无效/过期则 302 自动跳转回前端主站（见后端 LogViewerTokenView + 日志查看器网关）。
 // 公网地址来自 /api/version 的 log_viewer_url（默认 http://127.0.0.1:8120/，部署时由 Host 派生 log.<域名>）。
 async function openLogViewer() {
   try {

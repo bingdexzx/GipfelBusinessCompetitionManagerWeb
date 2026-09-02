@@ -20,11 +20,14 @@ SECRET_KEY = os.environ.get("LOGVIEWER_SECRET_KEY", "logviewer-dev-insecure-key-
 DEBUG = os.environ.get("LOGVIEWER_DEBUG", "true").lower() == "true"
 
 # ---------------- 防直连网关（与主后端共享 LOGVIEWER_SECRET_KEY 签发） ----------------
-# index 视图据此校验前端按钮拼入 URL 的一次性令牌；缺失/无效/过期则拒绝访问。
+# index 视图据此校验前端按钮拼入 URL 的一次性令牌；缺失/无效/过期则跳转回前端。
 # 盐必须与被签方（主后端 LogViewerTokenView）一致。
 LOGVIEWER_GATE_SALT = "logviewer-gate"
 # 令牌最长有效秒数（默认 120s，足够完成一次按钮跳转）
 LOGVIEWER_GATE_MAX_AGE = int(os.environ.get("LOGVIEWER_GATE_MAX_AGE", "120"))
+# 直连（无有效令牌）时自动跳转回的前端主站地址；缺省按请求 Host 推导
+# （日志查看器挂在 log.<域名> 或 :8120，前端主站在 <域名> 或 :80，见 views._frontend_url）。
+LOGVIEWER_FRONTEND_URL = os.environ.get("LOGVIEWER_FRONTEND_URL", "").strip()
 
 # ---------------- 反向代理（nginx 整站代理到 127.0.0.1:8121；公网 8120 由 nginx 监听反代） ----------------
 # 让日志查看器正确识别 HTTPS（nginx 终止 TLS 后转发 X-Forwarded-Proto）
