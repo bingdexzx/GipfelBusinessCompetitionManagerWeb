@@ -748,10 +748,14 @@ def advance_one_stock(
             stock, competition_id, stock_config, mm_config, consecutive_up, consecutive_down
         )
 
-        # 读取本事务内刚生成的 PENDING 订单
+        # 读取本事务内刚生成的 PENDING 订单（仅当前轮 round=stock.round，
+        # 避免旧轮未成交限价单变 GTC、在下轮以过时 ±10% 限价成交）。
         orders = list(
             StockOrder.objects.select_related("funds_account").filter(
-                stock_id=stock.id, competition_id=competition_id, status="PENDING"
+                stock_id=stock.id,
+                competition_id=competition_id,
+                status="PENDING",
+                round=stock.round,
             ).order_by("created_at")
         )
         # 无任何订单 → 不推进
@@ -947,6 +951,19 @@ def advance_one_stock(
         )
         # 股票价 / 轮次
         Stock.objects.filter(pk=stock.id).update(current_price=price["final"], round=new_round)
+
+        # 轮次推进后取消未成交的旧轮订单（含本轮未成交单）：限定订单作用域为单轮，
+        # 避免限价单跨轮不清、在下轮以过时价限成交（下单时的 ±10% 限制随轮次失效）。
+        cancelled = StockOrder.objects.filter(
+            stock_id=stock.id,
+            competition_id=competition_id,
+            status="PENDING",
+            round__lt=new_round,
+        ).update(status="CANCELLED")
+        if cancelled:
+            from apps.realtime.emit import emit_resource_changed
+
+            emit_resource_changed("stock-orders", None, competition_id, "bulk")
 
         return {
             "stockId": stock.id,
