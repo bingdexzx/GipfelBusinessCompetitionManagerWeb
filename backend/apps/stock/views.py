@@ -631,9 +631,11 @@ class AccountHoldingsView(APIView):
             raise BusinessError("资金账户不存在", code=404, status_code=404)
         if not _is_high_manager(request.user):
             _assert_account_operable(account, request.user)
-        holdings = StockHolding.objects.select_related("stock").filter(
+        holdings_qs = StockHolding.objects.select_related("stock").filter(
             funds_account_id=pk, competition_id=account.competition_id
-        )[:500]
+        )
+        total = holdings_qs.count()
+        holdings = list(holdings_qs[:500])
         result = []
         for h in holdings:
             result.append({
@@ -650,7 +652,12 @@ class AccountHoldingsView(APIView):
                 "createdAt": h.created_at,
                 "updatedAt": h.updated_at,
             })
-        return Response(result)
+        response = Response(result)
+        # 列表硬截断（[:500]）时暴露真实总数，便于前端提示「数据被截断」
+        response["X-Total-Count"] = total
+        if len(result) < total:
+            response["X-Truncated"] = "true"
+        return response
 
 
 # ==================== 订单 ====================
@@ -693,6 +700,7 @@ class OrderListView(APIView):
             if operable is not None:
                 qs = qs.filter(funds_account_id__in=operable)
 
+        total = qs.count()
         orders = list(qs.order_by("-created_at")[:500])
         result = [
             {
@@ -713,7 +721,12 @@ class OrderListView(APIView):
             }
             for o in orders
         ]
-        return Response(result)
+        response = Response(result)
+        # 列表硬截断（[:500]）时暴露真实总数，便于前端提示「数据被截断」
+        response["X-Total-Count"] = total
+        if len(result) < total:
+            response["X-Truncated"] = "true"
+        return response
 
 
 class OrderCollectionView(APIView):
@@ -863,6 +876,7 @@ class HoldingListView(APIView):
             if operable is not None:
                 qs = qs.filter(funds_account_id__in=operable)
 
+        total = qs.count()
         holdings = list(qs[:500])
         result = [
             {
@@ -881,7 +895,12 @@ class HoldingListView(APIView):
             }
             for h in holdings
         ]
-        return Response(result)
+        response = Response(result)
+        # 列表硬截断（[:500]）时暴露真实总数，便于前端提示「数据被截断」
+        response["X-Total-Count"] = total
+        if len(result) < total:
+            response["X-Truncated"] = "true"
+        return response
 
 
 # ==================== 推进轮次 ====================

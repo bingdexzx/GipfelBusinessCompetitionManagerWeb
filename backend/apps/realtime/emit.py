@@ -21,6 +21,7 @@ import logging
 import threading
 import time
 from collections import deque
+from itertools import islice
 
 logger = logging.getLogger("gipfel")
 
@@ -36,6 +37,8 @@ _seq_value: int = 0
 _RING_MAX_LEN = 5000
 _ring_lock = threading.Lock()
 _event_ring: deque = deque(maxlen=_RING_MAX_LEN)
+# 与 _event_ring 同步的 seq 序列（单调增），用于 replay_since 二分定位（避免 O(N) 线性扫描）
+_ring_seqs: deque = deque(maxlen=_RING_MAX_LEN)
 
 # ASGI 事件循环引用（由 gateway.connect 首次触发时赋值；仅写一次）
 _loop_lock = threading.Lock()
@@ -46,7 +49,9 @@ def register_loop(loop: asyncio.AbstractEventLoop) -> None:
     """由 gateway 在 connect 事件中调用，注册 ASGI 事件循环供同步侧投递 emit。"""
     global _loop
     with _loop_lock:
-        if _loop is None:
+        # 覆盖重注册：ASGI worker 重启 / reload 后旧 loop 可能已关闭，
+        # 必须刷新，否则 _run_coro_on_loop 会因 loop.is_running() 为 False 静默丢弃所有实时广播（#P3）
+        if _loop is None or _loop.is_closed():
             _loop = loop
 
 
@@ -81,11 +86,26 @@ def _push_ring(event, data: dict, room: str | None) -> None:
     }
     with _ring_lock:
         _event_ring.append(entry)
+        _ring_seqs.append(data.get("seq"))
+
+
+def _bisect_right_seqs(target: int) -> int:
+    """在单调递增的 _ring_seqs 上二分，返回首个 seq > target 的下标。"""
+    lo, hi = 0, len(_ring_seqs)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if _ring_seqs[mid] <= target:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo
 
 
 def replay_since(last_seq: int) -> list[dict]:
     with _ring_lock:
-        return [e for e in _event_ring if e.get("seq") and e["seq"] > last_seq]
+        # 二分定位首个 > last_seq 的条目，仅返回其后（通常远小于环长），避免 O(N) 线性扫描
+        idx = _bisect_right_seqs(last_seq)
+        return list(islice(_event_ring, idx, None))
 
 
 def server_seq() -> int:
