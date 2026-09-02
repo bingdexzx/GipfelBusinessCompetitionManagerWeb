@@ -17,6 +17,7 @@ logger = logging.getLogger("gipfel")
 _SENSITIVE_KEYS = {
     "password",
     "passwordhash",
+    "password_hash",  # User 模型真实字段名（bcrypt 哈希），不可明文入审计库
     "token",
     "authorization",
     "secret",
