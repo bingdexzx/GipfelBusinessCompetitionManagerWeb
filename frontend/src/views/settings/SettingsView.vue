@@ -73,8 +73,20 @@ async function openAdmin() {
     if (!token) throw new Error("未获取到访问令牌");
     const base = adminUrl.value; // "/admin/"
     const sep = base.includes("?") ? "&" : "?";
+    // 一次性防直连令牌经 URL 传递（后端网关消费后即失效，默认 120s TTL）。
+    // H7 缓解：window.open 已带 noopener,noreferrer（防 opener 访问 + 剥离 Referer）；
+    // 同源场景下，待新标签加载完成后用 replaceState 清除地址栏中的 token，避免残留在历史/可见 URL。
     const url = `${base}${sep}token=${encodeURIComponent(token)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+    const win = window.open(url, "_blank", "noopener,noreferrer");
+    if (win) {
+      win.addEventListener("load", () => {
+        try {
+          win.history.replaceState(null, "", base);
+        } catch {
+          /* 跨域或非预期场景忽略 */
+        }
+      });
+    }
   } catch (e: unknown) {
     const msg = (e as { message?: string })?.message || "打开后端管理界面失败";
     ElMessage.error(msg);

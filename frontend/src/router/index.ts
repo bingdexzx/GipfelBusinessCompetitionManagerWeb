@@ -212,7 +212,9 @@ const router = createRouter({
           path: "settings",
           name: "Settings",
           component: () => import("@/views/settings/SettingsView.vue"),
-          meta: { title: "系统设置" },
+          // 系统设置页含「后端管理界面 / 日志查看器」防直连令牌按钮，仅超管可进入；
+          // 接通 requiresSuperAdmin 守卫（H9 纵深防御：非超管即便手输 URL 也会被重定向回首屏）。
+          meta: { title: "系统设置", requiresSuperAdmin: true },
         },
         {
           path: "companies",

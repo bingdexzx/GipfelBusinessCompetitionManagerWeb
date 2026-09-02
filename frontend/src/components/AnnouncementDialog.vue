@@ -10,7 +10,7 @@
     @update:model-value="onVisibleChange"
   >
     <div class="announcement-date">{{ current.date }}</div>
-    <div class="announcement-content" v-html="current.content"></div>
+    <div class="announcement-content" v-html="sanitizeHtml(current.content)"></div>
     <template #footer>
       <el-button type="primary" @click="onConfirm">确 定</el-button>
     </template>
@@ -20,6 +20,7 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
 import { useAnnouncementStore } from "@/stores/announcement";
+import { sanitizeHtml } from "@/utils/sanitizeHtml";
 
 import { ref } from "vue";
 

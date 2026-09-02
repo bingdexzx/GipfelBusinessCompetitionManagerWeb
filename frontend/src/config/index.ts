@@ -51,12 +51,13 @@ export function getClientVersion(): string {
 }
 
 /**
- * 规范化服务器地址：去空白、无协议时补 http://、去掉尾部斜杠，保留用户显式输入的 https。
+ * 规范化服务器地址：去空白、无协议时默认补 https://、去掉尾部斜杠，保留用户显式输入的 http/https。
+ * 安全优先：省略协议时默认 https（避免 JWT / 凭据以明文 HTTP 传输）；确需连本地 http 服务请显式带 http://。
  * 原 Electron 客户端在 config/index.ts 提供，登录页通过 configStore.normalizeServerUrl 复用。
  */
 export function normalizeServerUrl(raw: string): string {
   let u = (raw || "").trim();
-  if (!/^https?:\/\//i.test(u)) u = "http://" + u;
+  if (!/^https?:\/\//i.test(u)) u = "https://" + u;
   u = u.replace(/\/+$/, "");
   return u;
 }

@@ -11,7 +11,7 @@
         <span class="ah-meta">v{{ a.version }} · {{ a.date }}</span>
         <el-tag v-if="i === 0" size="small" type="success" effect="light">最新</el-tag>
       </div>
-      <div class="ah-content" v-html="a.content"></div>
+      <div class="ah-content" v-html="sanitizeHtml(a.content)"></div>
     </div>
   </el-dialog>
 </template>
@@ -19,6 +19,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { announcements } from "@/data/announcement";
+import { sanitizeHtml } from "@/utils/sanitizeHtml";
 
 const props = defineProps<{ modelValue: boolean }>();
 const emit = defineEmits(["update:modelValue"]);
