@@ -40,24 +40,24 @@ sudo bash scripts/deploy-linux.sh --install-dir /opt/gipfel --with-nginx
 > **镜像也不稳、想直接用 GitHub 地址拉取？** 可在服务器上安装 FastGitHub（本地代理加速/恢复 GitHub 连接），之后所有 git/curl 命令自动走 `127.0.0.1:38457` 即可正常访问 GitHub：
 > ```bash
 > # 1) 下载 FastGitHub（从 Gitee Release，适合 GitHub 连不上的环境）
-> wget -c -O /opt/fastgithub_linux-x64.zip \
->   https://gitee.com/chcrazy/FastGitHub/releases/download/latest/fastgithub_linux-x64.zip
+ wget -c -O /opt/fastgithub_linux-x64.zip \
+   https://gitee.com/chcrazy/FastGitHub/releases/download/latest/fastgithub_linux-x64.zip
 > 
 > # 2) 解压
-> unzip -d /opt /opt/fastgithub_linux-x64.zip
-> rm /opt/fastgithub_linux-x64.zip
+ unzip -d /opt /opt/fastgithub_linux-x64.zip
+ rm /opt/fastgithub_linux-x64.zip
 >
-> sudo apt-get install libicu-dev
+ sudo apt-get install libicu-dev
 > # 3) 启动 FastGitHub（后台代理，占用 38457 端口）
-> sudo /opt/fastgithub_linux-x64/fastgithub start
+ sudo /opt/fastgithub_linux-x64/fastgithub start
 > 
 > # 4) 设置代理（当前 shell；如需永久生效，写入 /etc/profile 后重新登录）
-> export http_proxy=http://127.0.0.1:38457
-> export https_proxy=http://127.0.0.1:38457
+ export http_proxy=http://127.0.0.1:38457
+ export https_proxy=http://127.0.0.1:38457
 > 
 > # 5) 之后即可正常 clone GitHub 仓库到 /opt
-> git clone https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git /opt/GipfelBusinessCompetitionManagerWeb
-> cd /opt/GipfelBusinessCompetitionManagerWeb
+ git clone https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git /opt/GipfelBusinessCompetitionManagerWeb
+ cd /opt/GipfelBusinessCompetitionManagerWeb
 > ```
 > 注意：FastGitHub 进程需保持运行；生产服务器建议用 `systemd` 或 `nohup/screen` 常驻。apt/pip/npm 等流量也会走该代理，通常无碍；若只想让 git 走代理，可用上方 `git config --global url...insteadOf` 方案。
 
