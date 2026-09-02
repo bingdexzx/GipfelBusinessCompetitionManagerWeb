@@ -1471,8 +1471,10 @@ async function executeContract(row: any) {
     ElMessage.warning("无权执行合同");
     return;
   }
-  if (row.status !== "DRAFT") {
-    ElMessage.warning("仅草稿状态可执行");
+  if (row.status === "EXECUTED" || row.status === "TERMINATED") {
+    ElMessage.warning(
+      row.status === "EXECUTED" ? "合同已执行，不可重复执行" : "合同已终止，不可重复执行",
+    );
     return;
   }
   submitting.value = true;

@@ -180,11 +180,9 @@ import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 
-// 范围字段在 API 中以作用域对象形式返回（与后端正交）：{ mode, companyIds }
-interface ScopeLike {
-  mode?: "none" | "company" | "all";
-  companyIds?: number[];
-}
+// 范围字段在 API 中以「公司 ID 数组（number[]）」形式返回，与后端正交。
+// 后端 *CompanyScopes 字段存储 JSON 数组，*_scopes_list 属性原样返回该数组；
+// derivePermissions 也产出 number[]，故前端统一按数组处理（参考 CompanyListView 的 filterByScope）。
 interface UserItem {
   id: number;
   username: string;
@@ -192,9 +190,10 @@ interface UserItem {
   displayName?: string;
   competitionId?: number | null;
   permissions?: string[];
-  companyScopes?: ScopeLike;
-  viewCompanyScopes?: ScopeLike;
-  contractViewCompanyScopes?: ScopeLike;
+  companyScopes?: number[] | null;
+  viewCompanyScopes?: number[] | null;
+  contractViewCompanyScopes?: number[] | null;
+  stockCompanyScopes?: number[] | null;
   createdAt?: string;
 }
 
@@ -355,7 +354,7 @@ function roleLabel(role: string) {
 
 function permSummary(row: UserItem) {
   if (row.role === "SUPER_ADMIN") return { text: "全部权限", type: "danger" };
-  const n = row.viewCompanyScopes?.companyIds?.length || 0;
+  const n = (row.viewCompanyScopes || []).length || 0;
   if (row.role === "COMPETITION_ADMIN") return { text: `管理员·${n} 公司`, type: "warning" };
   return { text: `选手·${n} 公司`, type: "info" };
 }
@@ -411,9 +410,8 @@ function handleEdit(row: UserItem, scope: AccountScope) {
   form.displayName = row.displayName || "";
   form.role = row.role;
   form.password = "";
-  // 编辑时以「可查看字段范围」还原公司多选（四个范围在派生时一致）。
-  // 注意 viewCompanyScopes 是作用域对象 { mode, companyIds }，需取 companyIds。
-  managedCompanies.value = [...(row.viewCompanyScopes?.companyIds || [])];
+  // 编辑时以「可查看公司范围」还原公司多选（后端返回 number[]，四个范围在派生时一致）。
+  managedCompanies.value = [...(row.viewCompanyScopes || [])];
   loadCompanies();
   dialogVisible.value = true;
 }
