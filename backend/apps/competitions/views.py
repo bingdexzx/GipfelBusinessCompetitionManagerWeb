@@ -217,7 +217,14 @@ class FiscalYearUpdateView(APIView):
         if "status" in serializer.validated_data:
             fy.status = serializer.validated_data["status"]
         if "year" in serializer.validated_data:
-            fy.year = serializer.validated_data["year"]
+            new_year = serializer.validated_data["year"]
+            # 唯一性修复（M16）：更新财年年份时校验 (competition, year) 不冲突，
+            # 与创建接口的约束保持一致，避免同比赛出现重复财年。
+            if new_year != fy.year and FiscalYear.objects.filter(
+                competition_id=fy.competition_id, year=new_year
+            ).exclude(pk=fy.pk).exists():
+                raise BusinessError("该财年已存在", code=409, status_code=409)
+            fy.year = new_year
         fy.save()
         # 财年开始/关闭后广播，使各端顶部栏与财年列表即刻同步。
         _broadcast_fiscal_year(fy)

@@ -89,6 +89,21 @@ def _effective_competition_id(request) -> int | None:
     return cid or getattr(request.user, "competition_id", None)
 
 
+def _get_stock_scoped(pk, request) -> Stock:
+    """取股票并做比赛域隔离：非超管仅能访问自己所属比赛的股票，否则视作不存在。
+
+    供 ItemView（详情/改/删）与 CandlesView（K 线）复用，统一 tenant 边界。
+    """
+    try:
+        stock = Stock.objects.get(pk=pk)
+    except Stock.DoesNotExist:
+        raise BusinessError("股票不存在", code=404, status_code=404)
+    if not _is_super(request.user):
+        if stock.competition_id != getattr(request.user, "competition_id", None):
+            raise BusinessError("股票不存在", code=404, status_code=404)
+    return stock
+
+
 def _parse_previous_ids(raw) -> list | None:
     if not raw:
         return None
@@ -321,14 +336,7 @@ class ItemView(APIView):
     permission_classes = _PERM_CLASSES
 
     def _get_stock(self, pk, request) -> Stock:
-        try:
-            stock = Stock.objects.get(pk=pk)
-        except Stock.DoesNotExist:
-            raise BusinessError("股票不存在", code=404, status_code=404)
-        if not _is_super(request.user):
-            if stock.competition_id != getattr(request.user, "competition_id", None):
-                raise BusinessError("股票不存在", code=404, status_code=404)
-        return stock
+        return _get_stock_scoped(pk, request)
 
     @require_permissions(_VIEW_PERM)
     def get(self, request, pk):
@@ -371,10 +379,8 @@ class CandlesView(APIView):
 
     @require_permissions(_VIEW_PERM)
     def get(self, request, pk):
-        try:
-            stock = Stock.objects.get(pk=pk)
-        except Stock.DoesNotExist:
-            raise BusinessError("股票不存在", code=404, status_code=404)
+        # 租户隔离修复（C3）：复用 _get_stock_scoped，非超管只能读取自己所属比赛的股票 K 线
+        stock = _get_stock_scoped(pk, request)
         candles = StockCandle.objects.filter(stock_id=pk, competition_id=stock.competition_id).order_by("round")
         result = [
             {

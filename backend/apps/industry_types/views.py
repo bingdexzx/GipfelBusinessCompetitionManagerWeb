@@ -292,24 +292,35 @@ class ItemView(APIView):
 
     @require_permissions("industryType:manage")
     def delete(self, request, pk):
+        user = request.user
         industry_type = _get_industry_type(pk)
         count = _count_companies(pk)
         if count > 0:
             from apps.companies.models import Company
 
-            blocking = list(
+            # 跨租户泄露修复（L6）：产业类型为全局资源，删除报错原本会列出
+            # 所有比赛的公司名（含其他比赛的），造成租户间信息泄露。
+            # 非超管仅展示当前比赛范围内的公司，超管才可见全量。
+            is_super = getattr(user, "role", None) == "SUPER_ADMIN"
+            own_cid = getattr(user, "competition_id", None)
+            qs = (
                 Company.objects.filter(industry_type_id=pk)
                 .select_related("competition")
-                .order_by("id")[:20]
+                .order_by("id")
             )
-            listed = "、".join(
-                f"「{c.name}」（比赛：{c.competition.name if c.competition_id else '未归属比赛'}）"
-                for c in blocking
-            )
+            if not is_super:
+                if own_cid is not None:
+                    qs = qs.filter(competition_id=own_cid)
+                else:
+                    qs = qs.none()
+            blocking = list(qs[:20])
+            listed = "、".join(f"「{c.name}」" for c in blocking)
             more = f" 等共 {count} 家" if count > len(blocking) else ""
+            note = "" if is_super else "（仅列出当前比赛范围内的公司）"
             raise BusinessError(
                 f"该产业类型下仍有公司在使用，无法删除。涉及：{listed}{more}。"
                 "请先切换到对应比赛，在「公司管理」中移除这些公司的产业类型（或删除公司）后再试。"
+                + note
             )
         industry_type.delete()
         return Response({"ok": True})

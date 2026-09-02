@@ -43,6 +43,24 @@ _IMAGE_MIME_EXT = {
     "image/gif": ".gif",
     "image/webp": ".webp",
 }
+
+
+def _detect_image_mime(head: bytes) -> str | None:
+    """按文件头魔数（而非客户端 content_type）识别真实图片格式。
+
+    仅信任魔数可防止攻击者把恶意文件伪装成图片上传并在浏览器中被
+    当作可执行内容加载（类型混淆）。返回受支持的 MIME 或 None。
+    """
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    # WebP：RIFF<4字节大小>WEBP
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    return None
 _MAX_RECIPIENTS = 500
 _SENT_TAKE = 500  # 与原 NestJS sent/inbox 的 take 上限一致
 
@@ -241,17 +259,24 @@ class UploadImageView(APIView):
         file = request.FILES.get("file")
         if not file:
             raise BusinessError("未收到文件", code=400, status_code=400)
-        mime = (file.content_type or "").lower()
-        if mime not in _IMAGE_MIME_EXT:
+        # 越权/类型混淆修复（M17）：只读文件头 12 字节做魔数校验，
+        # 不信任客户端声明的 content_type；校验通过后再按真实格式落盘。
+        head = file.read(12)
+        if not head:
+            raise BusinessError("文件内容为空", code=400, status_code=400)
+        detected = _detect_image_mime(head)
+        if detected is None:
             raise BusinessError(
                 "仅支持 PNG / JPEG / GIF / WebP 图片", code=400, status_code=400
             )
-        ext = _IMAGE_MIME_EXT[mime]
+        ext = _IMAGE_MIME_EXT[detected]
         upload_dir = _msg_image_dir()
         os.makedirs(upload_dir, exist_ok=True)
         safe_name = f"{uuid.uuid4().hex}{ext}"
         dest = os.path.join(upload_dir, safe_name)
         with open(dest, "wb") as out:
+            # 先回写已读出的文件头，再续写剩余内容（file 指针已前进 12 字节）
+            out.write(head)
             for chunk in file.chunks():
                 out.write(chunk)
         return Response(
@@ -362,8 +387,17 @@ class ItemView(APIView):
 
     @require_permissions("message:view")
     def get(self, request, pk):
+        user = request.user
+        # 越权修复（C2）：消息详情仅对「发布者本人」或「收件人之一」可见，
+        # 不再允许任意已登录用户凭 id 读取他人私信。
         try:
-            msg = Message.objects.get(pk=pk)
+            msg = (
+                Message.objects.filter(
+                    Q(sender_id=user.id) | Q(recipients__user_id=user.id)
+                )
+                .distinct()
+                .get(pk=pk)
+            )
         except Message.DoesNotExist:
             raise BusinessError("消息不存在", code=404, status_code=404)
         sender_map = _sender_name_map([msg.sender_id])
