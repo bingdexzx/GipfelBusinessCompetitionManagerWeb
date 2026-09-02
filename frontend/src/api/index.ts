@@ -293,7 +293,7 @@ export const consumerDemandsApi = {
   },
   create: (data: { competitionId?: number; region: string; productId: number; quantity?: number; note?: string }) =>
     api.post("/consumer-demands", data),
-  update: (id: number, data: { region?: string; productType?: string; quantity?: number; note?: string }) =>
+  update: (id: number, data: { region?: string; productId?: number; quantity?: number; note?: string }) =>
     api.patch(`/consumer-demands/${id}`, data),
   remove: (id: number, competitionId?: number | null) =>
     api.delete(

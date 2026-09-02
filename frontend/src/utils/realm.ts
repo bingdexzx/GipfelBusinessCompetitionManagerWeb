@@ -18,7 +18,7 @@ function hashRealm(s: string): string {
 export function realmForUrl(raw: string | null | undefined): string {
   if (!raw) return "noserver";
   let u = raw.trim();
-  if (!/^https?:\/\//i.test(u)) u = "http://" + u;
+  if (!/^https?:\/\//i.test(u)) u = "https://" + u;
   u = u.replace(/\/+$/, "").toLowerCase(); // 仅 protocol+host+port，不含路径
   return hashRealm(u);
 }
@@ -28,7 +28,9 @@ let _realm: string | null = null;
 /** 当前服务器的 realm（按当前 serverUrl 计算）。结果缓存，setServerUrl 时通过 resetServerRealm 失效。 */
 export function getServerRealm(): string {
   if (_realm === null) {
-    _realm = realmForUrl(localStorage.getItem("serverUrl"));
+    // 必须与 config/index.ts 的 STORAGE_KEY（"gipfel:serverUrl"）保持一致，
+    // 否则读到的永远是 null → realm 恒为 "noserver" → 跨服务器本地数据隔离完全失效
+    _realm = realmForUrl(localStorage.getItem("gipfel:serverUrl"));
   }
   return _realm;
 }
