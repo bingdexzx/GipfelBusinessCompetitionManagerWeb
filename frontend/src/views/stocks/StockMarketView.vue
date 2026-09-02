@@ -203,12 +203,10 @@ import { Refresh, TrendCharts } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import { stockApi } from "@/api";
 import { useCompetitionStore } from "@/stores/competition";
-import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import { formatMoney } from "@/utils/format";
 
 const compStore = useCompetitionStore();
-const authStore = useAuthStore();
 
 interface Stock {
   id: number;

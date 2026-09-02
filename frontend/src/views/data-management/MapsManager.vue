@@ -1261,7 +1261,7 @@ async function loadData() {
 }
 
 // ===================== 画布事件 =====================
-function getCanvasPos(e: any) {
+function getCanvasPos(_e: any) {
   const stage = stageRef.value?.getStage();
   if (!stage) return { x: 0, y: 0 };
   const pos = stage.getPointerPosition();

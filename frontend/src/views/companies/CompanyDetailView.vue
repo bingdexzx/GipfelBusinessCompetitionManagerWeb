@@ -120,7 +120,6 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import api from "@/api/request";
 import { companyFieldsApi } from "@/api";
-import { useAuthStore } from "@/stores/auth";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 import MobileCards from "@/components/common/MobileCards.vue";
 import { onRealtime, offRealtime } from "@/realtime/socket";

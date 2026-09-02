@@ -39,32 +39,3 @@ export function getServerRealm(): string {
 export function resetServerRealm(): void {
   _realm = null;
 }
-
-/**
- * 清理指定 realm 的全部本地数据：删除该 realm 下的 localStorage 账号键与 IndexedDB 全量副本库。
- * 切换服务器时使用，杜绝旧服务器数据与新服务器串档。fire-and-forget（不阻塞调用方）。
- */
-export function clearRealmData(realm: string): void {
-  try {
-    const prefix = `acct_${realm}_`;
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-      const k = localStorage.key(i);
-      if (k && k.startsWith(prefix)) localStorage.removeItem(k);
-    }
-    if (typeof indexedDB !== "undefined" && (indexedDB as any).databases) {
-      (indexedDB as any)
-        .databases()
-        .then((dbs: any[]) => {
-          for (const d of dbs) {
-            const n = d.name || "";
-            if (n.startsWith(`gipfel-client-cache-${realm}-`)) {
-              indexedDB.deleteDatabase(n);
-            }
-          }
-        })
-        .catch(() => {});
-    }
-  } catch {
-    /* 忽略：清理失败不影响主流程 */
-  }
-}

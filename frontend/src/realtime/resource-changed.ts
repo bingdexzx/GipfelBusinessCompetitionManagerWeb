@@ -31,11 +31,6 @@ function scheduleResourceReload(resource: string, detail: Record<string, any>): 
   );
 }
 
-/** 获取最后收到的事件序号（用于重连补发） */
-export function getLastSeq(): number {
-  return _lastSeq;
-}
-
 /** 注册全局「资源变更」监听（幂等，多次调用只在 socket 实例变化时重新注册）。建议在实时连接建立后调用。 */
 export function bindResourceChanged() {
   const currentRef = getSocketInstance();

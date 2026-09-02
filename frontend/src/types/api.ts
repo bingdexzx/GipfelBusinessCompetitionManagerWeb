@@ -48,8 +48,6 @@ export interface Competition {
   updatedAt: string;
 }
 export type CreateCompetitionInput = Omit<Competition, 'id' | 'createdAt' | 'updatedAt'>;
-export type UpdateCompetitionInput = Partial<CreateCompetitionInput>;
-
 // ===================== FiscalYear =====================
 export interface FiscalYear {
   id: number;
@@ -62,7 +60,6 @@ export interface FiscalYear {
 export type CreateFiscalYearInput = Omit<FiscalYear, 'id' | 'createdAt' | 'updatedAt' | 'competitionId'> & {
   competitionId?: number | null;
 };
-export type UpdateFiscalYearInput = Partial<CreateFiscalYearInput>;
 
 // ===================== Material =====================
 export interface Material {
@@ -113,7 +110,6 @@ export interface TechNode {
   updatedAt: string;
 }
 export type CreateTechNodeInput = Omit<TechNode, 'id' | 'createdAt' | 'updatedAt'>;
-export type UpdateTechNodeInput = Partial<CreateTechNodeInput>;
 
 // ===================== MapNodeType =====================
 export interface MapNodeType {
@@ -416,7 +412,6 @@ export interface Message {
   updatedAt: string;
 }
 export type CreateMessageInput = Omit<Message, 'id' | 'createdAt' | 'updatedAt'>;
-export type UpdateMessageInput = Partial<CreateMessageInput>;
 
 // ===================== MessageRecipient =====================
 export interface MessageRecipient {

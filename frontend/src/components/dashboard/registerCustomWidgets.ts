@@ -13,8 +13,7 @@
  * 已于 2026-08-13 移除，下方仅保留注册骨架，供你追加自己的控件。
  * ============================================================
  */
-import { registerCustomWidget } from "./types";
-
 // —— 在此追加你自己的控件 ——
+// import { registerCustomWidget } from "./types";
 // import MyWidget from "./widgets/MyWidget.vue";
 // registerCustomWidget({ type: "my-widget", label: "我的控件", component: MyWidget });

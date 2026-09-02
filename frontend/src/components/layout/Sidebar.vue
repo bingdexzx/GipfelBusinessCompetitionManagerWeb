@@ -227,7 +227,7 @@ const messageStore = useMessageStore();
 const { unreadCount } = storeToRefs(messageStore);
 
 // 抽屉模式（平板/手机）：由父级 AppLayout 控制显隐，侧栏脱离文档流浮层展示。
-const props = defineProps<{
+defineProps<{
   drawer?: boolean;
   open?: boolean;
 }>();

@@ -262,7 +262,7 @@
               <div class="ge-tip">按路程顺序逐个添加地图节点（至少 2 个，可任意多个）。</div>
             </div>
             <div v-else-if="field.type === 'list'" class="list-editor">
-              <div v-for="(it, i) in createForm.inputs[field.key] || []" :key="i" class="list-row">
+              <div v-for="(_, i) in createForm.inputs[field.key] || []" :key="i" class="list-row">
                 <el-input-number
                   v-if="field.elementType === 'number'"
                   v-model="createForm.inputs[field.key][i]"
@@ -279,7 +279,7 @@
               >
             </div>
             <div v-else-if="field.type === 'dict'" class="list-editor">
-              <div v-for="(v, k) in createForm.inputs[field.key] || {}" :key="k" class="list-row">
+              <div v-for="(_, k) in createForm.inputs[field.key] || {}" :key="k" class="list-row">
                 <el-input
                   :model-value="k"
                   placeholder="键"

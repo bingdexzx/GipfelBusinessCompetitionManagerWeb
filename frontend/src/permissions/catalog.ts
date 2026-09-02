@@ -55,24 +55,6 @@ export const PERMISSION_CATALOG: PermissionDomain[] = [
   { key: "stock", label: "股票系统", group: "股票", actions: [ { key: "stock:view", action: "view", label: "查看行情" }, { key: "stock:edit", action: "edit", label: "低级管理" }, { key: "stock:manage", action: "manage", label: "高级管理" } ] },
 ];
 
-export const ALL_PERMISSION_KEYS = PERMISSION_CATALOG.flatMap((d) => d.actions.map((a) => a.key));
-
-export const PERMISSION_LABELS: Record<string, string> = PERMISSION_CATALOG.reduce(
-  (acc, d) => { for (const a of d.actions) acc[a.key] = `${d.label} · ${a.label}`; return acc; },
-  {} as Record<string, string>,
-);
-
-export const PERMISSION_GROUPS: { group: string; domains: PermissionDomain[] }[] = (() => {
-  const map = new Map<string, PermissionDomain[]>();
-  for (const d of PERMISSION_CATALOG) {
-    if (!map.has(d.group)) map.set(d.group, []);
-    map.get(d.group)!.push(d);
-  }
-  return Array.from(map.entries()).map(([group, domains]) => ({ group, domains }));
-})();
-
-export const DEPRECATED_PERMISSION_KEYS = ["settings:view", "settings:manage", "dashboard:view"];
-
 function domainOf(key: string): string { const p = key.split(":"); return p.slice(0, -1).join(":"); }
 function actionOf(key: string): string { return key.split(":").slice(-1)[0]; }
 function domainActionRank(domain: string): Record<string, number> {

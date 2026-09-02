@@ -423,18 +423,6 @@ def clamp_pb(v: float) -> float:
     return round2(c)
 
 
-def resolve_effective_pb(stock) -> float:
-    """计算单只股票的有效 PE：联动模式读实时字段值，随机模式用缓存 industryPE。"""
-    pb_company_id = getattr(stock, "pb_company_id", None)
-    pb_field_id = getattr(stock, "pb_field_id", None)
-    if pb_company_id and pb_field_id:
-        v = resolve_field_value_or_default(pb_company_id, pb_field_id)
-        if v is not None and v > 0:
-            return v
-        return stock.industry_pe
-    return stock.industry_pe
-
-
 def resolve_effective_pbs(stocks: list) -> dict[int, float]:
     """批量计算股票的有效 PE。"""
     result: dict[int, float] = {}

@@ -51,8 +51,6 @@ export function useResourceChanged(
       updateLastReceivedSeq(detail.seq);
     }
     
-    // 兼容新旧事件格式：优先使用ids数组，其次使用单个id
-    const eventIds = detail.ids || (detail.id != null ? [detail.id] : []);
     const action = detail.action;
 
     // 批量事件（bulk）通常影响整集合，且后端已尽量带上 competitionId 按比赛隔离；

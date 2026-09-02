@@ -51,8 +51,6 @@ _MIME_TO_EXT: dict[str, str] = {
     "image/bmp": ".bmp",
 }
 
-_ALLOWED_IMAGE_MIME = list(_MIME_TO_EXT.keys())
-
 # 通用上传上限：10MB（防止超大文件写盘耗尽磁盘）
 _MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 

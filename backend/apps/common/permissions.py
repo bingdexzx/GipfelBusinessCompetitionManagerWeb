@@ -210,12 +210,6 @@ PERMISSION_CATALOG = [
 
 ALL_PERMISSION_KEYS = [a["key"] for d in PERMISSION_CATALOG for a in d["actions"]]
 
-PERMISSION_LABELS = {
-    a["key"]: f"{d['label']} · {a['label']}"
-    for d in PERMISSION_CATALOG
-    for a in d["actions"]
-}
-
 # UI 分组
 PERMISSION_GROUPS = []
 _group_map = {}

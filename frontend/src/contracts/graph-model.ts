@@ -181,16 +181,6 @@ export const LIST_COMPARE_OPS = ["ELEMENT_EQ", "CONTAINS", "GT", "GTE", "EQ"];
 // 布尔比较节点（compare）支持的算子：等式 / 不等式，输出布尔值（用于 IF 条件）。
 export const BOOL_COMPARE_OPS = ["CMP_EQ", "CMP_NE", "CMP_GT", "CMP_LT", "CMP_GTE", "CMP_LTE"];
 
-// 布尔比较算子的中文标签（编辑器下拉与节点摘要显示）。
-export const BOOL_COMPARE_OP_LABEL: Record<string, string> = {
-  CMP_EQ: "等于(=)",
-  CMP_NE: "不等于(≠)",
-  CMP_GT: "大于(>)",
-  CMP_LT: "小于(<)",
-  CMP_GTE: "大于等于(≥)",
-  CMP_LTE: "小于等于(≤)",
-};
-
 // ============ 运算节点（列表/字典）的 OP 定义 ============
 
 // 每个 op 需要的输入参数 handle 列表（顺序即 args 顺序）。
@@ -2087,10 +2077,4 @@ export function flatToGraph(flat: Partial<FlatContract>): GGraph {
   }
 
   return { nodes, edges };
-}
-
-// 空图（新建合同类型时）。
-export function emptyGraph(): GGraph {
-  const root: GNode = { id: uid("root"), type: "root", x: 20, y: 20, data: {} };
-  return { nodes: [root], edges: [] };
 }

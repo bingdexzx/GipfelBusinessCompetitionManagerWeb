@@ -27,7 +27,6 @@ logger = logging.getLogger("gipfel")
 
 EVENT_RESOURCE_CHANGED = "resource:changed"
 EVENT_PERMISSIONS_CHANGED = "permissions:changed"
-EVENT_AUTH_REQUIRED = "auth:required"
 
 # 序列计数器
 _seq_lock = threading.Lock()
@@ -332,9 +331,3 @@ def emit_permissions_changed(user_id: int, permission_version: int) -> None:
     _emit_sio(EVENT_PERMISSIONS_CHANGED, payload, room=room)
 
 
-# ====================================================================
-# auth:required
-# ====================================================================
-def emit_auth_required(user_id: int, reason: str) -> None:
-    payload = {"reason": reason}
-    _emit_sio(EVENT_AUTH_REQUIRED, payload, room=f"user-{user_id}")

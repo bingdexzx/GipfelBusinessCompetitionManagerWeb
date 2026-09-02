@@ -918,7 +918,7 @@ import {
   COND_KIND_LABEL,
   edgeTypeCheck,
 } from "@/contracts/graph-model";
-import { contractTypesApi, industryTypesApi, mapsApi, companiesApi, getErrorMessage } from "@/api";
+import { contractTypesApi, industryTypesApi, companiesApi, getErrorMessage } from "@/api";
 import { toPinyinKey } from "@/utils/pinyin";
 
 const props = defineProps<{ contractType?: any | null }>();
@@ -1069,7 +1069,6 @@ const visibleEdges = computed(() => graph.edges.filter((e) => !isEdgeHiddenByFol
 function applyAutoLayout() {
   const nodes = graph.nodes;
   if (!nodes.length) return;
-  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
   // 构建邻接表（从 source → targets，沿连线方向）
   const children = new Map<string, string[]>();
   const parents = new Map<string, string[]>();
@@ -1152,7 +1151,6 @@ const formulaAutocomplete = ref<{ show: boolean; items: string[]; x: number; y: 
   y: 0,
 });
 const formulaValidationError = ref<string>("");
-const formulaInputRefs = ref<any>({});
 function getFormulaFieldKeys(): string[] {
   return graph.nodes.filter((n) => n.type === "input" && n.data?.key).map((n) => n.data.key);
 }
@@ -1186,13 +1184,13 @@ function onFormulaInput(e: Event, nodeData: any) {
   nodeData.expr = val;
   formulaValidationError.value = validateFormulaExpr(val);
 }
-function onFormulaKeydown(e: KeyboardEvent, nodeData: any) {
+function onFormulaKeydown(e: KeyboardEvent, _nodeData: any) {
   if ((e.ctrlKey || e.metaKey) && e.key === " ") {
     e.preventDefault();
-    showFormulaAutocomplete(e.target as HTMLTextAreaElement, nodeData);
+    showFormulaAutocomplete(e.target as HTMLTextAreaElement, _nodeData);
   }
 }
-function showFormulaAutocomplete(ta: HTMLTextAreaElement, nodeData: any) {
+function showFormulaAutocomplete(ta: HTMLTextAreaElement, _nodeData: any) {
   const val = ta.value;
   const cursorPos = ta.selectionStart;
   const before = val.slice(0, cursorPos);

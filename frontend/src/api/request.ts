@@ -134,7 +134,6 @@ import {
   getFullSyncAt,
   setFullSyncAt,
   patchFullItems,
-  getFullItemIds,
   extractItems,
   maxUpdatedAtOf,
   inferShape,

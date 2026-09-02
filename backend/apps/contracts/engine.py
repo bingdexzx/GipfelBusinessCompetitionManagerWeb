@@ -431,10 +431,6 @@ class _SafeExpressionError(Exception):
     pass
 
 
-def _tok_is_digit(c: str) -> bool:
-    return c.isdigit()
-
-
 def _tok_is_ident_start(c: str) -> bool:
     return c.isalpha() or c in "_$"
 

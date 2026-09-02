@@ -70,10 +70,10 @@ const compStore = useCompetitionStore();
 const { isCompact } = useBreakpoint();
 
 // 由父级 AppLayout 注入：平板/手机（抽屉模式）下显示汉堡按钮
-const props = defineProps<{
+defineProps<{
   showMenuToggle?: boolean;
 }>();
-const emit = defineEmits<{
+defineEmits<{
   toggle: [];
 }>();
 

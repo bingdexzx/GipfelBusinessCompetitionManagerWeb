@@ -426,7 +426,7 @@ async function saveDemand() {
   }
 }
 
-async function removeDemand(region: any, d: any) {
+async function removeDemand(_region: any, d: any) {
   await ElMessageBox.confirm(`删除需求「${d.productType}（${d.quantity} 件）」？`, {
     type: "warning",
   });

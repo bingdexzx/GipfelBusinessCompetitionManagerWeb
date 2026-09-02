@@ -732,7 +732,6 @@ const accountFieldsForCompany = computed(() => {
 });
 const accountBoundFieldValue = computed(() => {
   if (!accountForm.value.bindFieldId) return null;
-  const field = accountFieldsForCompany.value.find((f: any) => f.id === accountForm.value.bindFieldId);
   // 需要从后端获取字段当前值，这里先返回 null，实际值在对话框打开时加载
   return accountForm.value._bindFieldValue ?? null;
 });

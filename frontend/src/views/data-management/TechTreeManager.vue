@@ -246,11 +246,6 @@ const form = reactive({
   prerequisiteIds: [] as number[],
 });
 
-const formRules = {
-  name: [{ required: true, message: "请输入名称", trigger: "blur" }],
-  researchCost: [{ required: true, message: "请输入研发费用", trigger: "blur" }],
-};
-
 onMounted(loadData);
 
 onBeforeUnmount(() => {

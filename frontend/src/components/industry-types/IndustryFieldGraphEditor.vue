@@ -690,7 +690,7 @@ function onFormulaKeydown(e: KeyboardEvent, nodeData: any) {
     showFormulaAutocomplete(e.target as HTMLTextAreaElement, nodeData);
   }
 }
-function showFormulaAutocomplete(ta: HTMLTextAreaElement, nodeData: any) {
+function showFormulaAutocomplete(ta: HTMLTextAreaElement, _nodeData: any) {
   const val = ta.value;
   const cursorPos = ta.selectionStart;
   const before = val.slice(0, cursorPos);
@@ -781,12 +781,6 @@ const fieldOptions = computed<{ value: string; label: string }[]>(() => {
   }
   return out;
 });
-const formulaVars = computed(() =>
-  (props.availableFields || [])
-    .map((f) => f.fieldKey)
-    .filter(Boolean)
-    .join(", "),
-);
 
 const opArgs = computed(() =>
   selectedNode.value && selectedNode.value.data.kind === "OP"
