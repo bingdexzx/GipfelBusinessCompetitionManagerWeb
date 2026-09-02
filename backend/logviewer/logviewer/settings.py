@@ -75,13 +75,31 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
-    # 运行时把当前请求来源动态纳入 CSRF_TRUSTED_ORIGINS，避免 Django 4+ 的 Origin 校验在
-    # 动态 IP/端口部署下误拒同源 POST（如 /api/auth/login 报 403）。须位于 CsrfViewMiddleware 之前。
-    "logviewer.middleware.LogViewerCsrfTrustMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+]
+
+# ---------------- CSRF 受信来源 ----------------
+# Django 4+ 对同源 POST 有「Origin == scheme://get_host() 即放行」的同源自动放行逻辑；
+# 但 nginx 反代若把 Host 设成不含端口（$host），get_host() 会丢掉 :8120，导致与浏览器
+# Origin(http://IP:8120) 不一致而 403。nginx 模板已改为透传 $host:$server_port 修复该问题。
+# 此处再静态预置受信来源作为双保险：从 .env 的 LOG_VIEWER_PUBLIC_URL 推导
+# （deploy 脚本写入，含正确 scheme://host:port），并补回环地址便于服务器本机运维。
+CSRF_TRUSTED_ORIGINS = []
+_LV_URL = os.environ.get("LOG_VIEWER_PUBLIC_URL", "").strip()
+if _LV_URL:
+    from urllib.parse import urlparse as _urlparse
+
+    _p = _urlparse(_LV_URL)
+    if _p.scheme and _p.netloc:
+        CSRF_TRUSTED_ORIGINS.append(f"{_p.scheme}://{_p.netloc}")
+CSRF_TRUSTED_ORIGINS += [
+    "http://127.0.0.1:8121",
+    "https://127.0.0.1:8121",
+    "http://localhost:8121",
+    "https://localhost:8121",
 ]
 
 # 会话存于签名 cookie，不写库，无需迁移 django_session

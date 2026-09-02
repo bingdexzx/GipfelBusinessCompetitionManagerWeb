@@ -118,7 +118,10 @@ curl -sS -I http://127.0.0.1/         # 200（nginx 托管 index.html）
 - **无域名防火墙**：8120 端口必须对外可达；云服务器还需在安全组/防火墙放行 TCP 8120（deploy 脚本已尽力 `ufw allow 8120/tcp`，但仍需确认云侧安全组）。
 - **共享密钥**：主后端与日志查看器共用 `.env` 的 `LOGVIEWER_SECRET_KEY` 签发/校验令牌。deploy 脚本首次部署自动生成随机值；已部署实例升级时 `.env` 保留不变，两端始终一致。
 - **双重认证**：令牌只放行「进入日志查看器站点的网关」，进入后仍需用 Django 后台超级管理员凭据登录才能真正读取日志。
-- **CSRF（登录 403 排查）**：日志查看器登录接口 `/api/auth/login` 受 Django `CsrfViewMiddleware` 保护（前端 `app.js` 会读 `lv_csrftoken` cookie 并写入 `X-CSRFToken` 头）。Django 4.0+ 会校验请求 `Origin` 是否命中 `CSRF_TRUSTED_ORIGINS`；本项目未静态配置该值（部署形态为动态 IP/端口或域名）。因此日志查看器内置 `LogViewerCsrfTrustMiddleware`，运行时把「当前请求来源」自动纳入 `CSRF_TRUSTED_ORIGINS`，使同源 POST 通过校验而**不丢失 CSRF 防护**。若登录报 `403 Forbidden` 且非凭证错误，一般为该来源未被信任——确认 `logviewer.middleware.LogViewerCsrfTrustMiddleware` 已注册在 `CsrfViewMiddleware` 之前并重启 `gipfel-logviewer` 服务。
+- **CSRF（登录 403 排查）**：日志查看器登录 `/api/auth/login` 受 `CsrfViewMiddleware` 保护（前端 `app.js` 读 `lv_csrftoken` cookie 写 `X-CSRFToken` 头，正确）。Django 4.0+ 对同源 POST 有「`Origin == scheme://get_host()` 即放行」逻辑，但前提是 `get_host()` 与浏览器 `Origin` **完全一致（含端口）**。
+  **曾现 403 的真因**：nginx 反代用的是 `proxy_set_header Host $host`，而 nginx 的 `$host` **不含端口**，导致 `get_host()`=`43.142.77.225`、`Origin=`http://43.142.77.225:8120` → 不一致 → 403。已修复：nginx 模板日志查看器块改为 `proxy_set_header Host $host:$server_port`（透传带端口的原始 Host），Django 同源判定即命中。
+  **双保险**：`logviewer/settings.py` 在加载时从 `.env` 的 `LOG_VIEWER_PUBLIC_URL` 推导并静态写入 `CSRF_TRUSTED_ORIGINS`（含回环 127.0.0.1:8121 / localhost:8121），settings 阶段即定好、不受 Django `cached_property` 运行时缓存影响。
+  若仍报 `403 Forbidden` 且非凭证错误：① 确认 nginx 已 reload（`sudo nginx -t && sudo systemctl reload nginx`）；② 重启 `gipfel-logviewer` 服务；③ 检查 `.env` 的 `LOG_VIEWER_PUBLIC_URL` 是否为 `http://<公网IP>:8120/` 形态。
 
 ### 无域名纯 IP 部署（适合还没买域名）
 
