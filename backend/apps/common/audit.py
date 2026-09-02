@@ -115,7 +115,9 @@ def get_current_operator_safe() -> dict | None:
 def _client_ip(request) -> str:
     if request is None:
         return "unknown"
-    xff = request.headers.get("X-Forwarded-For", "")
-    if xff:
-        return xff.split(",")[0].strip()
+    # 生产由 nginx 注入 X-Real-IP（取自 $remote_addr，不可伪造）；
+    # 不信任 X-Forwarded-For 首段（攻击者可伪造）。
+    real_ip = request.headers.get("X-Real-IP") or request.META.get("HTTP_X_REAL_IP")
+    if real_ip:
+        return real_ip.strip().split(",")[0].strip()
     return request.META.get("REMOTE_ADDR", "unknown")
