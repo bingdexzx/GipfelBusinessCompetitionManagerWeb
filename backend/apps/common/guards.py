@@ -159,14 +159,16 @@ def apply_competition_scope(queryset, user, competition_id=None):
     """对 queryset 应用比赛域过滤。
 
     - SUPER_ADMIN：若显式传入 competitionId 则按其过滤，否则不过滤
-    - 其余角色：强制按 user.competition_id 过滤（防越权读其他比赛）
+    - 其余角色：强制按 user.competition_id 过滤（忽略前端传入的 competitionId，
+      防越权读其他比赛）；无比赛上下文则返回空集
     """
     competition_id = _normalize_competition_id(competition_id)
     if getattr(user, "role", None) == "SUPER_ADMIN":
         if competition_id is not None:
             return queryset.filter(competition_id=competition_id)
         return queryset
-    cid = competition_id or _normalize_competition_id(getattr(user, "competition_id", None))
+    # 非超管：始终按其所属比赛隔离，前端传入的 competitionId 不被信任
+    cid = _normalize_competition_id(getattr(user, "competition_id", None))
     if cid is None:
         return queryset.none()
     return queryset.filter(competition_id=cid)

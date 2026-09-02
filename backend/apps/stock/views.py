@@ -86,7 +86,8 @@ def _effective_competition_id(request) -> int | None:
             cid = None
     if _is_super(request.user):
         return cid
-    return cid or getattr(request.user, "competition_id", None)
+    # 非超管：强制按自身比赛上下文，忽略前端传入的 competitionId（防越权读其他比赛）
+    return getattr(request.user, "competition_id", None)
 
 
 def _get_stock_scoped(pk, request) -> Stock:
@@ -674,9 +675,18 @@ class OrderListView(APIView):
                 pass
         if funds_account_id:
             try:
-                qs = qs.filter(funds_account_id=int(funds_account_id))
+                fa_id = int(funds_account_id)
             except (TypeError, ValueError):
-                pass
+                fa_id = None
+            if fa_id is not None:
+                # 显式指定账户时仍需校验可操作性（防枚举读其他账户）
+                account = StockFundsAccount.objects.filter(
+                    pk=fa_id, competition_id=cid
+                ).first()
+                if account is None:
+                    return Response([])
+                _assert_account_operable(account, request.user)
+                qs = qs.filter(funds_account_id=fa_id)
         else:
             # 按用户可操作账户范围过滤
             operable = _get_operable_account_ids(request.user, cid)
@@ -836,9 +846,18 @@ class HoldingListView(APIView):
         qs = StockHolding.objects.select_related("stock").filter(competition_id=cid)
         if account_id:
             try:
-                qs = qs.filter(funds_account_id=int(account_id))
+                acc_id = int(account_id)
             except (TypeError, ValueError):
-                pass
+                acc_id = None
+            if acc_id is not None:
+                # 显式指定账户时仍需校验可操作性（防枚举读其他账户）
+                account = StockFundsAccount.objects.filter(
+                    pk=acc_id, competition_id=cid
+                ).first()
+                if account is None:
+                    return Response([])
+                _assert_account_operable(account, request.user)
+                qs = qs.filter(funds_account_id=acc_id)
         else:
             operable = _get_operable_account_ids(request.user, cid)
             if operable is not None:

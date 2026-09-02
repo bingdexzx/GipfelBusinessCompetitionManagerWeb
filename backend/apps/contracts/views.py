@@ -216,6 +216,11 @@ class ContractCollectionAPIView(APIView):
     def post(self, request):
         serializer = ContractSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        # 归属校验：非超管只能在自身比赛下创建合同（防跨租户写）
+        cid = serializer.validated_data["competitionId"]
+        if getattr(request.user, "role", None) != "SUPER_ADMIN":
+            if cid != getattr(request.user, "competition_id", None):
+                raise BusinessError("无权限在该比赛下创建合同", code=403, status_code=403)
         contract = serializer.create(serializer.validated_data)
         emit_resource_changed(
             "contract", contract.id, contract.competition_id, "created"
