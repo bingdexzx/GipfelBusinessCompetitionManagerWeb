@@ -87,6 +87,18 @@ normalize_ip() {
     printf '%s' "$s"
 }
 
+# 多服务兜底探测公网 IP：任一可达即返回；用 timeout 硬包裹 curl，连 DNS 解析超时一并杀掉，
+# 避免无外网/异常 DNS 时 curl 卡在解析阶段永不返回（curl --max-time 不限制 DNS 超时）。
+# 返回空字符串表示全部失败。
+_probe_public_ip() {
+    local ip=""
+    for svc in https://api.ipify.org https://ifconfig.me https://icanhazip.com; do
+        ip="$(timeout 8 curl -s --max-time 6 "$svc" 2>/dev/null)"
+        [[ -n "$ip" ]] && { printf '%s' "$ip"; return 0; }
+    done
+    return 1
+}
+
 check_exists() {
     [[ -f "$1" ]] || { err "缺少必要文件：$1"; }
 }
@@ -195,9 +207,9 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
             LV_PUBLIC_IP="$(normalize_ip "$PUBLIC_IP")"
             ok "使用 --public-ip 显式指定的公网 IP：${LV_PUBLIC_IP}"
         else
-            LV_PUBLIC_IP="$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null)"
-            [ -z "$LV_PUBLIC_IP" ] && LV_PUBLIC_IP="$(curl -s --max-time 5 https://ifconfig.me 2>/dev/null)"
-            [ -z "$LV_PUBLIC_IP" ] && LV_PUBLIC_IP="$(curl -s --max-time 5 https://icanhazip.com 2>/dev/null)"
+            # 用 timeout 硬包裹 curl：curl --max-time 不限制 DNS 解析超时，无外网/异常 DNS 时
+            # 会卡在解析阶段永不返回；timeout 连 DNS 一起杀掉，保证 N 秒内必返回（空=失败）。
+            LV_PUBLIC_IP="$(_probe_public_ip)"
         fi
         if [[ -n "$LV_PUBLIC_IP" ]]; then
             LV_PUBLIC_IP="$(normalize_ip "$LV_PUBLIC_IP")"
@@ -280,9 +292,7 @@ if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
             warn "已按 --public-ip 写入 LOG_VIEWER_PUBLIC_URL=${LV_PUBLIC_IP}（原值：${LV_CUR:-无}）。"
         else
             # 多服务兜底探测公网 IP（任一可达即可）；均失败则回退「移除该行，交给后端按 Host 推导」
-            LV_PUBLIC_IP="$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null)"
-            [ -z "$LV_PUBLIC_IP" ] && LV_PUBLIC_IP="$(curl -s --max-time 5 https://ifconfig.me 2>/dev/null)"
-            [ -z "$LV_PUBLIC_IP" ] && LV_PUBLIC_IP="$(curl -s --max-time 5 https://icanhazip.com 2>/dev/null)"
+            LV_PUBLIC_IP="$(_probe_public_ip)"
             if [[ -n "$LV_PUBLIC_IP" && "$LV_PUBLIC_IP" != "$LV_CUR" ]]; then
                 LV_PUBLIC_IP="$(normalize_ip "$LV_PUBLIC_IP")"
                 if [[ "$LV_PUBLIC_IP" == *:* && "$LV_PUBLIC_IP" != \[* ]]; then
@@ -481,7 +491,8 @@ ok "部署完成！"
 # 注意：此处【不可】重置 PUBLIC_IP，否则会覆盖用户传入的值，导致结尾误报「未获取到 IP」。
 if [[ -z "$PUBLIC_IP" ]]; then
     if command -v curl >/dev/null 2>&1; then
-        PUBLIC_IP="$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+        # timeout 硬包裹，避免无外网时 DNS 挂起卡在结尾
+        PUBLIC_IP="$(timeout 8 curl -s --max-time 6 https://api.ipify.org 2>/dev/null || true)"
     fi
 fi
 if [[ -z "$PUBLIC_IP" ]]; then

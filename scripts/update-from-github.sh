@@ -101,6 +101,18 @@ normalize_ip() {
     printf '%s' "$s"
 }
 
+# 多服务兜底探测公网 IP：任一可达即返回；用 timeout 硬包裹 curl，连 DNS 解析超时一并杀掉，
+# 避免无外网/异常 DNS 时 curl 卡在解析阶段永不返回（curl --max-time 不限制 DNS 超时）。
+# 返回空字符串表示全部失败。
+_probe_public_ip() {
+    local ip=""
+    for svc in https://api.ipify.org https://ifconfig.me https://icanhazip.com; do
+        ip="$(timeout 8 curl -s --max-time 6 "$svc" 2>/dev/null)"
+        [[ -n "$ip" ]] && { printf '%s' "$ip"; return 0; }
+    done
+    return 1
+}
+
 # ---------------- 确定代码来源并拉取最新 ----------------
 if [[ -d "$INSTALL_DIR/.git" ]]; then
     # 模式 A：部署目录本身是 clone → 原地 pull
@@ -224,9 +236,7 @@ if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
             warn "已按 --public-ip 写入 LOG_VIEWER_PUBLIC_URL=${LV_PUBLIC_IP}（原值：${LV_CUR:-无}）。"
         else
             # 多服务兜底探测公网 IP（任一可达即可）；均失败则回退「移除该行，交给后端按 Host 推导」
-            LV_PUBLIC_IP="$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null)"
-            [ -z "$LV_PUBLIC_IP" ] && LV_PUBLIC_IP="$(curl -s --max-time 5 https://ifconfig.me 2>/dev/null)"
-            [ -z "$LV_PUBLIC_IP" ] && LV_PUBLIC_IP="$(curl -s --max-time 5 https://icanhazip.com 2>/dev/null)"
+            LV_PUBLIC_IP="$(_probe_public_ip)"
             if [[ -n "$LV_PUBLIC_IP" && "$LV_PUBLIC_IP" != "$LV_CUR" ]]; then
                 LV_PUBLIC_IP="$(normalize_ip "$LV_PUBLIC_IP")"
                 if [[ "$LV_PUBLIC_IP" == *:* && "$LV_PUBLIC_IP" != \[* ]]; then
