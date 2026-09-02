@@ -15,9 +15,20 @@ BASE_DIR = Path(__file__).resolve().parent.parent  # backend/logviewer/
 # 主服务所在目录（backend/），日志与数据库均在此处
 MAIN_DIR = BASE_DIR.parent
 
-SECRET_KEY = os.environ.get("LOGVIEWER_SECRET_KEY", "logviewer-dev-insecure-key-change-me")
+# SECRET_KEY：日志查看器会话使用签名 cookie（signed_cookies），密钥一旦泄露即可伪造
+# 管理员会话。故缺失/为空时直接拒绝启动（fail-fast），由部署脚本生成强随机
+# LOGVIEWER_SECRET_KEY（与主后端共享同一值）。不再内置任何可用弱默认值（修复 C1 会话可伪造）。
+_LOGVIEWER_SECRET_KEY = (os.environ.get("LOGVIEWER_SECRET_KEY") or "").strip()
+if not _LOGVIEWER_SECRET_KEY:
+    raise RuntimeError(
+        "环境变量 LOGVIEWER_SECRET_KEY 缺失：日志查看器会话基于签名 cookie，必须使用强随机密钥"
+        "（与主后端共享同一值）。请通过 deploy-linux.sh 生成，或手动设置 "
+        "LOGVIEWER_SECRET_KEY=$(openssl rand -base64 32)。"
+    )
+SECRET_KEY = _LOGVIEWER_SECRET_KEY
 
-DEBUG = os.environ.get("LOGVIEWER_DEBUG", "true").lower() == "true"
+# DEBUG 默认 False（生产安全）；本地开发可设 LOGVIEWER_DEBUG=true
+DEBUG = os.environ.get("LOGVIEWER_DEBUG", "false").lower() == "true"
 
 # ---------------- 防直连网关（与主后端共享 LOGVIEWER_SECRET_KEY 签发） ----------------
 # index 视图据此校验前端按钮拼入 URL 的一次性令牌；缺失/无效/过期则跳转回前端。
@@ -33,12 +44,30 @@ LOGVIEWER_FRONTEND_URL = os.environ.get("LOGVIEWER_FRONTEND_URL", "").strip()
 # 让日志查看器正确识别 HTTPS（nginx 终止 TLS 后转发 X-Forwarded-Proto）
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
-# 会话/CSRF cookie 是否标记 Secure：默认 False（兼容当前 HTTP 部署，避免网关会话 cookie
-# 在 HTTP 下不被浏览器存储导致反复要求令牌）；启用 HTTPS 后请将 LOGVIEWER_SECURE_COOKIES=true。
-_SECURE_COOKIES = os.environ.get("LOGVIEWER_SECURE_COOKIES", "false").lower()
+# 外网可达地址（部署脚本写入 LOG_VIEWER_PUBLIC_URL），用于推导 ALLOWED_HOSTS 与
+# 是否启用 Secure cookie（M1）。
+_LV_URL = os.environ.get("LOG_VIEWER_PUBLIC_URL", "").strip()
+
+# 会话/CSRF cookie 是否标记 Secure：HTTPS 部署（LOG_VIEWER_PUBLIC_URL 为 https）自动启用；
+# 纯 HTTP 开发可经 LOGVIEWER_SECURE_COOKIES=false 显式关闭（默认跟随外网地址 scheme）。
+_SECURE_COOKIES = os.environ.get("LOGVIEWER_SECURE_COOKIES", "").strip().lower()
+if not _SECURE_COOKIES:
+    _SECURE_COOKIES = "true" if _LV_URL.startswith("https") else "false"
 SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = (_SECURE_COOKIES == "true")
 
-ALLOWED_HOSTS = ["*"]  # 内部工具，允许任意主机；生产可改为具体域名
+# ALLOWED_HOSTS：优先由 LOG_VIEWER_PUBLIC_URL 推导外网可达主机，再补回环地址；
+# 亦可通过 LOGVIEWER_ALLOWED_HOSTS（逗号分隔）显式追加。不再通配 "*"（M1）。
+_ALLOWED_HOSTS = ["127.0.0.1", "localhost", "::1"]
+if _LV_URL:
+    from urllib.parse import urlparse as _urlparse
+
+    _p = _urlparse(_LV_URL)
+    if _p.netloc:
+        _ALLOWED_HOSTS.append(_p.netloc)
+_EXTRA_HOSTS = os.environ.get("LOGVIEWER_ALLOWED_HOSTS", "").strip()
+if _EXTRA_HOSTS:
+    _ALLOWED_HOSTS.extend(h.strip() for h in _EXTRA_HOSTS.split(",") if h.strip())
+ALLOWED_HOSTS = _ALLOWED_HOSTS
 
 # 端口：由 .env 的 LOG_VIEWER_PORT 决定（默认 8120）；Windows 开发由 scripts/start-dev.bat 拉起
 LOG_VIEWER_PORT = int(os.environ.get("LOG_VIEWER_PORT", "8120"))
@@ -89,7 +118,6 @@ MIDDLEWARE = [
 # 此处再静态预置受信来源作为双保险：从 .env 的 LOG_VIEWER_PUBLIC_URL 推导
 # （deploy 脚本写入，含正确 scheme://host:port），并补回环地址便于服务器本机运维。
 CSRF_TRUSTED_ORIGINS = []
-_LV_URL = os.environ.get("LOG_VIEWER_PUBLIC_URL", "").strip()
 if _LV_URL:
     from urllib.parse import urlparse as _urlparse
 
