@@ -552,10 +552,26 @@ def write_field_value_in_tx(
             version=1,
         )
         return
-    CompanyFieldValue.objects.filter(pk=fv.pk).update(
-        value=value,
-        version=fv.version + 1,
-    )
+    # 乐观锁：WHERE 含 version（与 company_fields._write_field_value 一致），
+    # 避免并发手动编辑/定时器写入被静默覆盖，也避免 version 计数写歪导致后续编辑永久 409。
+    updated = CompanyFieldValue.objects.filter(
+        pk=fv.pk, version=fv.version
+    ).update(value=value, version=fv.version + 1)
+    if not updated:
+        # 版本冲突：重新读取最新版本后重试一次（竞争中已提交的并发写入优先）
+        fv = CompanyFieldValue.objects.filter(
+            company_id=company_id, industry_field_id=industry_field_id
+        ).first()
+        if fv is not None:
+            updated = CompanyFieldValue.objects.filter(
+                pk=fv.pk, version=fv.version
+            ).update(value=value, version=fv.version + 1)
+        if not updated:
+            # 极端情况下仍冲突：记录告警并跳过本次写入，避免静默覆盖也不阻断整轮推进
+            logger.warning(
+                "[stock] write_field_value_in_tx 乐观锁冲突重试失败 company=%s field=%s",
+                company_id, industry_field_id,
+            )
 
 
 # ==================== 做市商 ====================
@@ -1071,6 +1087,21 @@ def advance_round(
             from apps.realtime.emit import emit_resource_changed
 
             emit_resource_changed("stocks", None, competition_id, "bulk")
+
+        # 审计：核心动账操作（Stock/Order/Holding/FundsAccount 批量变更）留痕，
+        # 闭合 advance_round 长期缺失的审计（原注释声称「循环结束后统一写入」但从未实现）。
+        from apps.common.audit import log_write
+
+        log_write(
+            model="stocks",
+            action="advance_round",
+            competition_id=competition_id,
+            changes={
+                "advanced": advanced,
+                "skipped": len(results) - advanced,
+                "marketMakerOrders": total_mm_orders,
+            },
+        )
 
         return {
             "advanced": advanced,
