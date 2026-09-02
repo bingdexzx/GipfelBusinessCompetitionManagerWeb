@@ -34,14 +34,19 @@ RestartSec=3s
 KillSignal=SIGTERM
 TimeoutStopSec=30
 
-# 沙箱（生产建议开启）
-# NoNewPrivileges=true
-# PrivateTmp=true
-# ProtectSystem=strict
-# ReadWritePaths=__INSTALL_DIR__/backend/uploads __INSTALL_DIR__/backend/logs __INSTALL_DIR__/backend/db.sqlite3 /run/gipfel /var/log/gipfel
-# ProtectKernelTunables=true
-# ProtectControlGroups=true
-# RestrictRealtime=true
+# 沙箱加固（M9）：最小权限 + 文件系统只读 + 仅开放必要可写路径
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6
+CapabilityBoundingSet=
+ReadWritePaths=__INSTALL_DIR__/backend/uploads __INSTALL_DIR__/backend/logs __INSTALL_DIR__/backend/db.sqlite3 /run/gipfel /var/log/gipfel
 
 [Install]
 WantedBy=multi-user.target

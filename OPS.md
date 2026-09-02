@@ -74,7 +74,8 @@ python manage.py check                  # Django 系统检查
 python manage.py migrate                # 应用迁移（幂等，自动 seed 默认超管）
 python manage.py createsuperuser        # 新建/重置后台超管（交互）
 python manage.py shell                  # ORM shell
-python manage.py rundaphne --bind 0.0.0.0   # 生产启动（端口取 .env 的 PORT）
+python manage.py rundaphne                 # 生产启动：默认绑定 127.0.0.1（端口取 .env 的 PORT），由 nginx 反代对外
+# 仅局域网/容器内联调临时需要时才 --bind 0.0.0.0（切勿将 0.0.0.0 直接暴露于公网）
 ```
 
 前端（在 `frontend/` 下）：

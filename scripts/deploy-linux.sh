@@ -58,6 +58,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# 输入清洗（M7）：移除会破坏 sed 替换 / 正则 / nginx 配置注入的元字符（& \ /）。
+# DOMAIN 仅允许主机名合法字符，PUBLIC_IP 仅允许 IP 合法字符，二者均不含上述元字符。
+DOMAIN="${DOMAIN//[&\\/]/}"
+PUBLIC_IP="${PUBLIC_IP//[&\\/]/}"
+if [[ -n "$DOMAIN" && ! "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+    warn "DOMAIN 含非法字符（仅允许字母/数字/.-），已忽略自动 CORS 与 nginx 配置"
+    DOMAIN=""
+fi
+
 [[ $EUID -ne 0 ]] && { echo "请用 sudo 执行"; exit 1; }
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
@@ -209,7 +218,7 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
         else
             # 用 timeout 硬包裹 curl：curl --max-time 不限制 DNS 解析超时，无外网/异常 DNS 时
             # 会卡在解析阶段永不返回；timeout 连 DNS 一起杀掉，保证 N 秒内必返回（空=失败）。
-            LV_PUBLIC_IP="$(_probe_public_ip)"
+            LV_PUBLIC_IP="$(_probe_public_ip)" || true
         fi
         if [[ -n "$LV_PUBLIC_IP" ]]; then
             LV_PUBLIC_IP="$(normalize_ip "$LV_PUBLIC_IP")"
@@ -248,12 +257,16 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
             warn "未能自动获取公网 IP（非交互环境，跳过手动填写），未写入 LOG_VIEWER_PUBLIC_URL；日志查看器地址将由后端按请求 Host 推导（请确保经公网 IP 访问）。"
         fi
     fi
-    # 日志查看器防直连令牌密钥：缺失则生成随机值（与主后端共用同一 .env，保证两端密钥一致）
-    if ! grep -q '^LOGVIEWER_SECRET_KEY=' "$INSTALL_DIR/backend/.env"; then
-        LVSECRET="$(head -c 32 /dev/urandom | base64 | tr -d '\n+/=')"
+    # 日志查看器防直连令牌密钥：必须生成强随机值，且部署幂等——无论 .env.example 是否
+    # 已带默认值（修复 C1：原逻辑因 .env.example 已含 LOGVIEWER_SECRET_KEY 行，复制后
+    # grep 命中导致随机生成被跳过，弱默认值残留在生产环境），首次部署都强制覆盖为随机串。
+    LVSECRET="$(head -c 32 /dev/urandom | base64 | tr -d '\n+/=')"
+    if grep -q '^LOGVIEWER_SECRET_KEY=' "$INSTALL_DIR/backend/.env"; then
+        sed -i -E "s|^LOGVIEWER_SECRET_KEY=.*|LOGVIEWER_SECRET_KEY=${LVSECRET}|" "$INSTALL_DIR/backend/.env"
+    else
         echo "LOGVIEWER_SECRET_KEY=${LVSECRET}" >> "$INSTALL_DIR/backend/.env"
-        echo "[DIAG] LOGVIEWER_SECRET_KEY 生成完成（$(date +%T)）" >&2
     fi
+    echo "[DIAG] LOGVIEWER_SECRET_KEY 已生成并写入（$(date +%T)）" >&2
     echo "[DIAG] 首次部署 .env 生成完毕（$(date +%T)），JWT_SECRET/LOGVIEWER_SECRET_KEY 已就绪" >&2
 fi
 
@@ -292,7 +305,7 @@ if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
             warn "已按 --public-ip 写入 LOG_VIEWER_PUBLIC_URL=${LV_PUBLIC_IP}（原值：${LV_CUR:-无}）。"
         else
             # 多服务兜底探测公网 IP（任一可达即可）；均失败则回退「移除该行，交给后端按 Host 推导」
-            LV_PUBLIC_IP="$(_probe_public_ip)"
+            LV_PUBLIC_IP="$(_probe_public_ip)" || true
             if [[ -n "$LV_PUBLIC_IP" && "$LV_PUBLIC_IP" != "$LV_CUR" ]]; then
                 LV_PUBLIC_IP="$(normalize_ip "$LV_PUBLIC_IP")"
                 if [[ "$LV_PUBLIC_IP" == *:* && "$LV_PUBLIC_IP" != \[* ]]; then
@@ -491,7 +504,7 @@ ok "部署完成！"
 # （含 timeout 硬包裹，无外网/异常 DNS 时不会卡在结尾）。探测仍失败才提示手动查询。
 # 注意：此处【不可】重置 PUBLIC_IP，否则会覆盖用户传入的值，导致结尾误报「未获取到 IP」。
 if [[ -z "$PUBLIC_IP" ]]; then
-    PUBLIC_IP="$(_probe_public_ip)"
+    PUBLIC_IP="$(_probe_public_ip)" || true
 fi
 if [[ -z "$PUBLIC_IP" ]]; then
     PUBLIC_IP_HINT="（未能自动获取公网 IP，可访问 https://ifconfig.me 或云控制台查看）"

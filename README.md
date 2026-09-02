@@ -237,9 +237,9 @@ python manage.py makemigrations         # 生成模型迁移
 python manage.py migrate                # 应用迁移（+ 自动 seed 默认 admin）
 python manage.py createsuperuser        # 另一种建超管方式
 python manage.py shell                  # ORM shell
-python manage.py runserver 0.0.0.0:8000 # 开发用；daphne 已在 INSTALLED_APPS 接管 runserver，实际跑的是 ASGI
-python manage.py rundaphne --bind 0.0.0.0  # 生产推荐；端口自动取 .env 的 PORT
-# 等价原生命令：daphne -b 0.0.0.0 -p 8000 backend.asgi:application
+python manage.py runserver 127.0.0.1:8000 # 开发用；daphne 已在 INSTALLED_APPS 接管 runserver，实际跑的是 ASGI
+python manage.py rundaphne                 # 生产推荐：默认绑定 127.0.0.1（端口取 .env 的 PORT），由 nginx 反代对外
+# 仅局域网/容器内联调临时需要时再 --bind 0.0.0.0：daphne -b 127.0.0.1 -p 8000 backend.asgi:application
 ```
 
 ### 前端
