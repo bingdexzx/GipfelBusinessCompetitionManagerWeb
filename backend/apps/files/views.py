@@ -53,6 +53,9 @@ _MIME_TO_EXT: dict[str, str] = {
 
 _ALLOWED_IMAGE_MIME = list(_MIME_TO_EXT.keys())
 
+# 通用上传上限：10MB（防止超大文件写盘耗尽磁盘）
+_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
 
 def _assert_image_mime(mime: str) -> str:
     """校验 MIME 为允许的图片类型，返回扩展名。"""
@@ -173,16 +176,34 @@ class UploadView(APIView):
         f = request.FILES.get("file")
         if not f:
             raise BusinessError("未收到文件", code=400, status_code=400)
+        # 大小上限（防止超大文件写盘耗尽磁盘）
+        if f.size > _MAX_UPLOAD_BYTES:
+            raise BusinessError("文件大小不能超过 10MB", code=400, status_code=400)
+        # 仅放行图片类型，避免任意文件落地（原裸写无类型校验）
+        mime = f.content_type or ""
+        try:
+            ext = _assert_image_mime(mime)
+        except BusinessError:
+            raise BusinessError(
+                "通用上传仅支持图片文件（PNG / JPEG / GIF / WebP / BMP）",
+                code=400, status_code=400,
+            )
+        buf = f.read()
+        # 魔数校验：确保文件内容与声称的 MIME 一致，防止伪装扩展名上传
+        if not _validate_magic_bytes(buf, mime):
+            raise BusinessError("文件内容与声称的格式不一致", code=400, status_code=400)
         subdir = "uploads"
         target_dir = os.path.join(settings.MEDIA_ROOT, subdir)
         os.makedirs(target_dir, exist_ok=True)
         safe_name = f"upload-{int(time.time() * 1000)}-{f.name}"
         # 防路径遍历
         safe_name = os.path.basename(safe_name)
+        # 强制使用校验出的扩展名，杜绝扩展名欺骗（如上传 .php 伪装为图片）
+        base, _ = os.path.splitext(safe_name)
+        safe_name = base + ext
         full_path = os.path.join(target_dir, safe_name)
         with open(full_path, "wb") as dest:
-            for chunk in f.chunks():
-                dest.write(chunk)
+            dest.write(buf)
         url = f"{settings.MEDIA_URL}{subdir}/{safe_name}"
         return Response({"url": url, "filename": safe_name})
 

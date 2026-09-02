@@ -18,7 +18,12 @@ class DynamicCorsMiddleware(MiddlewareMixin):
         if not settings.CORS_ORIGIN_VALIDATOR(origin):
             return response
         response["Access-Control-Allow-Origin"] = origin
-        response["Access-Control-Allow-Credentials"] = "true"
+        # 仅对显式白名单来源（CORS_ORIGIN 配置）带凭据；
+        # 本地/私网反射来源不再带凭据，避免同内网恶意页面借凭据跨域读取数据。
+        if origin in settings.CORS_ALLOWED_ORIGINS:
+            response["Access-Control-Allow-Credentials"] = "true"
+        else:
+            response["Access-Control-Allow-Credentials"] = "false"
         # 允许前端使用的响应头
         response["Access-Control-Expose-Headers"] = "Content-Length, Content-Type"
         return response

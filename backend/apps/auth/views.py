@@ -207,7 +207,15 @@ class ChangePasswordView(APIView):
 
         user.set_password(new_password)
         user.must_change_password = False
-        # 不递增 token_version：改密后保留当前会话（与原行为一致）
-        user.save(update_fields=["password_hash", "must_change_password", "updated_at"])
+        # 改密后吊销所有已签发 token：递增 token_version，旧 JWT 立即失效，需重新登录
+        user.token_version = (user.token_version or 0) + 1
+        user.save(
+            update_fields=[
+                "password_hash",
+                "must_change_password",
+                "token_version",
+                "updated_at",
+            ]
+        )
 
         return Response({"ok": True})

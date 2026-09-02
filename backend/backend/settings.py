@@ -39,7 +39,28 @@ BACKEND_GATE_MAX_AGE = int(os.environ.get("BACKEND_GATE_MAX_AGE", "120"))
 SECRET_KEY = JWT_SECRET  # Django 自身 SECRET_KEY 复用 JWT_SECRET（生产应独立，迁移期简化）
 
 DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
-ALLOWED_HOSTS = ["*"]  # CORS 与来源校验由自定义中间件统一管控，Django 层放行
+
+
+def _resolve_allowed_hosts() -> list:
+    """Django ALLOWED_HOSTS：默认回环地址，可通过 DJANGO_ALLOWED_HOSTS 追加公网域名/IP。
+
+    生产必须显式配置 DJANGO_ALLOWED_HOSTS（逗号分隔），否则仅回环可达，公网 Host 会被拒（400）。
+    另自动纳入 LOG_VIEWER_PUBLIC_URL 的主机（若已配置日志查看器公网地址）。
+    收紧后可消除 Host 投毒（VersionView 的 log_viewer_url 不再反射任意 Host）。
+    """
+    hosts = ["127.0.0.1", "localhost", "::1"]
+    extra = os.environ.get("DJANGO_ALLOWED_HOSTS", "").strip()
+    if extra:
+        hosts += [h.strip() for h in extra.split(",") if h.strip()]
+    lv = os.environ.get("LOG_VIEWER_PUBLIC_URL", "").strip()
+    if lv:
+        host = lv.split("://", 1)[-1].split("/", 1)[0]
+        if host and host not in hosts:
+            hosts.append(host)
+    return hosts
+
+
+ALLOWED_HOSTS = _resolve_allowed_hosts()
 
 PORT = int(os.environ.get("PORT", "8000"))
 
@@ -78,7 +99,8 @@ def _resolve_cors_origins() -> list:
     return [s.strip() for s in CORS_ORIGIN.split(",") if s.strip()]
 
 
-CORS_ALLOWED_ORIGINS = []  # 不用静态白名单，走自定义校验
+# 显式白名单来源（来自 CORS_ORIGIN 环境变量）；命中时带凭据，否则仅反射不带凭据
+CORS_ALLOWED_ORIGINS = _resolve_cors_origins()
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_ORIGINS = False
 
