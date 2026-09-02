@@ -490,9 +490,9 @@ if [[ $WITH_NGINX -eq 1 ]]; then
         echo "  网站(内网)：   http://${SERVER_IP}/"
     else
         echo "  网站(内网)：   http://${SERVER_IP}/"
-        echo "  网站(公网)：   http://${PUBLIC_IP}/${PUBLIC_IP_HINT}"
+        echo "  网站(公网)：   http://${PUBLIC_IP}/"
         echo "  日志查看器(内)： http://${SERVER_IP}:8120/"
-        echo "  日志查看器(公)： http://${PUBLIC_IP}:8120/${PUBLIC_IP_HINT}"
+        echo "  日志查看器(公)： http://${PUBLIC_IP}:8120/"
         echo "                 （需放行防火墙 8120；前端「系统设置 → 日志查看器」按钮跳转）"
     fi
     echo "  Nginx 状态：  systemctl status nginx"
