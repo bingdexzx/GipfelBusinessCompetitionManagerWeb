@@ -184,6 +184,12 @@ class StockSerializer(serializers.Serializer):
     def update(self, instance: Stock, validated_data: dict) -> Stock:
         from .engine import compute_init_price
 
+        # 边界校验：修改股本必须为正，否则会产生 0 价股（原 update 缺失该校验）
+        if "totalShares" in validated_data and not (validated_data["totalShares"] > 0):
+            from apps.common.exceptions import BusinessError
+
+            raise BusinessError("总股本必须大于 0", code=400, status_code=400)
+
         if "name" in validated_data:
             instance.name = validated_data["name"]
         if "companyId" in validated_data:

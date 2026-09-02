@@ -21,6 +21,7 @@ import logging
 import math
 import random
 import threading
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Iterable
 
 from django.db import connection, transaction
@@ -34,8 +35,11 @@ EPS = 1e-9
 
 # ==================== 基础数值工具 ====================
 def round2(v: float) -> float:
-    """保留 2 位小数（股价精度）。"""
-    return round(v * 100) / 100
+    """保留 2 位小数（股价精度），用 Decimal 避免 float 累计误差。"""
+    try:
+        return float(Decimal(str(v)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    except (ValueError, ArithmeticError, TypeError):
+        return 0.0
 
 
 def clamp(v: float, lo: float, hi: float) -> float:
@@ -207,7 +211,13 @@ def build_candle(
     low = round2(max(lower, low - down_wick))
 
     change_pct = (
-        round(((close - open_) / open_) * 100 * 100) / 100 if open_ != 0 else 0
+        float(
+            (Decimal(str(close - open_)) / Decimal(str(open_)) * 100).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+        )
+        if open_ != 0
+        else 0
     )
     return {
         "round": round_,
@@ -224,8 +234,20 @@ def compute_init_price(
 ) -> float:
     """初始价公式：ROUND(initNetProfit*10000/totalShares/industryPE, 2)。"""
     if industry_pe <= 0 or total_shares <= 0:
+        # 非法参数（行业 PE / 股本非正）不再静默返回 0，改为告警便于排查配置错误
+        logger.warning(
+            "compute_init_price 非法参数 industry_pe=%s total_shares=%s，返回 0",
+            industry_pe,
+            total_shares,
+        )
         return 0
-    return round((init_net_profit * 10000) / total_shares / industry_pe * 100) / 100
+    price = (
+        Decimal(str(init_net_profit))
+        * 10000
+        / Decimal(str(total_shares))
+        / Decimal(str(industry_pe))
+    )
+    return float(price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 # ==================== StockConfig ====================
@@ -302,7 +324,7 @@ def resolve_field_value_map(competition_id: int) -> dict[str, float | None]:
 
         overview = _get_map_overview(competition_id)
     except Exception:  # noqa: BLE001 - 区域服务不可用时回退空映射
-        logger.debug("resolve_field_value_map 失败 comp=%s", competition_id, exc_info=True)
+        logger.warning("resolve_field_value_map 失败 comp=%s", competition_id, exc_info=True)
         return field_map
     for r in overview:
         for card in r.get("cards", []):
@@ -394,9 +416,11 @@ def random_pb() -> float:
 def clamp_pb(v: float) -> float:
     """将 PE 值钳制到 [0, 20] 并保留两位小数。"""
     if not math.isfinite(v):
+        # 非有限值（配置/上游异常）不再静默随机，改为告警后回退随机 PE 便于排查
+        logger.warning("clamp_pb 收到非有限值 %s，回退随机 PE", v)
         return random_pb()
     c = min(20, max(0, v))
-    return round(c * 100) / 100
+    return round2(c)
 
 
 def resolve_effective_pb(stock) -> float:
