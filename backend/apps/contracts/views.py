@@ -199,7 +199,10 @@ class ContractCollectionAPIView(APIView):
             items = _enrich_party_companies([_serialize_contract(c) for c in rows])
             return Response(paginated_response(items, total, page, page_size))
 
-        # 有范围限制：需解析 JSON parties 做内存过滤，无法下推到数据库
+        # 有范围限制：需解析 JSON parties 做内存过滤，无法下推到数据库（M13 已知限制）。
+        # 仅对持 contract:audit（无 execute）或纯 contract:view 且有公司范围的账号进入此分支，
+        # 其可见合同集本身受公司范围约束，实际体量有限；若要支撑超大规模，需对 parties 内
+        # 公司 id 做冗余列（如 contract_party_companies 表）以支持 SQL 级过滤。
         all_rows = list(qs.order_by("-created_at"))
         serialized = [_serialize_contract(c) for c in all_rows]
         filtered = _filter_by_scope(serialized, request.user)
@@ -305,15 +308,34 @@ class ContractExecuteAPIView(APIView):
         engine_dict = _contract_to_engine_dict(contract)
         engine_dict["inputs"] = inputs_raw
 
+        signed_at = contract.signed_at or timezone.now()
+        executed_at = timezone.now()
+        # 并发防重放（H5）：以「仅当状态非 EXECUTED/TERMINATED 才原子抢占为 EXECUTED」保证
+        # 多个并发执行请求只有第一个成功落账，其余命中 0 行即判定已被执行/终止，避免重复落账。
         with transaction.atomic():
+            rows = (
+                Contract.objects.filter(pk=pk)
+                .exclude(status__in=["EXECUTED", "TERMINATED"])
+                .update(status="EXECUTED", inputs=inputs_raw, signed_at=signed_at, executed_at=executed_at)
+            )
+            if rows == 0:
+                latest = Contract.objects.get(pk=pk)
+                if latest.status == "EXECUTED":
+                    raise BusinessError("合同已执行，不可重复执行", code=400, status_code=400)
+                raise BusinessError("合同已终止，不可再次执行", code=400, status_code=400)
+            # 抢占成功：仅此一处执行引擎副作用，保证落账副作用只发生一次
             engine_result = _engine.execute(engine_dict)
-            contract.inputs = inputs_raw
-            contract.status = "EXECUTED"
-            contract.signed_at = contract.signed_at or timezone.now()
-            contract.executed_at = timezone.now()
-            contract.execution_log = json.dumps(engine_result["log"], ensure_ascii=False)
-            contract.execution_result = json.dumps(engine_result["result"], ensure_ascii=False)
-            contract.save()
+            Contract.objects.filter(pk=pk).update(
+                execution_log=json.dumps(engine_result["log"], ensure_ascii=False),
+                execution_result=json.dumps(engine_result["result"], ensure_ascii=False),
+            )
+        # 同步内存对象，保证后续序列化/广播返回最新状态
+        contract.status = "EXECUTED"
+        contract.inputs = inputs_raw
+        contract.signed_at = signed_at
+        contract.executed_at = executed_at
+        contract.execution_log = json.dumps(engine_result["log"], ensure_ascii=False)
+        contract.execution_result = json.dumps(engine_result["result"], ensure_ascii=False)
 
         # 级联重算计算字段 + 广播刷新
         affected_companies = set()

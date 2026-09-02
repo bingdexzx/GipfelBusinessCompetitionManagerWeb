@@ -25,6 +25,8 @@ from typing import Any, Iterable
 
 from django.db import transaction
 
+from django.db import transaction
+
 from apps.common.exceptions import BusinessError
 
 logger = logging.getLogger("gipfel")
@@ -451,18 +453,25 @@ def resolve_effective_pbs(stocks: list) -> dict[int, float]:
     return result
 
 
-def apply_pb_round(stock) -> None:
+def apply_pb_round(stock, pb_value_map: dict | None = None) -> None:
     """推进一轮时更新 PE 并据最新有效 PE 实时重算初始价。
 
     - 联动模式刷新实时字段值；
     - 随机模式做 ±2 随机游走并钳制到 [0,20]。
     两种模式下初始价均按 compute_init_price 实时重算。
+
+    pb_value_map：可选，由 _build_pb_value_map 一次性批量构建的
+    {(company_id, field_id): value} 映射。传入后可避免对每只股票逐一查库
+    （原实现每只联动股票都调用 resolve_field_value_or_default，产生 N+1 查询）。
     """
     pb_company_id = getattr(stock, "pb_company_id", None)
     pb_field_id = getattr(stock, "pb_field_id", None)
     pb_random = getattr(stock, "pb_random", None)
     if pb_company_id and pb_field_id:
-        v = resolve_field_value_or_default(pb_company_id, pb_field_id)
+        if pb_value_map is not None:
+            v = pb_value_map.get((pb_company_id, pb_field_id))
+        else:
+            v = resolve_field_value_or_default(pb_company_id, pb_field_id)
         industry_pe = v if (v is not None and v > 0) else stock.industry_pe
         new_pb_random = None
     else:
@@ -477,6 +486,52 @@ def apply_pb_round(stock) -> None:
     if new_pb_random != pb_random:
         stock.pb_random = new_pb_random
     stock.save(update_fields=["industry_pe", "init_price", "pb_random"])
+
+
+def _build_pb_value_map(stocks: list) -> dict[tuple[int, int], float | None]:
+    """批量构建 {(company_id, field_id): 有效PE值} 映射（联动模式用）。
+
+    与 resolve_field_value_or_default 语义一致：优先取 CompanyFieldValue 当前值，
+    缺失则回退 IndustryField.default_value；均不可用为 None。一次性查询供
+    apply_pb_round 复用，消除推进轮次时的 N+1 查库（H4）。
+    """
+    linked = [s for s in stocks if getattr(s, "pb_company_id", None) and getattr(s, "pb_field_id", None)]
+    result: dict[tuple[int, int], float | None] = {}
+    if not linked:
+        return result
+    from apps.companies.models import CompanyFieldValue
+    from apps.industry_types.models import IndustryField
+
+    company_ids = list({s.pb_company_id for s in linked})
+    field_ids = list({s.pb_field_id for s in linked})
+    val_map: dict[tuple[int, int], float] = {}
+    for fv in CompanyFieldValue.objects.filter(
+        company_id__in=company_ids, industry_field_id__in=field_ids
+    ):
+        try:
+            n = float(fv.value) if fv.value is not None else float("nan")
+            if math.isfinite(n):
+                val_map[(fv.company_id, fv.industry_field_id)] = n
+        except (ValueError, TypeError):
+            pass
+    default_map: dict[int, float] = {}
+    for f in IndustryField.objects.filter(pk__in=field_ids):
+        if f.default_value is not None:
+            try:
+                n = float(f.default_value)
+                if math.isfinite(n):
+                    default_map[f.id] = n
+            except (ValueError, TypeError):
+                pass
+    for s in linked:
+        key = (s.pb_company_id, s.pb_field_id)
+        if key in val_map:
+            result[key] = val_map[key]
+        elif s.pb_field_id in default_map:
+            result[key] = default_map[s.pb_field_id]
+        else:
+            result[key] = None
+    return result
 
 
 # ==================== 字段值写入（事务内） ====================
@@ -905,7 +960,13 @@ _advance_locks_guard = threading.Lock()
 
 
 def _try_acquire_advance_lock(competition_id: int) -> bool:
-    """尝试获取推进锁（非阻塞），成功返回 True。"""
+    """尝试获取推进锁（非阻塞），成功返回 True。
+
+    说明（H6）：当前为进程内 threading.Lock，对「单进程 ASGI（daphne 单实例）」
+    部署已能防止同一比赛轮次被并发推进。若未来扩展为多进程/多 worker（共享 SQLite
+    或外部数据库），需改用跨进程互斥（如 Redis 分布式锁 / Postgres 咨询锁），
+    本锁本身不跨进程。写操作的原子性已由 advance_round 内的 transaction.atomic() 兜底。
+    """
     with _advance_locks_guard:
         lock = _advance_locks.get(competition_id)
         if lock is None:
@@ -958,6 +1019,8 @@ def advance_round(
             qs = qs.filter(pk__in=stock_ids)
         stocks = list(qs.order_by("code"))
         field_map = resolve_field_value_map(competition_id)
+        # 一次性批量构建 PE 联动值映射，避免推进轮次时对每只股票逐一查库（H4）
+        pb_value_map = _build_pb_value_map(stocks)
         results: list = []
 
         base_config = load_stock_config(competition_id)
@@ -972,32 +1035,35 @@ def advance_round(
 
         # 屏蔽 per-row 信号：advance_one_stock 内对 Stock/Holding/Order/Candle/FundsAccount
         # 会有数十次 save，仅靠外层 bulk 广播一次即可；审计也在循环结束后统一写入。
-        with suppress_signals():
-            for stock in stocks:
-                apply_pb_round(stock)
-                recent = list(
-                    StockCandle.objects.filter(
-                        stock_id=stock.id, competition_id=competition_id
+        # 整轮推进包裹在事务中（H6 加固）：要么全部股票推进成功，要么整体回滚，
+        # 避免半场崩溃导致的部分写入/数据不一致。
+        with transaction.atomic():
+            with suppress_signals():
+                for stock in stocks:
+                    apply_pb_round(stock, pb_value_map)
+                    recent = list(
+                        StockCandle.objects.filter(
+                            stock_id=stock.id, competition_id=competition_id
+                        )
+                        .order_by("-round")[:3]
                     )
-                    .order_by("-round")[:3]
-                )
-                up = 0
-                down = 0
-                for c in recent:
-                    if c.change_pct >= 9.9:
-                        up += 1
-                        down = 0
-                    elif c.change_pct <= -9.9:
-                        down += 1
-                        up = 0
-                    else:
-                        break
-                r = advance_one_stock(
-                    stock, competition_id, field_map, cfg, up, down, mm_config
-                )
-                if r:
-                    results.append(r)
-                    total_mm_orders += r.get("mmOrderCount", 0)
+                    up = 0
+                    down = 0
+                    for c in recent:
+                        if c.change_pct >= 9.9:
+                            up += 1
+                            down = 0
+                        elif c.change_pct <= -9.9:
+                            down += 1
+                            up = 0
+                        else:
+                            break
+                    r = advance_one_stock(
+                        stock, competition_id, field_map, cfg, up, down, mm_config
+                    )
+                    if r:
+                        results.append(r)
+                        total_mm_orders += r.get("mmOrderCount", 0)
 
         advanced = sum(1 for x in results if not x.get("skipped"))
         # 单次 bulk 广播（替代每只股票逐条事件）

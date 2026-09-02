@@ -895,32 +895,14 @@ class AdvanceRoundView(APIView):
             stock_config=data.get("stockConfig"),
         )
         # 单次 bulk 广播已在 engine.advance_round 内发出
-        # 额外广播 stock:round-advanced 事件
+        # 额外广播 stock:round-advanced 事件。
+        # 修复（M12）：原先裸用 asyncio.get_event_loop() + create_task / run_until_complete
+        # 在同步 Django 线程中会因「无运行中的事件循环」而静默失败或被吞。改为统一经
+        # emit 通道（run_coroutine_threadsafe 投递到已注册的 ASGI loop），loop 未就绪时降级跳过。
         try:
-            from apps.realtime.gateway import sio
+            from apps.realtime.emit import emit_to_competition
 
-            import asyncio
-
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(
-                        sio.emit(
-                            "stock:round-advanced",
-                            {"competitionId": cid, **result},
-                            room=f"comp-{cid}",
-                        )
-                    )
-                else:
-                    loop.run_until_complete(
-                        sio.emit(
-                            "stock:round-advanced",
-                            {"competitionId": cid, **result},
-                            room=f"comp-{cid}",
-                        )
-                    )
-            except RuntimeError:
-                pass
+            emit_to_competition(cid, "stock:round-advanced", {"competitionId": cid, **result})
         except Exception:  # noqa: BLE001
             pass
         return Response(result)

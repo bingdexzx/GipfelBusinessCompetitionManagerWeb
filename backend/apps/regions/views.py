@@ -277,9 +277,15 @@ def _get_map_overview(competition_id: int) -> list:
             seen.add(name)
             region_names.append(name)
 
+    # 一次性批量取出本比赛全部 Region（修复 M15 的 N+1：原先每个区名都查一次库）
+    region_by_name = {
+        r.name: r
+        for r in Region.objects.filter(competition_id=competition_id, name__in=region_names)
+    }
+
     result = []
     for name in region_names:
-        region = Region.objects.filter(competition_id=competition_id, name=name).first()
+        region = region_by_name.get(name)
         cards = []
         region_id = None
         if region is not None:
