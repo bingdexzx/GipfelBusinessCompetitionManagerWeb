@@ -168,7 +168,10 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
     echo "[DIAG] .env 不存在，准备从 .env.example 复制（$(date +%T)）" >&2
     cp "$INSTALL_DIR/backend/.env.example" "$INSTALL_DIR/backend/.env"
     echo "[DIAG] .env.example 复制完成（$(date +%T)）" >&2
-    SECRET="$(openssl rand -base64 32 | tr -d '\n=')"
+    # 生成随机密钥：用 /dev/urandom 直接取字节（base64），不依赖 openssl 也不等系统熵，绝不阻塞。
+    # 新装系统 openssl rand 偶发因熵不足变慢，故改用 head -c 读 urandom 兜底。
+    SECRET="$(head -c 32 /dev/urandom | base64 | tr -d '\n+/=')"
+    echo "[DIAG] JWT_SECRET 生成完成（$(date +%T)）" >&2
     sed -i "s|^JWT_SECRET=.*|JWT_SECRET=${SECRET}|" "$INSTALL_DIR/backend/.env"
     # 显式关闭 DEBUG（.env.example 可能无此行，确保生产环境 DEBUG=false）
     if ! grep -q '^DEBUG=' "$INSTALL_DIR/backend/.env"; then
@@ -235,8 +238,9 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
     fi
     # 日志查看器防直连令牌密钥：缺失则生成随机值（与主后端共用同一 .env，保证两端密钥一致）
     if ! grep -q '^LOGVIEWER_SECRET_KEY=' "$INSTALL_DIR/backend/.env"; then
-        LVSECRET="$(openssl rand -base64 32 | tr -d '\n=')"
+        LVSECRET="$(head -c 32 /dev/urandom | base64 | tr -d '\n+/=')"
         echo "LOGVIEWER_SECRET_KEY=${LVSECRET}" >> "$INSTALL_DIR/backend/.env"
+        echo "[DIAG] LOGVIEWER_SECRET_KEY 生成完成（$(date +%T)）" >&2
     fi
     echo "[DIAG] 首次部署 .env 生成完毕（$(date +%T)），JWT_SECRET/LOGVIEWER_SECRET_KEY 已就绪" >&2
 fi
