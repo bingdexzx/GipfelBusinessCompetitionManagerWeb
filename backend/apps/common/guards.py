@@ -9,13 +9,17 @@
 """
 from __future__ import annotations
 
+import logging
 from functools import wraps
 from typing import Iterable
 
+from django.conf import settings
 from rest_framework import permissions
 from rest_framework.exceptions import PermissionDenied
 
 from .permissions import has_permission
+
+logger = logging.getLogger(__name__)
 
 
 # ==================== 视图级权限装饰器 ====================
@@ -67,12 +71,37 @@ class PermissionsPermission(permissions.BasePermission):
         if handler is not None:
             required = getattr(handler, "_required_permissions", ()) or ()
         if not required:
-            return True  # 无标注默认放行（鉴权由 IsAuthenticated 保证）
+            # 契约（显式化）：未标注 @require_permissions 的视图，默认仅「已登录」即可访问。
+            # 这并非越权缺口，而是设计基线：
+            #   - 登录态由 IsAuthenticated 保证；
+            #   - 比赛域隔离由 CompetitionScopePermission 全局兜底；
+            #   - 敏感写操作应在视图方法上显式标注 @require_permissions（A 组已补全）。
+            # 护栏：对未标注且为非只读（写/删）方法的视图，在 DEBUG 下告警，
+            # 便于在开发期发现遗漏的权限标注。生产环境（DEBUG=False）零行为变化。
+            _maybe_warn_missing_permission(request, view)
+            return True
         user = request.user
         perms = user.permissions_list if hasattr(user, "permissions_list") else []
         if not has_permission(getattr(user, "role", None), perms, list(required)):
             raise PermissionDenied("没有权限执行此操作")
         return True
+
+
+def _maybe_warn_missing_permission(request, view):
+    """DEBUG 护栏：未标注 @require_permissions 却处理写/删请求时告警。
+
+    仅用于开发期发现「本应加权限标注却遗漏」的视图；不拦截、不影响生产行为。
+    """
+    if not getattr(settings, "DEBUG", False):
+        return
+    if request.method.upper() not in ("POST", "PUT", "PATCH", "DELETE"):
+        return
+    view_name = type(view).__name__
+    logger.warning(
+        "[security] 视图 %s.%s 未标注 @require_permissions 但处理写/删请求，"
+        "请确认是否遗漏权限标注（当前仅依赖登录态与比赛域隔离）。",
+        view_name, request.method.upper(),
+    )
 
 
 class CompetitionScopePermission(permissions.BasePermission):
