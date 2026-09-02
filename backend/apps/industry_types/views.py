@@ -420,6 +420,10 @@ class FieldItemView(APIView):
         if "isCalculated" in data:
             field.is_calculated = data["isCalculated"]
         if "calcGraph" in data:
+            # validate_field 只在「同时传 isCalculated」时才校验计算图；单独 PATCH
+            # calcGraph 会绕过校验写入非法图（缺 output 节点 / 缺端口等）。此处无条件
+            # 校验，保证任何写入路径落库的图都合法。
+            validate_calc_graph(data["calcGraph"])
             field.calc_graph = data["calcGraph"]
         if "formula" in data:
             field.formula = None  # 旧公式引擎已废弃

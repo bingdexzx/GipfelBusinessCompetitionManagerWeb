@@ -511,7 +511,16 @@ class AccountCollectionView(APIView):
 
     @require_permissions(_EDIT_PERM)
     def post(self, request):
-        cid = request.data.get("competitionId") or getattr(request.user, "competition_id", None)
+        # 租户隔离：非超管强制使用令牌归属比赛，忽略 body 传入的 competitionId，
+        # 否则持有 stock:edit 的用户可在任意比赛下创建资金账户（跨租户写）。
+        raw_cid = request.data.get("competitionId")
+        if _is_super(request.user):
+            try:
+                cid = int(raw_cid) if raw_cid else getattr(request.user, "competition_id", None)
+            except (TypeError, ValueError):
+                cid = getattr(request.user, "competition_id", None)
+        else:
+            cid = getattr(request.user, "competition_id", None)
         if not cid:
             raise BusinessError("缺少比赛上下文", code=400, status_code=400)
         name = (request.data.get("name") or "").strip()
@@ -589,13 +598,23 @@ class AccountItemView(APIView):
             raise BusinessError("做市商账户不可修改", code=400, status_code=400)
         _assert_account_operable(account, request.user)
         data = request.data
+        # 资金与归属改派为高危写：仅高级管理（超管 / stock:manage）可执行。
+        # 否则仅持 stock:edit 的玩家即可自行改余额（无限资金）或把账户改派到任意公司，
+        # 而 _assert_account_operable 只校验「改之前」的归属，改派后即获得他公司账户控制权。
+        high = _is_high_manager(request.user)
         if "name" in data:
             account.name = data["name"]
         if "cashBalance" in data:
+            if not high:
+                raise BusinessError("仅高级管理可调整资金账户余额", code=403, status_code=403)
             account.cash_balance = data["cashBalance"]
         if "companyId" in data:
+            if not high:
+                raise BusinessError("仅高级管理可变更账户归属公司", code=403, status_code=403)
             account.company_id = data["companyId"]
         if "userId" in data:
+            if not high:
+                raise BusinessError("仅高级管理可变更账户归属用户", code=403, status_code=403)
             account.user_id = data["userId"]
         if "bindFieldId" in data:
             account.bind_field_id = data["bindFieldId"]

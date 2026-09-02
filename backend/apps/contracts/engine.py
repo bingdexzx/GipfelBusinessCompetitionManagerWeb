@@ -17,11 +17,14 @@ from __future__ import annotations
 
 import heapq
 import json
+import logging
 import math
 from typing import Any, Iterable
 
 from apps.common.exceptions import BusinessError
 from apps.common.json_util import parse_field_config
+
+logger = logging.getLogger("gipfel")
 
 
 # ==================== 常量（来自 shared/engine-dsl） ====================
@@ -1708,12 +1711,6 @@ class ContractEngine:
         affected_pairs = list(field_map.values())
 
         # 其余已执行合同对该字段的增量（按 executed_at, id 顺序）
-        from apps.contracts.models import Contract
-        remaining = list(
-            ContractFieldEffect.objects.filter(
-                contract__executed_at__isnull=False
-            )
-        )
         # 构造 OR 查询：每对 (company_id, industry_field_id)
         from django.db.models import Q
         q = Q()
@@ -1996,13 +1993,45 @@ class ContractEngine:
         return cfv["value"] if cfv else None
 
     def _write_field_value(self, company_id, industry_field_id, store_value):
-        """直接写 CompanyFieldValue（乐观锁由调用方事务保证）。"""
+        """写 CompanyFieldValue（乐观锁语义，与 stock.engine.write_field_value_in_tx 一致）。
+
+        合同落账/复原与手动编辑（company_fields._write_field_value）指向同一行数据。
+        若此处不走版本校验：一是会静默覆盖并发的手动编辑；二是 version 不递增，前端
+        持有的旧 version 仍然「有效」，下一次手动提交会再次覆盖合同写入，形成双向
+        静默覆盖。故统一按 version 条件更新并自增，冲突时重读最新值重试一次。
+        """
         CompanyFieldValue = _load_company_models()[1]
-        obj, _ = CompanyFieldValue.objects.update_or_create(
-            company_id=company_id, industry_field_id=industry_field_id,
-            defaults={"value": store_value},
+        fv = CompanyFieldValue.objects.filter(
+            company_id=company_id, industry_field_id=industry_field_id
+        ).first()
+        if fv is None:
+            return CompanyFieldValue.objects.create(
+                company_id=company_id,
+                industry_field_id=industry_field_id,
+                value=store_value,
+                version=1,
+            )
+        updated = CompanyFieldValue.objects.filter(pk=fv.pk, version=fv.version).update(
+            value=store_value, version=fv.version + 1
         )
-        return obj
+        if updated:
+            return fv
+        # 版本冲突：重读最新版本后重试一次（竞争中已提交的并发写入优先）
+        fv = CompanyFieldValue.objects.filter(
+            company_id=company_id, industry_field_id=industry_field_id
+        ).first()
+        if fv is None:
+            return None
+        updated = CompanyFieldValue.objects.filter(pk=fv.pk, version=fv.version).update(
+            value=store_value, version=fv.version + 1
+        )
+        if not updated:
+            # 极端情况下仍冲突：记录告警并跳过本次写入，避免静默覆盖也不阻断整批落账
+            logger.warning(
+                "[contracts] _write_field_value 乐观锁冲突重试失败 company=%s field=%s",
+                company_id, industry_field_id,
+            )
+        return fv
 
     def _bulk_create_effects(self, rows):
         from apps.contracts.models import ContractFieldEffect

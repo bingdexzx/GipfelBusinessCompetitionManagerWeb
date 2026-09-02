@@ -655,17 +655,10 @@ def generate_market_maker_orders(
 
     # 持仓不足则先建仓
     if need_shares > 0:
-        orders.append(StockOrder(
-            stock_id=stock.id,
-            funds_account_id=mm_account.id,
-            side="BUY",
-            price=base_price,
-            quantity=need_shares,
-            amount=round2(base_price * need_shares),
-            status="PENDING",
-            round=current_round,
-            competition_id=competition_id,
-        ))
+        # 注意：建仓只做「直接写持仓 + 扣现金」，不再额外挂等量 BUY 单。
+        # 原先两者并存会重复建仓——库存已直接到账，若 BUY 单随后在撮合中成交，
+        # 做市商会再买一批等量股票并二次扣款，导致库存虚高、成本失真。
+        # 买盘流动性由下方 levels 循环中的低价买单提供，不受影响。
         # 直接写入持仓（保证本轮卖单有库存）
         if mm_holding is None:
             StockHolding.objects.create(
@@ -863,9 +856,14 @@ def advance_one_stock(
             if buy.price < sell.price:
                 break
             qty = min(buy_rem[buy.id], sell_rem[sell.id])
+            # 逐对成交价：全市场统一价 tradePrice 是「最高买价与最低卖价的中点」，
+            # 它可能越出某笔委托的限价（例：买单挂 9.2、卖单挂 9，中点 9.5 会让买方
+            # 以高于自己限价的价格买入）。故把成交价夹到 [卖价, 买价] 区间内，
+            # 保证成交不违反任何一方的限价委托语义（此处已确保 sell.price <= buy.price）。
+            pair_price = min(max(trade_price, sell.price), buy.price)
             buy_cash = cash_map[buy.funds_account_id]
-            if qty * trade_price > buy_cash + EPS:
-                qty = buy_cash / trade_price
+            if qty * pair_price > buy_cash + EPS:
+                qty = buy_cash / pair_price
                 if qty <= EPS:
                     buy_rem[buy.id] = 0
                     bi += 1
@@ -881,17 +879,17 @@ def advance_one_stock(
             qty = round(qty * 1e6) / 1e6
 
             # 买入方：现金减少，持仓增加（加权成本）
-            cash_map[buy.funds_account_id] = cash_map[buy.funds_account_id] - qty * trade_price
+            cash_map[buy.funds_account_id] = cash_map[buy.funds_account_id] - qty * pair_price
             bh = holding_map.get(buy.funds_account_id, {"shares": 0, "costPrice": 0})
             new_shares = bh["shares"] + qty
             new_cost = (
-                (bh["shares"] * bh["costPrice"] + qty * trade_price) / new_shares
+                (bh["shares"] * bh["costPrice"] + qty * pair_price) / new_shares
                 if new_shares > 0
-                else trade_price
+                else pair_price
             )
             holding_map[buy.funds_account_id] = {"shares": new_shares, "costPrice": new_cost}
             # 卖出方：现金增加，持仓减少
-            cash_map[sell.funds_account_id] = cash_map[sell.funds_account_id] + qty * trade_price
+            cash_map[sell.funds_account_id] = cash_map[sell.funds_account_id] + qty * pair_price
             sh = holding_map.get(sell.funds_account_id, {"shares": 0, "costPrice": 0})
             holding_map[sell.funds_account_id] = {
                 "shares": max(0, sh["shares"] - qty),
