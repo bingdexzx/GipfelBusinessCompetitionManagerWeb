@@ -16,6 +16,11 @@
 #   7. [可选] nginx vhost 写入 + reload
 # ============================================================
 set -euo pipefail
+# 强制标准输入来自 /dev/null：任何隐式 read/openssl 等待熵等都不会卡在终端等待输入。
+# 需要交互的场景（手动填写公网 IP）已在脚本内用显式 read < /dev/stdin 处理。
+exec 0</dev/null
+# 输出即时刷新，避免卡住时日志缓冲区看不到进度（便于定位阻塞点）。
+exec 1>&1
 
 # ---------------- 参数解析 ----------------
 DOMAIN=""
@@ -160,7 +165,9 @@ fi
 # 首次部署无 .env → 从 example 复制，生成随机 JWT_SECRET
 if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
     log "首次部署：生成后端 .env"
+    echo "[DIAG] .env 不存在，准备从 .env.example 复制（$(date +%T)）" >&2
     cp "$INSTALL_DIR/backend/.env.example" "$INSTALL_DIR/backend/.env"
+    echo "[DIAG] .env.example 复制完成（$(date +%T)）" >&2
     SECRET="$(openssl rand -base64 32 | tr -d '\n=')"
     sed -i "s|^JWT_SECRET=.*|JWT_SECRET=${SECRET}|" "$INSTALL_DIR/backend/.env"
     # 显式关闭 DEBUG（.env.example 可能无此行，确保生产环境 DEBUG=false）
@@ -200,11 +207,11 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
             ok "日志查看器地址已写入 LOG_VIEWER_PUBLIC_URL（公网 IP：${LV_PUBLIC_IP}）。"
         elif [[ -t 0 ]]; then
             # 自动探测全部失败：交互式请运维手动填写公网 IP（仅首次部署且标准输入为终端时；
-            # 非交互环境不阻塞，跳过手动填写）。read 带 60s 超时，超时则跳过，绝不卡死部署。
+            # 非交互环境不阻塞，跳过手动填写）。read 显式读 stdin、带 60s 超时，超时则跳过，绝不卡死部署。
             echo ""
             echo "[手动填写] 未能自动探测到公网 IP。请在本终端输入本机公网 IP（回车确认，日志查看器将使用 http://<IP>:8120/）；"
             echo "            留空或 60 秒内未输入将自动跳过，日志查看器地址改由后端按请求 Host 推导（请确保经公网 IP 访问）。"
-            if read -r -t 60 LV_MANUAL_IP; then
+            if read -r -t 60 LV_MANUAL_IP < /dev/stdin; then
                 LV_MANUAL_IP="$(normalize_ip "$LV_MANUAL_IP")"
                 if [[ "$LV_MANUAL_IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || [[ "$LV_MANUAL_IP" == \[* ]] || [[ "$LV_MANUAL_IP" == *:* ]]; then
                     # 规范化：IPv6 加方括号
@@ -231,6 +238,7 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
         LVSECRET="$(openssl rand -base64 32 | tr -d '\n=')"
         echo "LOGVIEWER_SECRET_KEY=${LVSECRET}" >> "$INSTALL_DIR/backend/.env"
     fi
+    echo "[DIAG] 首次部署 .env 生成完毕（$(date +%T)），JWT_SECRET/LOGVIEWER_SECRET_KEY 已就绪" >&2
 fi
 
 # 自愈：无域名部署且 .env 已存在时，纠正/补全 LOG_VIEWER_PUBLIC_URL。
