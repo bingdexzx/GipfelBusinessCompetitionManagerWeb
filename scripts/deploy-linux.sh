@@ -210,8 +210,9 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
         # 避免前端 /api/version 把 Host 推导成错误的 https://log.<IP>/ 或误用内网 IP。
         # 重要：必须用公网 IP（用户从公网访问），不能用 hostname -I 首地址（通常为内网/私网 IP）。
         #
-        # 优先顺序：--public-ip 显式传入 > 多服务探测 > 交互手动填写（仅 TTY 且带超时）
-        #   —— 任何一步成功都不进入下一步，确保非交互/受限网络环境永不卡住。
+        # 优先顺序：--public-ip 显式传入 > 多服务探测（任何一步成功都不进入下一步，
+        #   确保非交互/受限网络环境永不卡住）。不再提供交互式手动填写——脚本以
+        #   exec 0</dev/null 运行（非 TTY），手动 read 恒为 EOF，属死代码，已移除。
         if [[ -n "$PUBLIC_IP" ]]; then
             LV_PUBLIC_IP="$(normalize_ip "$PUBLIC_IP")"
             ok "使用 --public-ip 显式指定的公网 IP：${LV_PUBLIC_IP}"
@@ -229,32 +230,8 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
                 echo "LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/" >> "$INSTALL_DIR/backend/.env"
             fi
             ok "日志查看器地址已写入 LOG_VIEWER_PUBLIC_URL（公网 IP：${LV_PUBLIC_IP}）。"
-        elif [[ -t 0 ]]; then
-            # 自动探测全部失败：交互式请运维手动填写公网 IP（仅首次部署且标准输入为终端时；
-            # 非交互环境不阻塞，跳过手动填写）。read 显式读 stdin、带 60s 超时，超时则跳过，绝不卡死部署。
-            echo ""
-            echo "[手动填写] 未能自动探测到公网 IP。请在本终端输入本机公网 IP（回车确认，日志查看器将使用 http://<IP>:8120/）；"
-            echo "            留空或 60 秒内未输入将自动跳过，日志查看器地址改由后端按请求 Host 推导（请确保经公网 IP 访问）。"
-            if read -r -t 60 LV_MANUAL_IP < /dev/stdin; then
-                LV_MANUAL_IP="$(normalize_ip "$LV_MANUAL_IP")"
-                if [[ "$LV_MANUAL_IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || [[ "$LV_MANUAL_IP" == \[* ]] || [[ "$LV_MANUAL_IP" == *:* ]]; then
-                    # 规范化：IPv6 加方括号
-                    if [[ "$LV_MANUAL_IP" == \[* ]]; then
-                        echo "LOG_VIEWER_PUBLIC_URL=http://${LV_MANUAL_IP}:8120/" >> "$INSTALL_DIR/backend/.env"
-                    elif [[ "$LV_MANUAL_IP" == *:* ]]; then
-                        echo "LOG_VIEWER_PUBLIC_URL=http://[${LV_MANUAL_IP}]:8120/" >> "$INSTALL_DIR/backend/.env"
-                    else
-                        echo "LOG_VIEWER_PUBLIC_URL=http://${LV_MANUAL_IP}:8120/" >> "$INSTALL_DIR/backend/.env"
-                    fi
-                    ok "已用你填写的公网 IP(${LV_MANUAL_IP}) 写入 LOG_VIEWER_PUBLIC_URL。"
-                else
-                    warn "输入的不是合法 IP（${LV_MANUAL_IP}），未写入 LOG_VIEWER_PUBLIC_URL；日志查看器地址将由后端按请求 Host 推导。"
-                fi
-            else
-                warn "等待输入超时（60s），未写入 LOG_VIEWER_PUBLIC_URL；日志查看器地址将由后端按请求 Host 推导。"
-            fi
         else
-            warn "未能自动获取公网 IP（非交互环境，跳过手动填写），未写入 LOG_VIEWER_PUBLIC_URL；日志查看器地址将由后端按请求 Host 推导（请确保经公网 IP 访问）。"
+            warn "未能自动获取公网 IP（探测失败），未写入 LOG_VIEWER_PUBLIC_URL；日志查看器地址将由后端按请求 Host 推导（请确保经公网 IP 访问）。"
         fi
     fi
     # 日志查看器防直连令牌密钥：必须生成强随机值，且部署幂等——无论 .env.example 是否

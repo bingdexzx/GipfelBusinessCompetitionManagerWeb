@@ -119,6 +119,14 @@ if [[ -d "$INSTALL_DIR/.git" ]]; then
     log "部署目录 $INSTALL_DIR 为 git 仓库，原地拉取最新"
     cd "$INSTALL_DIR"
     git pull --ff-only
+    # 自更新（L4）：若本脚本自身被本次 pull 更新，用新版本重新执行，
+    #   避免用旧脚本逻辑处理新代码。环境变量哨兵防止无限 re-exec；
+    #   git pull --ff-only 幂等，重跑无副作用。仅当脚本位于 INSTALL_DIR 内才 re-exec。
+    if [[ -z "${GIPFEL_UPDATE_REEXEC:-}" && "$0" == "$INSTALL_DIR"/* ]]; then
+        export GIPFEL_UPDATE_REEXEC=1
+        log "更新脚本自身已更新，重新执行新版本"
+        exec "$0" "$@"
+    fi
 elif [[ -n "$SOURCE_DIR" && -d "$SOURCE_DIR/.git" ]]; then
     # 模式 B：从本地 source checkout pull 后 rsync 到 INSTALL_DIR（同 deploy-linux.sh 模型）
     log "从本地源码目录 $SOURCE_DIR 拉取最新并同步到 $INSTALL_DIR"
@@ -383,3 +391,6 @@ if [[ $WITH_NGINX -eq 1 ]]; then
 echo "  网站：        ${DOMAIN:-http://$(hostname -I | awk '{print $1}')}"
 fi
 echo "  日志：        journalctl -u gipfel -f   /   tail -F $INSTALL_DIR/backend/logs/app.log"
+
+# 干净终止（L4：明确退出，避免依赖上一条命令的偶然退出码）
+exit 0

@@ -167,6 +167,30 @@ sudo bash scripts/deploy-linux.sh \
 - **双重认证**：令牌只放行「进入管理后台的网关」，进入后仍需用 Django 后台超级管理员凭据登录才能真正操作。
 - **令牌有效期**：`.env` 的 `BACKEND_GATE_MAX_AGE`（秒，默认 120）可调。
 
+### 安全响应头与 HTTPS（E 组加固）
+
+`deploy/nginx-gipfel.conf` 已为所有 `server` 块（主站点、日志查看器子域与 8120 块）统一注入安全响应头：
+
+- `X-Content-Type-Options: nosniff` —— 禁止浏览器 MIME 嗅探；
+- `X-Frame-Options: SAMEORIGIN` —— 防点击劫持（管理后台/日志查看器不被恶意站点 iframe 嵌套）；
+- `Referrer-Policy: strict-origin-when-cross-origin` —— 限制 Referer 泄露；
+- `Permissions-Policy` —— 禁用地理位置/麦克风/摄像头/支付等敏感特性；
+- `X-XSS-Protection: 1; mode=block` —— 旧浏览器 XSS 兜底层。
+
+> 注意：`add_header` 在 `location` 自带 `add_header` 时不会继承，故 `/uploads/`、`/static/` 两个 location 已各自显式补回上述响应头。
+
+**上传文件加固（L5）**：`location /uploads/` 已限制 MIME（仅放行图片与 PDF，其余一律 `application/octet-stream`），并 `~* \.(php|pl|py|...)$` 拒绝执行任何脚本类文件，防上传文件 RCE。
+
+**启用 HTTPS / HSTS（H3）**：模板末尾 `# === NGINX_SSL_443_START/END ===` 内已附就绪的 443 server 块与 HTTP→HTTPS 跳转，**默认注释态**（不影响 `nginx -t`）。推荐用 certbot 自动接管：
+
+```bash
+certbot --nginx -d <DOMAIN> -d log.<DOMAIN> --non-interactive --redirect
+```
+
+certbot 会自动写入 443 块、跳转并加载证书。若手动启用，取消注释后改好证书路径，并取消 `Strict-Transport-Security` 行的注释（HSTS 仅在 HTTPS 下生效，启用前请确认证书已就绪）。
+
+**Socket.IO CORS（L2）**：`backend/apps/realtime/gateway.py` 的 `cors_allowed_origins` 不再硬编码 `*`，改为复用主后端同一份 `CORS_ORIGIN` 白名单（未配置时退化为 `*`，仅限开发/私网反射），避免任意站点跨域连 WebSocket（CSWSH）。
+
 ### 更新部署（升级版本，保留数据）
 
 **推荐：使用专用升级脚本 [`update-from-github.sh`](../scripts/update-from-github.sh)**（自动「拉取最新 + 备份 + 迁移 + 收集静态 + 前端构建 + 重启」，保留数据，语义最贴合升级）：

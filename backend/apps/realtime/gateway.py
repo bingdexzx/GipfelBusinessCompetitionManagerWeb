@@ -2,7 +2,9 @@
 
 - python-socketio AsyncServer，async_mode="asgi"，与 Django HTTP 同源同端口
   （由 backend/asgi.py 按 path 前缀分发 /socket.io/* 到本应用）
-- CORS 交由 apps.common 中间件统一管控，此处 cors_allowed_origins="*"
+- CORS 交由 apps.common 中间件统一管控；此处 cors_allowed_origins 复用同一份
+  CORS_ORIGIN 白名单（见 _socketio_cors_origins），不再硬编码 "*"，避免任意站点
+  跨域连 WebSocket（CSWSH）。
 - connect 事件校验 JWT（auth.token），并校验 tokenVersion（顶号下线）
 - subscribe/unsubscribe：
     · 显式 { room }
@@ -21,9 +23,31 @@ from asgiref.sync import sync_to_async
 
 logger = logging.getLogger("gipfel")
 
+
+def _socketio_cors_origins():
+    """Socket.IO CORS 来源：与主后端 HTTP API 共用同一 CORS_ORIGIN 白名单。
+
+    - 配置了 CORS_ORIGIN（公网白名单）→ 仅放行该白名单，杜绝任意站点跨域连 WebSocket。
+    - 含 "*" → 退化为 "*"（与 HTTP API 一致，仅开发/私网反射场景）。
+    - 未配置 → "*"（开发便利；生产务必配置 CORS_ORIGIN）。
+
+    注意：socket.io 的 cors_allowed_origins 是静态列表，不支持 HTTP 层那样的动态反射校验，
+    故直接复用 CORS_ORIGIN 的静态白名单，避免在 WebSocket 层开后门。
+    """
+    from django.conf import settings
+
+    raw = getattr(settings, "CORS_ORIGIN", "") or ""
+    if not raw:
+        return "*"
+    items = [s.strip() for s in raw.split(",") if s.strip()]
+    if not items or "*" in items:
+        return "*"
+    return items
+
+
 sio = socketio.AsyncServer(
     async_mode="asgi",
-    cors_allowed_origins="*",
+    cors_allowed_origins=_socketio_cors_origins(),
     ping_interval=25,
     ping_timeout=20,
 )
