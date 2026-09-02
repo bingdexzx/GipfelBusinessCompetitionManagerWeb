@@ -50,14 +50,12 @@ def _gate_denied() -> HttpResponse:
 def index(request):
     """单页应用外壳；附带 ensure_csrf_cookie 写 csrftoken，供登录 POST 使用。
 
-    防直连网关：
-    - 已通过网关（会话标记）→ 直接渲染；
-    - 携带有效一次性 ?token= → 标记网关通过并重定向到干净地址（避免令牌残留 URL）；
-    - 其余（直接输入网址/书签/无令牌）→ 403 拒绝。
+    防直连网关（思路一：每次进入都必须带有效 token，不凭会话 cookie 永久放行）：
+    - 携带有效一次性 ?token= → 渲染 SPA（token 保留在 URL，不重定向到干净地址，
+      以保证刷新/重开仍带 token；令牌 120s 过期后直连即 403）；
+    - 其余（直接输入网址/书签/无令牌/令牌过期）→ 403 拒绝。
+    注意：此处【不】写长期会话标记，避免「点过一次按钮后 cookie 永久有效、随后直连总能进」。
     """
-    if request.session.get(settings.LOGVIEWER_GATE_SESSION_KEY):
-        return render(request, "index.html")
-
     token = request.GET.get("token")
     if token:
         signer = TimestampSigner(key=settings.SECRET_KEY, salt=settings.LOGVIEWER_GATE_SALT)
@@ -65,9 +63,7 @@ def index(request):
             signer.unsign(token, max_age=settings.LOGVIEWER_GATE_MAX_AGE)
         except (BadSignature, SignatureExpired):
             return _gate_denied()
-        # 令牌有效：写入签名 cookie 会话（无需数据库），重定向到干净地址。
-        request.session[settings.LOGVIEWER_GATE_SESSION_KEY] = True
-        return HttpResponseRedirect("/")
+        return render(request, "index.html")
 
     return _gate_denied()
 

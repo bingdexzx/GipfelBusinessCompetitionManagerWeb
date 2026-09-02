@@ -25,8 +25,6 @@ DEBUG = os.environ.get("LOGVIEWER_DEBUG", "true").lower() == "true"
 LOGVIEWER_GATE_SALT = "logviewer-gate"
 # 令牌最长有效秒数（默认 120s，足够完成一次按钮跳转）
 LOGVIEWER_GATE_MAX_AGE = int(os.environ.get("LOGVIEWER_GATE_MAX_AGE", "120"))
-# 网关通过后写入会话的键名（signed_cookies 会话，无需数据库）
-LOGVIEWER_GATE_SESSION_KEY = "lv_gate"
 
 # ---------------- 反向代理（nginx 整站代理到 127.0.0.1:8121；公网 8120 由 nginx 监听反代） ----------------
 # 让日志查看器正确识别 HTTPS（nginx 终止 TLS 后转发 X-Forwarded-Proto）
