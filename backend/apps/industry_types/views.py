@@ -26,7 +26,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common.exceptions import BusinessError
-from apps.common.field_ref_cleanup import cleanup_field_references
+from apps.common.field_ref_cleanup import cleanup_field_references, rename_field_references
 from apps.common.guards import PermissionsPermission, require_permissions
 from apps.common.sync import apply_updated_after, build_incremental_result
 
@@ -388,6 +388,7 @@ class FieldItemView(APIView):
         serializer = IndustryFieldSerializer(field, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        old_field_key = field.field_key
 
         validate_field(data, effective_type=field.field_type)
         # 计算定时器启用有效值：timerEnabled 未传时沿用已有值，避免部分更新误清空 trigger/value
@@ -439,6 +440,10 @@ class FieldItemView(APIView):
             field.timer_value = data["timerValue"] if eff_timer_enabled else None
 
         field.save()
+        # 字段键改名：同步同产业类型内的财年定时器引用与计算图引用
+        # （合同类型效果为全局模板、可能跨产业复用，不做静默改写，rename 内部仅告警）
+        if old_field_key != field.field_key:
+            rename_field_references(field.industry_type_id, old_field_key, field.field_key)
         return Response(IndustryFieldSerializer(field).data)
 
     @require_permissions("industryType:manage")

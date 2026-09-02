@@ -112,8 +112,10 @@ def _write_field_value(
 
 
 def _recompute_calc_fields(company_id: int) -> None:
-    """计算字段级联重算（计算引擎为独立模块，待接入）。"""
-    # TODO: 接入 calcGraph 引擎后调用 recompute_calc_fields(company_id)
+    """计算字段级联重算（calcGraph 求值引擎见 calc.py，复用合同引擎算子与沙箱）。"""
+    from .calc import recompute_calc_fields
+
+    recompute_calc_fields(company_id)
 
 
 class CompanyFieldsView(APIView):

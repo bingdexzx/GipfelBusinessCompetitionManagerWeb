@@ -52,3 +52,87 @@ def cleanup_field_references(industry_type_id: int, deleted_field_key: str) -> N
                 pass
         if changed:
             f.save(update_fields=["timer_value", "calc_graph"])
+
+
+def rename_field_references(industry_type_id: int, old_field_key: str, new_field_key: str) -> None:
+    """字段改名后同步同产业类型内的引用（对应删除时的 cleanup_field_references）。
+
+    - 兄弟字段 timer_value === "field:<old>" → "field:<new>"
+    - 兄弟字段 calcGraph 中 type:"value" 且 data.fieldKey === old → new
+    - 合同类型（全局模板）的 effects 引用不做静默改写：同一合同类型可能被多个
+      产业类型的公司使用，全局改写会误伤其他产业。改为告警列出受影响的合同类型，
+      提示管理员人工核对。
+    """
+    if not old_field_key or old_field_key == new_field_key:
+        return
+    # 延迟导入避免循环依赖
+    from apps.industry_types.models import IndustryField
+
+    siblings = IndustryField.objects.exclude(field_key=new_field_key).filter(
+        industry_type_id=industry_type_id
+    )
+    for f in siblings:
+        changed = False
+        if f.timer_value == f"{TIMER_REF_PREFIX}{old_field_key}":
+            f.timer_value = f"{TIMER_REF_PREFIX}{new_field_key}"
+            changed = True
+        if f.calc_graph:
+            try:
+                g = json.loads(f.calc_graph)
+                nodes = g.get("nodes") if isinstance(g, dict) else None
+                if isinstance(nodes, list):
+                    hit = False
+                    for n in nodes:
+                        if (
+                            isinstance(n, dict)
+                            and n.get("type") == "value"
+                            and (n.get("data") or {}).get("fieldKey") == old_field_key
+                        ):
+                            n["data"]["fieldKey"] = new_field_key
+                            hit = True
+                    if hit:
+                        f.calc_graph = json.dumps(g, ensure_ascii=False)
+                        changed = True
+            except (ValueError, TypeError):
+                # 计算图 JSON 损坏：跳过，不阻断改名
+                pass
+        if changed:
+            f.save(update_fields=["timer_value", "calc_graph"])
+
+    # 合同类型效果引用告警（不静默改写，见 docstring）
+    try:
+        from apps.contracts.models import ContractType
+
+        affected: list[str] = []
+        for ct in ContractType.objects.all().only("key", "name", "effects"):
+            try:
+                eff = json.loads(ct.effects) if ct.effects else []
+            except (ValueError, TypeError):
+                continue
+            if _effects_reference_field(eff, old_field_key):
+                affected.append(f"{ct.key}({ct.name})")
+        if affected:
+            import logging
+
+            logging.getLogger("gipfel").warning(
+                "[field-rename] 字段 %s → %s（产业 #%s）被以下合同类型的效果引用，"
+                "请人工核对其 fieldKey 配置：%s",
+                old_field_key, new_field_key, industry_type_id, "、".join(affected),
+            )
+    except Exception:  # noqa: BLE001 contracts 应用可能尚未就绪
+        pass
+
+
+def _effects_reference_field(effects, field_key: str) -> bool:
+    """递归判断效果树中是否存在引用 field_key 的 FIELD 效果节点。"""
+
+    def walk(node) -> bool:
+        if isinstance(node, dict):
+            if node.get("kind") == "FIELD" and node.get("fieldKey") == field_key:
+                return True
+            return any(walk(v) for v in node.values())
+        if isinstance(node, list):
+            return any(walk(v) for v in node)
+        return False
+
+    return walk(effects)
