@@ -59,7 +59,6 @@ class CompanyFieldValue(models.Model):
     class Meta:
         db_table = "company_field_values"
         unique_together = (("company", "industry_field"),)
-        indexes = [models.Index(fields=["version"])]
 
     def __str__(self):
         return f"company={self.company_id} field={self.industry_field_id}"

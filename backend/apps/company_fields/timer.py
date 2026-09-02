@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 
 from django.db import transaction
 
@@ -24,6 +25,10 @@ from apps.industry_types.models import IndustryField
 from .views import _recompute_calc_fields, _write_field_value
 
 logger = logging.getLogger("gipfel")
+
+# 每比赛级并发守卫：防止同一比赛财年定时器被并发双触发（TOCTOU → 重复写入/部分不一致）
+_fiscal_locks: dict[int, threading.Lock] = {}
+_fiscal_locks_guard = threading.Lock()
 
 # 财年定时器设定值引用本产业字段的前缀（如 "field:location"）。
 TIMER_REF_PREFIX = "field:"
@@ -110,6 +115,24 @@ def apply_fiscal_year_timer(competition_id: int, trigger: str) -> None:
     :param competition_id: 比赛 id（定时器按比赛收敛，只作用于该比赛下的公司）
     :param trigger: "FY_START" / "FY_END"
     """
+    # 并发守卫：同一比赛同一触发时机仅允许一个定时器在跑（非阻塞，冲突直接返回）
+    with _fiscal_locks_guard:
+        lock = _fiscal_locks.get(competition_id)
+        if lock is None:
+            lock = threading.Lock()
+            _fiscal_locks[competition_id] = lock
+    if not lock.acquire(blocking=False):
+        logger.warning(
+            "财年定时器：比赛 #%s 的 %s 已在执行中，跳过本次并发触发", competition_id, trigger
+        )
+        return
+    try:
+        _run_fiscal_year_timer(competition_id, trigger)
+    finally:
+        lock.release()
+
+
+def _run_fiscal_year_timer(competition_id: int, trigger: str) -> None:
     timer_fields = list(
         IndustryField.objects.filter(timer_enabled=True, timer_trigger=trigger)
     )

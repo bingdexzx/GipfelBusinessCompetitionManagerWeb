@@ -23,9 +23,7 @@ import random
 import threading
 from typing import Any, Iterable
 
-from django.db import transaction
-
-from django.db import transaction
+from django.db import connection, transaction
 
 from apps.common.exceptions import BusinessError
 
@@ -1047,13 +1045,6 @@ def advance_round(
     try:
         from apps.common.signals import suppress_signals
 
-        qs = Stock.objects.filter(competition_id=competition_id)
-        if stock_ids:
-            qs = qs.filter(pk__in=stock_ids)
-        stocks = list(qs.order_by("code"))
-        field_map = resolve_field_value_map(competition_id)
-        # 一次性批量构建 PE 联动值映射，避免推进轮次时对每只股票逐一查库（H4）
-        pb_value_map = _build_pb_value_map(stocks)
         results: list = []
 
         base_config = load_stock_config(competition_id)
@@ -1066,11 +1057,23 @@ def advance_round(
 
         total_mm_orders = 0
 
-        # 屏蔽 per-row 信号：advance_one_stock 内对 Stock/Holding/Order/Candle/FundsAccount
-        # 会有数十次 save，仅靠外层 bulk 广播一次即可；审计也在循环结束后统一写入。
         # 整轮推进包裹在事务中（H6 加固）：要么全部股票推进成功，要么整体回滚，
         # 避免半场崩溃导致的部分写入/数据不一致。
+        # 屏蔽 per-row 信号：advance_one_stock 内对 Stock/Holding/Order/Candle/FundsAccount
+        # 会有数十次 save，仅靠外层 bulk 广播一次即可；审计也在循环结束后统一写入。
+        # 并发推进（#16）：在事务内对目标 Stock 行加行级锁（select_for_update），
+        # 与进程内 threading.Lock 形成「进程内 + DB」双重防护，避免多 worker 部署下双推进。
+        # SQLite 不支持行锁（select_for_update 为 no-op），此时仅依赖进程内锁。
         with transaction.atomic():
+            qs = Stock.objects.filter(competition_id=competition_id)
+            if stock_ids:
+                qs = qs.filter(pk__in=stock_ids)
+            if connection.vendor != "sqlite":
+                qs = qs.select_for_update()
+            stocks = list(qs.order_by("code"))
+            field_map = resolve_field_value_map(competition_id)
+            # 一次性批量构建 PE 联动值映射，避免推进轮次时对每只股票逐一查库（H4）
+            pb_value_map = _build_pb_value_map(stocks)
             with suppress_signals():
                 for stock in stocks:
                     apply_pb_round(stock, pb_value_map)
