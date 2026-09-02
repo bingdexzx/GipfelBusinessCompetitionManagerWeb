@@ -487,13 +487,11 @@ fi
 echo
 ok "部署完成！"
 
-# 公网 IP 提示：优先采用用户显式 --public-ip；否则尽力自动探测（受限网络失败时给手动查询提示）。
+# 公网 IP 提示：优先采用用户显式 --public-ip；否则用与首跑一致的 _probe_public_ip() 探测
+# （含 timeout 硬包裹，无外网/异常 DNS 时不会卡在结尾）。探测仍失败才提示手动查询。
 # 注意：此处【不可】重置 PUBLIC_IP，否则会覆盖用户传入的值，导致结尾误报「未获取到 IP」。
 if [[ -z "$PUBLIC_IP" ]]; then
-    if command -v curl >/dev/null 2>&1; then
-        # timeout 硬包裹，避免无外网时 DNS 挂起卡在结尾
-        PUBLIC_IP="$(timeout 8 curl -s --max-time 6 https://api.ipify.org 2>/dev/null || true)"
-    fi
+    PUBLIC_IP="$(_probe_public_ip)"
 fi
 if [[ -z "$PUBLIC_IP" ]]; then
     PUBLIC_IP_HINT="（未能自动获取公网 IP，可访问 https://ifconfig.me 或云控制台查看）"
