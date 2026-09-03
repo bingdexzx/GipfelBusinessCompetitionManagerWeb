@@ -239,6 +239,38 @@ def _emit_sio(event: str, payload: dict, room: str | None = None) -> None:
 
 
 # ====================================================================
+# 事务提交后投递
+# ====================================================================
+def _after_commit(fn) -> None:
+    """把广播延迟到数据库事务提交之后执行。
+
+    为什么必须延迟：post_save 信号在 `save()` 那一刻就触发，显式 emit 也常写在
+    `transaction.atomic()` 内部（合同落账 / 复原、股票推进轮次、财年定时器、
+    产业字段级联重算）。若此时立即广播，客户端会马上回拉数据，但它走的是另一个
+    数据库连接、读不到尚未提交的写入 —— 于是拿到旧值，而事件已经消耗掉、不会再来，
+    表现就是「刷新不及时」（数据要等下一次事件或手动刷新才对）。
+
+    行为说明：
+    - 不在事务中时，on_commit 会同步立即执行，与原先行为完全一致；
+    - 事务回滚时回调被丢弃，顺带消除了「回滚了却已广播」的假事件；
+    - seq 在回调内才分配，保证重放环形缓冲的 seq 顺序与实际提交顺序一致。
+    """
+    from django.db import transaction
+
+    def _run() -> None:
+        try:
+            fn()
+        except Exception:  # noqa: BLE001
+            logger.debug("事务提交后广播执行失败", exc_info=True)
+
+    try:
+        transaction.on_commit(_run)
+    except Exception:  # noqa: BLE001
+        # 无可用数据库连接等极端场景（管理脚本 / 启动期）→ 退化为立即执行
+        _run()
+
+
+# ====================================================================
 # 广播 API
 # ====================================================================
 def emit_resource_changed(
@@ -249,28 +281,34 @@ def emit_resource_changed(
     *,
     ids: list[int] | None = None,
 ) -> None:
-    seq = _next_seq()
-    ts_ms = int(time.time() * 1000)
     if ids is None:
         ids = [record_id] if isinstance(record_id, int) else []
-
-    payload = {
-        "resource": resource,
-        "id": record_id if isinstance(record_id, int) else (ids[0] if ids else None),
-        "ids": ids,
-        "action": action,
-        "competitionId": competition_id,
-        "seq": seq,
-        "ts": ts_ms,
-    }
+    resolved_ids = list(ids)
 
     is_global = resource in GLOBAL_RESOURCES
     room: str | None = None
     if not is_global and competition_id is not None:
         room = f"comp-{competition_id}"
 
-    _push_ring(EVENT_RESOURCE_CHANGED, payload, room)
-    _emit_sio(EVENT_RESOURCE_CHANGED, payload, room=room)
+    def _deliver() -> None:
+        # seq / ts 在提交后才取，确保客户端按 seq 重放的顺序与落库顺序一致
+        payload = {
+            "resource": resource,
+            "id": (
+                record_id
+                if isinstance(record_id, int)
+                else (resolved_ids[0] if resolved_ids else None)
+            ),
+            "ids": resolved_ids,
+            "action": action,
+            "competitionId": competition_id,
+            "seq": _next_seq(),
+            "ts": int(time.time() * 1000),
+        }
+        _push_ring(EVENT_RESOURCE_CHANGED, payload, room)
+        _emit_sio(EVENT_RESOURCE_CHANGED, payload, room=room)
+
+    _after_commit(_deliver)
 
 
 def emit_resource_changed_to_users(
@@ -282,21 +320,29 @@ def emit_resource_changed_to_users(
     ids: list[int] | None = None,
 ) -> None:
     """向指定用户房间广播资源变更（不进入环形重放：每用户独立房间）。"""
-    seq = _next_seq()
-    ts_ms = int(time.time() * 1000)
     if ids is None:
         ids = [record_id] if isinstance(record_id, int) else []
-    payload = {
-        "resource": resource,
-        "id": record_id if isinstance(record_id, int) else (ids[0] if ids else None),
-        "ids": ids,
-        "action": action,
-        "competitionId": competition_id,
-        "seq": seq,
-        "ts": ts_ms,
-    }
-    for uid in user_ids or []:
-        _emit_sio(EVENT_RESOURCE_CHANGED, payload, room=f"user-{uid}")
+    resolved_ids = list(ids)
+    targets = list(user_ids or [])
+
+    def _deliver() -> None:
+        payload = {
+            "resource": resource,
+            "id": (
+                record_id
+                if isinstance(record_id, int)
+                else (resolved_ids[0] if resolved_ids else None)
+            ),
+            "ids": resolved_ids,
+            "action": action,
+            "competitionId": competition_id,
+            "seq": _next_seq(),
+            "ts": int(time.time() * 1000),
+        }
+        for uid in targets:
+            _emit_sio(EVENT_RESOURCE_CHANGED, payload, room=f"user-{uid}")
+
+    _after_commit(_deliver)
 
 
 def emit_to_users(user_ids, event: str, data) -> None:
@@ -313,7 +359,8 @@ def emit_to_competition(competition_id: int | None, event: str, data) -> None:
     """
     if competition_id is None:
         return
-    _emit_sio(event, data, room=f"comp-{competition_id}")
+    # 同样延迟到提交后：财年推进等事件常与业务写入同处一个事务
+    _after_commit(lambda: _emit_sio(event, data, room=f"comp-{competition_id}"))
 
 
 # ====================================================================

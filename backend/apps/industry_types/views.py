@@ -18,8 +18,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
+
+logger = logging.getLogger("gipfel")
 
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -166,6 +169,111 @@ def validate_field(data: dict, effective_type: str | None = None) -> None:
                 "财年定时器字段不可同时设为计算字段（定时器写入值会被级联重算覆盖）"
             )
         validate_timer_spec(field_type, data.get("timerTrigger"), data.get("timerValue"))
+
+
+# ==================== 计算字段依赖校验 / 级联重算 ====================
+# 会影响计算字段结果的定义项：公式本身、被引用的键名、参与运算的默认值 / 类型 / 配置。
+# 不含 sortOrder / visible / timer*（仅展示或定时写入，不改变公式求值结果）。
+_CALC_RELEVANT_KEYS = {
+    "calcGraph",
+    "isCalculated",
+    "fieldKey",
+    "defaultValue",
+    "fieldType",
+    "config",
+}
+
+
+def _has_calc_fields(industry_type_id: int) -> bool:
+    """该产业类型下是否存在计算字段（无则可跳过级联重算）。"""
+    return IndustryField.objects.filter(
+        industry_type_id=industry_type_id, is_calculated=True
+    ).exists()
+
+
+def _detect_calc_field_cycle(
+    industry_type_id: int,
+    edited_field_id: int | None,
+    edited_field_key: str,
+    edited_refs: set[str] | None,
+    renamed_from: str | None = None,
+) -> list[str] | None:
+    """检测计算字段之间的循环依赖（跨字段 FIELD 引用成环）。
+
+    返回成环节点的 fieldKey 序列（如 [a, b, a]），无环返回 None。
+    edited_field 表示本次正在创建/编辑的字段（尚未落库或键已变更），
+    用其「编辑后的 key + 编辑后的 calcGraph 引用」替换库中的旧数据参与构图。
+
+    renamed_from：本次编辑同时改了 fieldKey 时传入旧键。库中兄弟字段的计算图
+    此刻仍引用旧键（rename_field_references 要等 save 之后才改写），若不做映射
+    会断链导致成环漏检。
+    """
+    from apps.company_fields.calc import _graph_field_refs
+
+    graph: dict[str, set[str]] = {}
+    for f in IndustryField.objects.filter(
+        industry_type_id=industry_type_id, is_calculated=True
+    ):
+        if f.id == edited_field_id:
+            continue  # 正在编辑的字段用 edited 数据替代
+        refs = _graph_field_refs(f.calc_graph)
+        if renamed_from and renamed_from in refs:
+            # 预演改名后的引用关系，与 rename_field_references 的效果保持一致
+            refs = (refs - {renamed_from}) | {edited_field_key}
+        if refs:
+            graph[f.field_key] = refs
+    if edited_refs:
+        graph[edited_field_key] = set(edited_refs)
+
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color: dict[str, int] = {k: WHITE for k in graph}
+    stack: list[str] = []
+    cycle: list[str] = []
+
+    def dfs(node: str) -> bool:
+        color[node] = GRAY
+        stack.append(node)
+        for nxt in graph.get(node, ()):
+            if nxt not in graph:
+                continue
+            if color.get(nxt) == GRAY:
+                idx = stack.index(nxt)
+                cycle.extend(stack[idx:])
+                cycle.append(nxt)  # 闭环，便于提示里呈现 a → b → a
+                return True
+            if color.get(nxt) == WHITE and dfs(nxt):
+                return True
+        color[node] = BLACK
+        stack.pop()
+        return False
+
+    for k in list(graph):
+        if color[k] == WHITE and dfs(k):
+            return cycle
+    return None
+
+
+def _recompute_industry_type(industry_type_id: int) -> None:
+    """字段定义变更后，级联重算该产业类型下全部公司的计算字段并广播刷新。
+
+    计算字段值写入 CompanyFieldValue 后须经 company-field 广播，
+    否则仪表盘/公司详情/行情等订阅方停留在旧值（与上一轮修复的定时器/股票缺口同源）。
+    """
+    from apps.companies.models import Company
+    from apps.company_fields.calc import recompute_calc_fields
+    from apps.realtime.emit import emit_resource_changed
+
+    for cid, comp_id in Company.objects.filter(
+        industry_type_id=industry_type_id
+    ).values_list("id", "competition_id"):
+        try:
+            recompute_calc_fields(cid)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "[industry-types] 重算公司 #%s 计算字段失败：%s", cid, getattr(e, "message", e)
+            )
+            continue
+        emit_resource_changed("company-field", cid, comp_id, "updated")
 
 
 # ==================== 辅助函数 ====================
@@ -358,6 +466,18 @@ class FieldListView(APIView):
         ).exists():
             raise BusinessError(f"字段键 {field_key} 已存在")
 
+        # 循环依赖检测（计算字段）：创建前即拦截，避免写入互相引用的非法公式
+        if bool(data.get("isCalculated")):
+            from apps.company_fields.calc import _graph_field_refs
+
+            edited_refs = _graph_field_refs(data.get("calcGraph"))
+            cycle = _detect_calc_field_cycle(pk, None, field_key, edited_refs)
+            if cycle:
+                raise BusinessError(
+                    f"产业字段计算图存在循环依赖：{' → '.join(cycle)}"
+                    "（请检查计算字段之间的相互引用）"
+                )
+
         timer_enabled = bool(data.get("timerEnabled"))
         field = IndustryField.objects.create(
             industry_type_id=pk,
@@ -375,6 +495,9 @@ class FieldListView(APIView):
             timer_trigger=data.get("timerTrigger") if timer_enabled else None,
             timer_value=data.get("timerValue") if timer_enabled else None,
         )
+        # 新计算字段需为已有公司补算初值；若类型已有其它计算字段，本次也需联动重算
+        if bool(data.get("isCalculated")) or _has_calc_fields(pk):
+            _recompute_industry_type(pk)
         return Response(IndustryFieldSerializer(field).data)
 
 
@@ -439,11 +562,35 @@ class FieldItemView(APIView):
         if "timerValue" in data:
             field.timer_value = data["timerValue"] if eff_timer_enabled else None
 
+        # 循环依赖检测（计算字段）：保存前拦截，避免非法公式落库后
+        # 只在重算时打一条服务端 warning、前端毫无感知。
+        # 此处 field 已带上本次编辑后的 field_key / is_calculated / calc_graph。
+        renamed_from = old_field_key if old_field_key != field.field_key else None
+        if field.is_calculated:
+            from apps.company_fields.calc import _graph_field_refs
+
+            cycle = _detect_calc_field_cycle(
+                field.industry_type_id,
+                field.id,
+                field.field_key,
+                _graph_field_refs(field.calc_graph),
+                renamed_from=renamed_from,
+            )
+            if cycle:
+                raise BusinessError(
+                    f"产业字段计算图存在循环依赖：{' → '.join(cycle)}"
+                    "（请检查计算字段之间的相互引用）"
+                )
+
         field.save()
         # 字段键改名：同步同产业类型内的财年定时器引用与计算图引用
         # （合同类型效果为全局模板、可能跨产业复用，不做静默改写，rename 内部仅告警）
-        if old_field_key != field.field_key:
+        if renamed_from:
             rename_field_references(field.industry_type_id, old_field_key, field.field_key)
+        # 定义变更后级联重算：公式改了、被引用的键改名了、默认值/类型变了都会影响结果。
+        # 仅排序/可见性/定时器这类 PATCH 不重算，避免拖拽排序时逐条全量算。
+        if set(data) & _CALC_RELEVANT_KEYS and _has_calc_fields(field.industry_type_id):
+            _recompute_industry_type(field.industry_type_id)
         return Response(IndustryFieldSerializer(field).data)
 
     @require_permissions("industryType:manage")
@@ -462,4 +609,7 @@ class FieldItemView(APIView):
         field.delete()
         # 清理兄弟字段对该字段的悬空引用（财年定时器 field: 引用、计算图 value 节点）
         cleanup_field_references(industry_type_id, field_key)
+        # 引用被清理后依赖该字段的公式结果已变化，需级联重算并广播
+        if _has_calc_fields(industry_type_id):
+            _recompute_industry_type(industry_type_id)
         return Response({"ok": True})

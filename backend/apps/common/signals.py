@@ -6,9 +6,11 @@
 注意点：
 - 信号处理器跑在 HTTP 线程（同步上下文），所以 ORM / 审计 / emit 全用同步 API
 - python-socketio 的 AsyncServer.emit 被同步调用时，内部会把动作投递到 ASGI 事件循环，
-  不依赖当前线程的 loop，因此可直接在同步视图事务提交后的信号回调中调用
-- 为避免 M2M/嵌套事务导致「未提交数据就广播」，处理器仅在 `instance.pk` 已存在
-  且（对 post_save 而言）created 语义明确时才广播
+  不依赖当前线程的 loop，因此可在同步信号回调中直接调用
+- post_save/post_delete 在 `save()`/`delete()` 那一刻就触发，**并非事务提交后**。
+  「未提交就广播」的问题已在 `apps.realtime.emit._after_commit` 统一收口：emit 内部
+  用 transaction.on_commit 延迟投递，不在事务中则立即执行。此处无需再各自判断。
+- 处理器仅在 `instance.pk` 为 int 时才广播，避免未落库对象产生无效事件
 - 审计 changes 的构造：created 动作仅保存前值为空；updated 动作由于 Django 不给 diff，
   广播以 instance 为权威，审计仅记录「有更新」（与原 NestJS Prisma $allOperations 粒度一致）
 """

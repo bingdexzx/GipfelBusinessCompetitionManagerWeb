@@ -628,6 +628,25 @@ def write_field_value_in_tx(
             )
 
 
+def _recompute_calc_after_cash_write(company_ids) -> None:
+    """结算写入绑定字段后，重算这些公司的计算字段（失败不拖垮整轮结算）。
+
+    每家公司套一个独立保存点：重算异常时只回滚该公司的这部分写入，外层
+    advance_one_stock 事务仍能正常提交。若不加保存点，except 之后当前事务已被
+    标记为「需回滚」，后续任何查询都会直接抛 TransactionManagementError。
+    """
+    from apps.company_fields.calc import recompute_calc_fields
+
+    for cid in company_ids:
+        try:
+            with transaction.atomic():
+                recompute_calc_fields(cid)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[stock] 结算后重算公司 #%s 计算字段失败：%s", cid, exc
+            )
+
+
 # ==================== 做市商 ====================
 def generate_market_maker_orders(
     stock,
@@ -995,6 +1014,9 @@ def advance_one_stock(
         if touched_field_companies:
             from apps.realtime.emit import emit_resource_changed
 
+            # 绑定字段（现金）常被计算字段引用（如「总资产 = 现金 + 持仓市值」），
+            # 结算改了现金却不重算，公式字段会一直停在上一轮的旧值。
+            _recompute_calc_after_cash_write(touched_field_companies)
             for cid in touched_field_companies:
                 emit_resource_changed("company-field", cid, competition_id, "updated")
 

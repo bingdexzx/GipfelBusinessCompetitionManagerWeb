@@ -14,6 +14,23 @@ import { reconcileAllIncremental, bumpResourceEvent } from "@/api/request";
 let _boundSocket: unknown = null; // 跟踪已绑定的 socket 实例，避免 socket 重建后漏绑
 let _lastSeq = 0; // 记录最后收到的事件序号（用于重连补发）
 
+// 事件资源名 → 本地集合键的补充别名。
+// SEG_TO_RESOURCE 的键是「URL 首段」，绝大多数资源的广播名与 URL 段一致（contracts /
+// industry-types…），查表即可归一。但少数资源后端广播用单数、URL 用复数，查表会落空
+// 而退化为原值，导致 memo 失效键与 _resourceOf() 算出的键不相等 —— 事件到了却仍在
+// 15s 新鲜度窗口里返回旧值（表现为「刷新不及时」）。
+// 不能直接往 SEG_TO_RESOURCE 里加单数键：request.ts 会把它反转成 RESOURCE_TO_SEG
+// 用于拼 URL，加了会让 companyField 反查到错误的 "company-field" 段。
+const EVENT_RESOURCE_ALIAS: Record<string, string> = {
+  // /company-fields/:id → 集合键 companyField；后端广播名为单数 company-field
+  "company-field": "companyField",
+};
+
+/** 把后端广播的 resource 归一为本地集合键 / memo 键。 */
+function toCollectionKey(resource: string): string {
+  return EVENT_RESOURCE_ALIAS[resource] || SEG_TO_RESOURCE[resource] || resource;
+}
+
 // O4：实时重拉去抖 —— 同一资源在短时间内的多次事件合并为一次 window 广播，
 // 避免「批量创建/更新」触发的一连串组件重拉（每次重拉都打后台增量请求）。
 const RELOAD_DEBOUNCE_MS = 400;
@@ -57,17 +74,20 @@ export function bindResourceChanged() {
 
       // 后端广播的 resource 可能是复数（经 Prisma 中间件自动发，如 materials/contracts/stocks）
       // 或单数（各 service 手写，如 region/consumer-demand）。前端本地全量副本键与 memo 键统一用
-      // SEG_TO_RESOURCE 映射后的「单数」（material/contract/stock），故删除与 memo 失效必须用归一的单数；
+      // toCollectionKey 归一（material/contract/companyField），故删除与 memo 失效必须用归一后的键；
       // 而组件层 useResourceChanged 订阅传的是复数（materials），故派发给组件层的 window 事件保留
       // 后端原值，确保严格相等匹配。
-      const singular = SEG_TO_RESOURCE[payload.resource] || payload.resource;
-      // 删除：精确移除本地副本中的该条目（用单数前缀，命中 FULL|material| 等）
+      const collectionKey = toCollectionKey(payload.resource);
+      // 删除：精确移除本地副本中的该条目（用归一键前缀，命中 FULL|material| 等）
       if (payload.action === "deleted" && payload.id != null) {
-        void removeFullItemByResource(singular, payload.id);
+        void removeFullItemByResource(collectionKey, payload.id);
       }
       // O3：标记该资源「最近有变更」，使内存新鲜度窗口 memo 立即失效、触发刷新
-      // （用单数，命中 _resourceOf 计算的 memo 键）
-      bumpResourceEvent(singular);
+      // （用归一键，命中 _resourceOf 计算的 memo 键）
+      bumpResourceEvent(collectionKey);
+      // 广播名与归一键不同时（如 company-field / companyField），两个键都标记：
+      // 组件侧可能用原名做过其它 memo 归属判断，双标记消除遗漏。
+      if (collectionKey !== payload.resource) bumpResourceEvent(payload.resource);
       // O4：同一资源短时间内的多次事件合并为一次广播，避免批量变更触发一连串组件重拉
       // 派发保留后端原值，匹配组件 useResourceChanged 订阅的复数 resource
       scheduleResourceReload(payload.resource, {
@@ -144,12 +164,13 @@ export function bindResourceChanged() {
           if (data.seq && data.seq > _lastSeq) {
             _lastSeq = data.seq;
           }
-          // 触发资源变更处理（与 connect 后的实时事件一致：删除/失效用单数，派发保留原值）
-          const singular = SEG_TO_RESOURCE[data.resource] || data.resource;
+          // 触发资源变更处理（与 connect 后的实时事件一致：删除/失效用归一键，派发保留原值）
+          const collectionKey = toCollectionKey(data.resource);
           if (data.action === "deleted" && data.id != null) {
-            void removeFullItemByResource(singular, data.id);
+            void removeFullItemByResource(collectionKey, data.id);
           }
-          bumpResourceEvent(singular);
+          bumpResourceEvent(collectionKey);
+          if (collectionKey !== data.resource) bumpResourceEvent(data.resource);
           scheduleResourceReload(data.resource, {
             resource: data.resource,
             id: data.id ?? null,
