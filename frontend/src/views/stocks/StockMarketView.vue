@@ -163,7 +163,8 @@
           </el-form>
 
           <el-divider>我的持仓</el-divider>
-          <div v-if="holdings.length" class="holding-list">
+          <div v-if="loadingAccountData" class="empty-hint small">加载中…</div>
+          <div v-else-if="holdings.length" class="holding-list">
             <div v-for="(row, i) in holdings" :key="row.stock?.id ?? i" class="holding-row">
               <span class="holding-cell holding-name">{{ row.stock?.name || row.stock?.code || '—' }}</span>
               <span class="holding-cell holding-shares">{{ fmt(row.shares) }}股</span>
@@ -173,7 +174,8 @@
           <div v-else class="empty-hint small">暂无持仓</div>
 
           <el-divider>我的订单</el-divider>
-          <div v-if="orders.length" class="order-list">
+          <div v-if="loadingAccountData" class="empty-hint small">加载中…</div>
+          <div v-else-if="orders.length" class="order-list">
             <div v-for="row in orders" :key="row.id" class="order-row">
               <span class="order-name">{{ row.stock?.name || row.stock?.code || '—' }}</span>
               <span class="order-side" :class="row.side === 'BUY' ? 'up' : 'down'">{{ row.side === 'BUY' ? '买' : '卖' }}</span>
@@ -266,6 +268,7 @@ const orders = ref<Order[]>([]);
 
 const loadingStocks = ref(false);
 const loadingCandles = ref(false);
+const loadingAccountData = ref(false);
 
 const trade = ref({ side: "BUY", price: 0, quantity: 100 });
 const maxRound = computed(() => stocks.value.reduce((m, s) => Math.max(m, s.round), 0));
@@ -381,9 +384,16 @@ async function reloadAccountData() {
     orders.value = [];
     return;
   }
-  holdings.value = await stockApi.accountHoldings(selectedAccountId.value);
-  // 按当前选中的资金账户过滤订单，只显示该账户的挂单/历史
-  orders.value = await stockApi.listOrders(compStore.competitionId!, selectedStockId.value || undefined, selectedAccountId.value);
+  loadingAccountData.value = true;
+  try {
+    holdings.value = await stockApi.accountHoldings(selectedAccountId.value);
+    // 按当前选中的资金账户过滤订单，只显示该账户的挂单/历史
+    orders.value = await stockApi.listOrders(compStore.competitionId!, selectedStockId.value || undefined, selectedAccountId.value);
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出；保留旧数据避免闪现为空态
+  } finally {
+    loadingAccountData.value = false;
+  }
 }
 
 async function loadCandles(id: number) {
@@ -770,6 +780,32 @@ function scheduleAccountReload() {
 }
 useResourceChanged("company-field", scheduleAccountReload);
 
+// 行情实时刷新：此前仅订阅 company-field，推进轮次 / 他人下单成交后，
+// 股价、K 线、持仓、挂单全部停留旧值，必须手动刷新页面才能看到最新行情。
+// 后端在 advance_round 后广播 stocks bulk（resource:changed），下单/撤单/成交
+// 广播 stock-orders 与 stock-holdings；此处防抖合并刷新，避免事件风暴下连续重拉。
+let stocksReloadTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleStocksReload() {
+  if (stocksReloadTimer) clearTimeout(stocksReloadTimer);
+  stocksReloadTimer = setTimeout(() => {
+    stocksReloadTimer = undefined;
+    reloadStocks();
+    // 当前选中股票的 K 线随轮次推进变化，一并刷新
+    if (selectedStockId.value) loadCandles(selectedStockId.value);
+  }, 400);
+}
+let accountDataTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleAccountDataReload() {
+  if (accountDataTimer) clearTimeout(accountDataTimer);
+  accountDataTimer = setTimeout(() => {
+    accountDataTimer = undefined;
+    reloadAccountData();
+  }, 400);
+}
+useResourceChanged("stocks", scheduleStocksReload);
+useResourceChanged("stock-orders", scheduleAccountDataReload);
+useResourceChanged("stock-holdings", scheduleAccountDataReload);
+
 onMounted(async () => {
   window.addEventListener("resize", onResize);
   await reloadAll();
@@ -777,6 +813,8 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener("resize", onResize);
   if (accountReloadTimer) clearTimeout(accountReloadTimer);
+  if (stocksReloadTimer) clearTimeout(stocksReloadTimer);
+  if (accountDataTimer) clearTimeout(accountDataTimer);
   if (chart) {
     chart.dispose();
     chart = null;

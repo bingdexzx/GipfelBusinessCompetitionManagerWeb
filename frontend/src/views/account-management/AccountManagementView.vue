@@ -16,7 +16,7 @@
     <el-tabs v-model="activeTab">
       <!-- 系统账号：不归属任何比赛（全局账号） -->
       <el-tab-pane label="账号（系统）" name="system">
-        <el-table v-if="!isPhone" :data="systemUsers" border stripe style="width: 100%; margin-top: 16px">
+        <el-table v-if="!isPhone" v-loading="loadingUsers" :data="systemUsers" border stripe style="width: 100%; margin-top: 16px">
           <el-table-column prop="username" label="用户名" />
           <el-table-column prop="displayName" label="显示名称" />
           <el-table-column prop="role" label="角色" class-name="role-col">
@@ -42,6 +42,7 @@
           </el-table>
           <MobileCards
             v-else
+            v-loading="loadingUsers"
             :data="systemUsers"
             :columns="accountColumns"
             :row-key="(row: any) => row.id"
@@ -69,7 +70,7 @@
           <div class="toolbar">
             <span class="comp-label">所属比赛：{{ competitionName }}</span>
           </div>
-          <el-table v-if="!isPhone" :data="competitionUsers" border stripe style="width: 100%; margin-top: 16px">
+          <el-table v-if="!isPhone" v-loading="loadingUsers" :data="competitionUsers" border stripe style="width: 100%; margin-top: 16px">
             <el-table-column prop="username" label="用户名" />
             <el-table-column prop="displayName" label="显示名称" />
             <el-table-column prop="role" label="角色" class-name="role-col">
@@ -95,6 +96,7 @@
           </el-table>
           <MobileCards
             v-else
+            v-loading="loadingUsers"
             :data="competitionUsers"
             :columns="accountColumns"
             :row-key="(row: any) => row.id"
@@ -220,6 +222,7 @@ const competitionName = computed(() => compStore.competitionName);
 const activeTab = ref<AccountScope>("system");
 const systemUsers = ref<UserItem[]>([]);
 const competitionUsers = ref<UserItem[]>([]);
+const loadingUsers = ref(false);
 
 const dialogVisible = ref(false);
 const isEdit = ref(false);
@@ -384,7 +387,12 @@ async function loadCompetitionUsers() {
 }
 
 async function loadAll() {
-  await Promise.all([loadSystemUsers(), loadCompetitionUsers()]);
+  loadingUsers.value = true;
+  try {
+    await Promise.all([loadSystemUsers(), loadCompetitionUsers()]);
+  } finally {
+    loadingUsers.value = false;
+  }
 }
 
 function showCreateDialog(scope: AccountScope) {

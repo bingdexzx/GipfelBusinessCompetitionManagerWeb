@@ -857,6 +857,8 @@ class OrderItemView(APIView):
             raise BusinessError("仅可撤销挂单", code=400, status_code=400)
         order.status = "CANCELLED"
         order.save(update_fields=["status"])
+        # 撤单广播：此前缺事件，其他端点的挂单列表会一直显示已撤销的挂单
+        emit_resource_changed("stock-orders", order.id, order.competition_id, "updated")
         return Response({
             "id": order.id,
             "status": order.status,

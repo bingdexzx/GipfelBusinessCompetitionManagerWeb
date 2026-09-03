@@ -234,6 +234,7 @@ import { getApiBaseUrl } from "@/config";
 import { useAuthStore } from "@/stores/auth";
 import { useCompetitionStore } from "@/stores/competition";
 import { useMessageStore } from "@/stores/message";
+import { useResourceChanged } from "@/realtime/useResourceChanged";
 
 const authStore = useAuthStore();
 const compStore = useCompetitionStore();
@@ -281,6 +282,12 @@ function onTabChange() {
   if (activeTab.value === "inbox") loadInbox();
   else loadSent();
 }
+
+// 消息实时刷新：后端在消息发布/删除时向收件人（或发布者）私有房间广播
+// resource:changed "message" 事件（message:new 仅驱动滑入弹窗与红点，
+// 不会刷新本页列表）。个人消息可能无比赛上下文（competitionId 为 null），
+// 故用 scope "any"；事件本身定向推送，不会误刷新其他用户页面。
+useResourceChanged("message", refresh, { scope: "any" });
 
 async function markRead(item: InboxItem) {
   if (item.read) return;
