@@ -224,9 +224,8 @@ class ContractCollectionAPIView(APIView):
             if cid != getattr(request.user, "competition_id", None):
                 raise BusinessError("无权限在该比赛下创建合同", code=403, status_code=403)
         contract = serializer.create(serializer.validated_data)
-        emit_resource_changed(
-            "contract", contract.id, contract.competition_id, "created"
-        )
+        # 无需显式广播：serializer.create 内部 Contract.objects.create 触发 post_save 信号，
+        # signals.py 已按 MODEL_TO_RESOURCE 广播 "contracts"（created）。原单数 "contract" 为误配冗余。
         return Response(_serialize_contract(contract))
 
 
@@ -323,7 +322,14 @@ class ContractExecuteAPIView(APIView):
             rows = (
                 Contract.objects.filter(pk=pk)
                 .exclude(status__in=["EXECUTED", "TERMINATED"])
-                .update(status="EXECUTED", inputs=inputs_raw, signed_at=signed_at, executed_at=executed_at)
+                .update(
+                    status="EXECUTED",
+                    inputs=inputs_raw,
+                    signed_at=signed_at,
+                    executed_at=executed_at,
+                    # 推进 updated_at：.update() 不触发 post_save，增量同步（按 updatedAfter 拉取）依赖此字段
+                    updated_at=timezone.now(),
+                )
             )
             if rows == 0:
                 latest = Contract.objects.get(pk=pk)
@@ -335,6 +341,7 @@ class ContractExecuteAPIView(APIView):
             Contract.objects.filter(pk=pk).update(
                 execution_log=json.dumps(engine_result["log"], ensure_ascii=False),
                 execution_result=json.dumps(engine_result["result"], ensure_ascii=False),
+                updated_at=timezone.now(),
             )
         # 同步内存对象，保证后续序列化/广播返回最新状态
         contract.status = "EXECUTED"
@@ -343,6 +350,7 @@ class ContractExecuteAPIView(APIView):
         contract.executed_at = executed_at
         contract.execution_log = json.dumps(engine_result["log"], ensure_ascii=False)
         contract.execution_result = json.dumps(engine_result["result"], ensure_ascii=False)
+        contract.updated_at = timezone.now()
 
         # 级联重算计算字段 + 广播刷新
         affected_companies = set()
@@ -356,6 +364,11 @@ class ContractExecuteAPIView(APIView):
         for cid in affected_companies:
             _recompute_calc_fields_safe(cid)
             emit_resource_changed("company-field", cid, contract.competition_id, "updated")
+
+        # 合同执行态变更广播：execute 走 .update() 不触发 post_save 信号，
+        # 必须显式广播，否则其他客户端合同列表/详情不会实时刷新，
+        # 且 updated_at 已在上文推进，增量同步（updatedAfter）也能捕获本次变更。
+        emit_resource_changed("contracts", contract.id, contract.competition_id, "updated")
 
         return Response(_serialize_contract(contract))
 
