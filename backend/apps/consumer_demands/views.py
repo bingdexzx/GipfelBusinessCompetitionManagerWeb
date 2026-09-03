@@ -11,6 +11,8 @@
 """
 from __future__ import annotations
 
+import logging
+
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -26,6 +28,8 @@ from apps.realtime.emit import emit_resource_changed
 
 from .models import ConsumerDemand
 from .serializers import ConsumerDemandSerializer
+
+logger = logging.getLogger(__name__)
 
 _VIEW_PERM = "consumer-demand:view"
 _EDIT_PERM = "consumer-demand:edit"
@@ -48,19 +52,50 @@ def _get_demand(pk, request) -> ConsumerDemand:
     return demand
 
 
-def _recompute_dependent_fields(demand_id: int) -> None:
-    """消费者需求变更后重算依赖的产业字段（计算引擎待接入）。"""
-    try:
-        from apps.company_fields.calc import (
-            recompute_consumer_demand_dependent_fields,
-        )
-    except ImportError:
-        # TODO: 待 apps.company_fields.calc 实现后接入
+def _recompute_dependent_fields(competition_id: int, regions: list[str]) -> None:
+    """消费诉求变更后，触发受其影响公司的 calcGraph 重算。
+
+    calcGraph 中 CONSUMER_DEMAND 节点按公司「所在地」字段值聚合消费诉求量
+    （见 apps.company_fields.calc._consumer_demand_total）。因此，本函数只需
+    找出 competition 内、所在地等于诉求 region 字符串的所有公司，逐一调
+    recompute_calc_fields 即可——未引用消费诉求的 calcGraph 在求值时自然短路。
+
+    调用方负责：删除/修改 region 时同时把旧 region 传入，保证旧区域下的
+    公司也能重算（避免陈旧值）。
+
+    重算失败仅记日志，不阻断主流程——主请求已完成，消费诉求本身的数据
+    写入是源头事实。
+    """
+    from apps.companies.models import Company
+    from apps.company_fields.calc import recompute_calc_fields
+    from apps.regions.models import Region
+
+    regions_clean = [r for r in (regions or []) if r]
+    if not regions_clean:
         return
-    try:
-        recompute_consumer_demand_dependent_fields(demand_id)
-    except Exception:  # noqa: BLE001 - 重算失败不阻断主流程
-        pass
+    region_ids = list(
+        Region.objects.filter(competition_id=competition_id, name__in=regions_clean)
+        .values_list("id", flat=True)
+    )
+    if not region_ids:
+        return
+    company_ids = list(
+        Company.objects.filter(
+            competition_id=competition_id,
+            region_id__in=region_ids,
+            industry_type_id__isnull=False,
+        ).values_list("id", flat=True)
+    )
+    for cid in company_ids:
+        try:
+            recompute_calc_fields(cid)
+        except Exception:  # noqa: BLE001 - 重算失败不阻断主流程
+            logger.warning(
+                "[consumer-demands] recompute_calc_fields failed competition=%s company=%s",
+                competition_id,
+                cid,
+                exc_info=True,
+            )
 
 
 class CollectionView(APIView):
@@ -90,7 +125,7 @@ class CollectionView(APIView):
         emit_resource_changed(
             "consumer-demand", demand.id, demand.competition_id, "created"
         )
-        _recompute_dependent_fields(demand.id)
+        _recompute_dependent_fields(demand.competition_id, [demand.region])
         return Response(_serialize(demand))
 
 
@@ -102,13 +137,16 @@ class ItemView(APIView):
     @require_permissions(_EDIT_PERM)
     def patch(self, request, pk):
         demand = _get_demand(pk, request)
+        # 记录旧 region：patch 改了 region 时，旧区域下的公司也要重算
+        old_region = demand.region
         serializer = ConsumerDemandSerializer(demand, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.update(demand, serializer.validated_data)
         emit_resource_changed(
             "consumer-demand", demand.id, demand.competition_id, "updated"
         )
-        _recompute_dependent_fields(demand.id)
+        regions_to_recompute = sorted({old_region, demand.region})
+        _recompute_dependent_fields(demand.competition_id, regions_to_recompute)
         return Response(_serialize(demand))
 
     @require_permissions(_EDIT_PERM)
@@ -122,9 +160,10 @@ class ItemView(APIView):
         assert_same_competition(demand.competition_id, competition_id)
         demand_id = demand.id
         competition_id_final = demand.competition_id
+        demand_region = demand.region
         demand.delete()
         emit_resource_changed(
             "consumer-demand", demand_id, competition_id_final, "deleted"
         )
-        _recompute_dependent_fields(demand_id)
+        _recompute_dependent_fields(competition_id_final, [demand_region])
         return Response({"ok": True})
