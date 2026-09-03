@@ -757,36 +757,42 @@ class OrderCollectionView(APIView):
                 code=400, status_code=400,
             )
 
-        # 获取账户可用余额
-        available_balance = account.cash_balance
-        if account.bind_field_id and account.company_id:
-            v = _resolve_field_value_or_default(account.company_id, account.bind_field_id)
-            if v is not None:
-                available_balance = v
+        from django.db import transaction as db_transaction
 
-        if data["side"] == "BUY":
-            need = data["price"] * data["quantity"]
-            if available_balance < need - 1e-6:
-                raise BusinessError("现金余额不足", code=400, status_code=400)
-        else:
-            holding = StockHolding.objects.filter(
-                funds_account_id=account.id, stock_id=stock.id
-            ).first()
-            available_shares = holding.shares if holding else 0
-            if available_shares < data["quantity"] - 1e-9:
-                raise BusinessError("持仓不足", code=400, status_code=400)
+        with db_transaction.atomic():
+            # 使用 select_for_update 锁定账户行，防止并发下单导致超买超卖
+            locked_account = StockFundsAccount.objects.select_for_update().get(pk=account.id)
 
-        order = StockOrder.objects.create(
-            stock_id=stock.id,
-            funds_account_id=account.id,
-            side=data["side"],
-            price=data["price"],
-            quantity=data["quantity"],
-            amount=round(data["price"] * data["quantity"] * 100) / 100,
-            status="PENDING",
-            round=stock.round,
-            competition_id=competition_id,
-        )
+            # 获取账户可用余额
+            available_balance = locked_account.cash_balance
+            if locked_account.bind_field_id and locked_account.company_id:
+                v = _resolve_field_value_or_default(locked_account.company_id, locked_account.bind_field_id)
+                if v is not None:
+                    available_balance = v
+
+            if data["side"] == "BUY":
+                need = data["price"] * data["quantity"]
+                if available_balance < need - 1e-6:
+                    raise BusinessError("现金余额不足", code=400, status_code=400)
+            else:
+                holding = StockHolding.objects.filter(
+                    funds_account_id=locked_account.id, stock_id=stock.id
+                ).first()
+                available_shares = holding.shares if holding else 0
+                if available_shares < data["quantity"] - 1e-9:
+                    raise BusinessError("持仓不足", code=400, status_code=400)
+
+            order = StockOrder.objects.create(
+                stock_id=stock.id,
+                funds_account_id=locked_account.id,
+                side=data["side"],
+                price=data["price"],
+                quantity=data["quantity"],
+                amount=round(data["price"] * data["quantity"] * 100) / 100,
+                status="PENDING",
+                round=stock.round,
+                competition_id=competition_id,
+            )
         emit_resource_changed("stock-orders", order.id, competition_id, "created")
         return Response({
             "id": order.id,

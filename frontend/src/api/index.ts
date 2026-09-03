@@ -448,5 +448,5 @@ export const stockApi = {
         carbonSaturateRatio?: number;
       };
     } = {},
-  ) => api.post(`/stocks/advance-round?competitionId=${competitionId}`, dto),
+  ) => api.post("/stocks/advance-round", dto, { params: { competitionId } }),
 };

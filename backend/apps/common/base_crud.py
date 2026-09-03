@@ -90,12 +90,19 @@ class CrudMixin:
         "key": "key",
     }
 
+    @staticmethod
+    def _camel_to_snake(name: str) -> str:
+        """将 camelCase 字段名转为 snake_case（如 regionId → region_id）。"""
+        import re
+        s1 = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
+        return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
+
     def _check_conflict(self, data: dict, exclude_id=None):
         if not self.unique_fields:
             return
         flt = {}
         for f in self.unique_fields:
-            snake = self._CAMEL_TO_SNAKE.get(f, f.lower())
+            snake = self._CAMEL_TO_SNAKE.get(f, self._camel_to_snake(f))
             if f in data and data[f] is not None:
                 flt[snake] = data[f]
         if not flt:

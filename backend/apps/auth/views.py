@@ -16,8 +16,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common.exceptions import BusinessError
+from apps.common.helpers import client_ip as _client_ip
 from apps.common.middleware import (
-    _client_ip,
     record_login_failure,
     record_login_success,
 )
@@ -36,6 +36,7 @@ def serialize_user(user) -> dict:
         "role": user.role,
         "displayName": user.display_name,
         "mustChangePassword": getattr(user, "must_change_password", False),
+        "isActive": getattr(user, "is_active", True),
         "permissions": user.permissions_list,
         "companyScopes": user.company_scopes_list,
         "viewCompanyScopes": user.view_company_scopes_list,
@@ -114,6 +115,10 @@ class LoginView(APIView):
         if user is None or not user.check_password(password):
             record_login_failure(ip, username)
             raise BusinessError("用户名或密码错误", code=401, status_code=401)
+
+        # 账号已被禁用
+        if not getattr(user, "is_active", True):
+            raise BusinessError("该账号已被禁用，请联系管理员", code=403, status_code=403)
 
         # 顶号下线：递增 token_version，旧 token 立即失效
         user.token_version = (user.token_version or 0) + 1
@@ -196,8 +201,8 @@ class ChangePasswordView(APIView):
         new_password = request.data.get("newPassword") or ""
         if not old_password or not new_password:
             raise BusinessError("原密码和新密码不能为空", code=400, status_code=400)
-        if len(new_password) < 6:
-            raise BusinessError("新密码长度不能少于 6 位", code=400, status_code=400)
+        if len(new_password) < 8:
+            raise BusinessError("新密码长度不能少于 8 位", code=400, status_code=400)
 
         user = request.user
         if not user.check_password(old_password):

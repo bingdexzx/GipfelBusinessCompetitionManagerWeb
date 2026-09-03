@@ -53,6 +53,17 @@ class CompanySerializer(serializers.Serializer):
             raise serializers.ValidationError("名称不能为空")
         return value
 
+    def validate(self, attrs: dict) -> dict:
+        name = attrs.get("name") or (self.instance.name if self.instance else None)
+        cid = attrs.get("competitionId") or (self.instance.competition_id if self.instance else None)
+        if name and cid:
+            qs = Company.objects.filter(competition_id=cid, name=name)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError({"name": "同一比赛下已存在同名公司"})
+        return attrs
+
     def create(self, validated_data: dict) -> Company:
         cid = validated_data["competitionId"]
         _assert_competition_exists(cid)
@@ -69,13 +80,13 @@ class CompanySerializer(serializers.Serializer):
             instance.name = validated_data["name"]
         if "industryTypeId" in validated_data:
             instance.industry_type_id = validated_data["industryTypeId"]
-        if "competitionId" in validated_data:
-            cid = validated_data["competitionId"]
-            _assert_competition_exists(cid)
-            instance.competition_id = cid
+        # 禁止跨比赛迁移公司：忽略 competitionId 字段
         if "regionId" in validated_data:
             instance.region_id = validated_data["regionId"]
         if "status" in validated_data:
             instance.status = validated_data["status"]
-        instance.save()
+        instance.save(update_fields=[
+            f for f in ["name", "industry_type_id", "region_id", "status", "updated_at"]
+            if f in validated_data or f == "updated_at"
+        ])
         return instance

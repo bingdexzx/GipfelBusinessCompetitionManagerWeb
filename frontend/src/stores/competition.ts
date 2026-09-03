@@ -20,6 +20,15 @@ import { invalidateResource } from "@/api/cache";
 import { bindResourceChanged } from "@/realtime/resource-changed";
 import { getAccountItem, setAccountItem, removeAccountItem } from "@/utils/accountStorage";
 
+/** 处理 raw fetch 响应中的401错误：派发 auth:kicked 事件，触发全局登出流程。 */
+function _handleFetchAuth(res: Response): boolean {
+  if (res.status === 401) {
+    window.dispatchEvent(new CustomEvent("auth:kicked"));
+    return false;
+  }
+  return res.ok;
+}
+
 export const useCompetitionStore = defineStore("competition", () => {
   const selected = ref<CompetitionSelection | null>(null);
   const currentFiscalYear = ref<number | null>(null);
@@ -76,7 +85,7 @@ export const useCompetitionStore = defineStore("competition", () => {
         clearSelection();
         return;
       }
-      if (!res.ok) return;
+      if (!_handleFetchAuth(res)) return;
       const json = await res.json();
       // 服务端经全局 ResponseInterceptor 包裹为 {code,data,message}，必须取出 data（否则 comp.id 为 undefined）。
       const comp = json?.data ?? json;
@@ -101,7 +110,7 @@ export const useCompetitionStore = defineStore("competition", () => {
         if (selected.value?.id === compId) clearSelection();
         return;
       }
-      if (!res.ok) return;
+      if (!_handleFetchAuth(res)) return;
       const json = await res.json();
       // 响应形态归一：本函数用裸 fetch（为避开缓存层），因此也绕过了 api/request.ts 的分页解包，
       // 必须自行兼容「裸数组」与「分页对象 {items,total,page,pageSize}」两种形态。
@@ -201,6 +210,8 @@ export const useCompetitionStore = defineStore("competition", () => {
       if (res.status === 404) {
         if (selected.value?.id === compId) clearSelection();
       }
+      // 401 处理：token 过期/被顶号
+      _handleFetchAuth(res);
     } catch {
       // 网络错误不处理：保留当前选择（离线降级），下次进入时再校验
     }

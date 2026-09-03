@@ -12,8 +12,7 @@ class UserManager(BaseUserManager):
         if not username:
             raise ValueError("用户名必填")
         user = self.model(username=username, **extra)
-        if password:
-            user.set_password(password)
+        user.set_password(password or "")
         user.save(using=self._db)
         return user
 
@@ -53,6 +52,7 @@ class User(AbstractBaseUser):
     contract_view_company_scopes = models.TextField(null=True, blank=True)
     stock_company_scopes = models.TextField(null=True, blank=True)
     must_change_password = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
     token_version = models.IntegerField(default=0)
     permission_version = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)

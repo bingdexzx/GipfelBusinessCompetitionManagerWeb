@@ -345,7 +345,7 @@ async function reloadStocks() {
   loadingStocks.value = true;
   try {
     const res = await stockApi.list(1, 200, compStore.competitionId);
-    stocks.value = (res.items || res || []).map((s: any) => ({ ...s, changePct: 0, changePrice: 0 }) as Stock);
+    stocks.value = (Array.isArray(res) ? res : (res?.items ?? [])).map((s: any) => ({ ...s, changePct: 0, changePrice: 0 }) as Stock);
     // 计算每只股票最近一轮涨跌幅与涨跌额（取最后一根 K 线的 close-open）
     await Promise.all(
       stocks.value.map(async (s) => {

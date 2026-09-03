@@ -42,6 +42,7 @@ class UserSerializer(serializers.Serializer):
         max_length=128, allow_null=True, allow_blank=True, required=False
     )
     mustChangePassword = serializers.BooleanField(required=False, default=False)
+    isActive = serializers.BooleanField(required=False, default=True)
     permissions = serializers.JSONField(allow_null=True, required=False)
     companyScopes = serializers.JSONField(allow_null=True, required=False)
     viewCompanyScopes = serializers.JSONField(allow_null=True, required=False)
@@ -59,6 +60,7 @@ class UserSerializer(serializers.Serializer):
             "role": instance.role,
             "displayName": instance.display_name,
             "mustChangePassword": instance.must_change_password,
+            "isActive": instance.is_active,
             "permissions": instance.permissions_list,
             "companyScopes": instance.company_scopes_list,
             "viewCompanyScopes": instance.view_company_scopes_list,
@@ -108,6 +110,7 @@ class UserSerializer(serializers.Serializer):
             role=validated_data.get("role", "PLAYER"),
             display_name=validated_data.get("displayName"),
             must_change_password=validated_data.get("mustChangePassword", False),
+            is_active=validated_data.get("isActive", True),
             competition_id=competition_id,
         )
         self._apply_json_fields(user, validated_data)
@@ -126,13 +129,24 @@ class UserSerializer(serializers.Serializer):
             instance.display_name = validated_data["displayName"]
         if "mustChangePassword" in validated_data:
             instance.must_change_password = validated_data["mustChangePassword"]
+        if "isActive" in validated_data:
+            instance.is_active = validated_data["isActive"]
         if "competitionId" in validated_data:
             cid = validated_data["competitionId"]
             if cid is not None:
                 self._assert_competition_exists(cid)
             instance.competition_id = cid
         self._apply_json_fields(instance, validated_data)
-        instance.save()
+        instance.save(
+            update_fields=[
+                f for f in [
+                    "role", "display_name", "must_change_password", "is_active",
+                    "competition_id", "permissions", "company_scopes",
+                    "view_company_scopes", "contract_view_company_scopes",
+                    "stock_company_scopes", "updated_at",
+                ] if hasattr(instance, f)
+            ]
+        )
         return instance
 
     # ---------- 辅助 ----------

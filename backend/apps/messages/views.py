@@ -360,7 +360,7 @@ class CollectionView(APIView):
                 title=data["title"],
                 content=data["content"],
                 sender_id=actor.id,
-                competition_id=actor.competition_id,
+                competition_id=dto_competition_id or actor.competition_id,
                 targets_all=bool(data.get("targetsAll")),
                 target_user_ids=json.dumps(target_user_ids),
                 images=json.dumps(images),

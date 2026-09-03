@@ -22,7 +22,7 @@ def parse_json_array(raw: Any) -> list:
 
 def parse_field_config(raw: Any) -> dict:
     """解析产业字段的 config 配置，统一返回 dict。失败返回 {}。"""
-    if raw and isinstance(raw, dict) and not isinstance(raw, list):
+    if raw and isinstance(raw, dict):
         return raw
     if isinstance(raw, str):
         try:

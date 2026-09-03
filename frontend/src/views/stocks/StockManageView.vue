@@ -791,7 +791,7 @@ async function reloadStocks() {
   loadingStocks.value = true;
   try {
     const res = await stockApi.list(1, 200, compStore.competitionId);
-    stocks.value = res.items || res || [];
+    stocks.value = Array.isArray(res) ? res : (res?.items ?? []);
   } finally {
     loadingStocks.value = false;
   }

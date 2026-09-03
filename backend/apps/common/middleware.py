@@ -117,9 +117,27 @@ _locks: dict[tuple[str, str], dict] = defaultdict(
 _FAIL_WINDOW = 5 * 60  # 5 分钟
 _FAIL_THRESHOLD = 10
 _LOCK_DURATION = 15 * 60  # 15 分钟
+_CLEANUP_INTERVAL = 10 * 60  # 10 分钟清理一次过期条目
+_last_cleanup = 0.0
+
+
+def _cleanup_locks() -> None:
+    """清理过期的限流条目，防止内存无限增长。"""
+    global _last_cleanup
+    now = time.time()
+    if now - _last_cleanup < _CLEANUP_INTERVAL:
+        return
+    _last_cleanup = now
+    expired = [
+        k for k, v in _locks.items()
+        if now - v["first_at"] > _FAIL_WINDOW and now > v["locked_until"]
+    ]
+    for k in expired:
+        _locks.pop(k, None)
 
 
 def record_login_failure(ip: str, username: str) -> None:
+    _cleanup_locks()
     key = (ip, username)
     state = _locks[key]
     now = time.time()

@@ -408,7 +408,7 @@ class ContractPartyNumbersAPIView(APIView):
 
         contract.parties = json.dumps(parties, ensure_ascii=False)
         contract.status = new_status
-        contract.save()
+        contract.save(update_fields=["parties", "status", "updated_at"])
 
         emit_resource_changed("contract", contract.id, contract.competition_id, "updated")
         return Response(_serialize_contract(contract))
@@ -445,7 +445,7 @@ class ContractStatusAPIView(APIView):
             raise BusinessError("不允许的状态值", code=400, status_code=400)
 
         contract.status = status
-        contract.save()
+        contract.save(update_fields=["status", "updated_at"])
         emit_resource_changed("contract", contract.id, contract.competition_id, "updated")
         return Response(_serialize_contract(contract))
 

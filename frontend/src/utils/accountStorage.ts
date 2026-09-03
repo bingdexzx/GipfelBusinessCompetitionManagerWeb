@@ -123,9 +123,10 @@ function migrateOldTopLevelKeys(): number | null {
   return sub;
 }
 
-/** 扫描已存在的账号 token 键（新 realm 格式），返回带 token 的账号 id（无则返回 null）。 */
+/** 扫描已存在的账号 token 键（当前 realm 格式），返回带 token 的账号 id（无则返回 null）。 */
 function findAccountWithToken(): number | null {
-  const re = /^acct_[0-9a-f]+_u(\d+)__token$/;
+  const realm = getServerRealm();
+  const re = new RegExp(`^acct_${realm}_u(\\d+)__token$`);
   for (let i = 0; i < localStorage.length; i++) {
     const full = localStorage.key(i);
     if (full && re.test(full)) {

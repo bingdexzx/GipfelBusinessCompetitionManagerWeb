@@ -344,7 +344,7 @@ async function selectCompetition(row: any) {
 async function loadFiscalYears(compId: number) {
   try {
     const res = await api.get(`/competitions/${compId}/fiscal-years`);
-    fiscalYears.value = [...(res || [])];
+    fiscalYears.value = Array.isArray(res) ? [...res] : [...(res?.items ?? [])];
   } catch (e) {
     console.error("Failed to load fiscal years:", e);
   }

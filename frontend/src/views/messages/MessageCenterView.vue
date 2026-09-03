@@ -235,6 +235,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useCompetitionStore } from "@/stores/competition";
 import { useMessageStore } from "@/stores/message";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import { formatTime } from "@/utils/format";
 
 const authStore = useAuthStore();
 const compStore = useCompetitionStore();
@@ -497,14 +498,6 @@ async function submitPublish() {
   } finally {
     submitting.value = false;
   }
-}
-
-function formatTime(iso: string) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 onMounted(() => {

@@ -113,15 +113,15 @@ async def connect(sid, environ, auth):
     if user is None:
         # 顶号：老 token 被新版本号顶掉，把该用户的所有旧连接踢掉
         sub = payload.get("sub") if payload else None
-        if isinstance(sub, int):
-            try:
-                await sio.emit(
-                    "auth:required",
-                    {"reason": "token_version_mismatch"},
-                    room=f"user-{sub}",
-                )
-            except Exception:  # noqa: BLE001
-                pass
+        try:
+            sub_int = int(sub)
+            await sio.emit(
+                "auth:required",
+                {"reason": "token_version_mismatch"},
+                room=f"user-{sub_int}",
+            )
+        except (TypeError, ValueError, Exception):  # noqa: BLE001
+            pass
         logger.debug("socket.io 连接拒绝：用户不存在或已顶号 (sid=%s)", sid)
         return False
 

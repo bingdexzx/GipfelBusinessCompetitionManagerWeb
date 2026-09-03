@@ -12,6 +12,8 @@ export interface UserInfo {
   displayName?: string;
   /** 是否需要在首次登录后修改初始密码（后端强制改密机制） */
   mustChangePassword?: boolean;
+  /** 账号是否启用 */
+  isActive?: boolean;
   permissions?: string[];
   /** 公司审核范围：可作为管理员/审核员审核其合同的公司 id 列表 */
   companyScopes?: number[];

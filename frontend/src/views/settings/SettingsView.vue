@@ -33,7 +33,7 @@ import AnnouncementHistoryDialog from "@/components/AnnouncementHistoryDialog.vu
 const historyVisible = ref(false);
 const versionStore = useVersionStore();
 const authStore = useAuthStore();
-const isSuperAdmin = authStore.isSuperAdmin;
+const isSuperAdmin = computed(() => authStore.isSuperAdmin);
 
 async function clearLocalData() {
   try {

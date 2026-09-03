@@ -120,7 +120,7 @@ def _on_post_save(sender, instance, created, raw, **kwargs):
             competition_id=competition_id,
         )
     except Exception:  # noqa: BLE001
-        logger.debug("审计写入失败 model=%s", resource, exc_info=True)
+        logger.warning("审计写入失败 model=%s", resource, exc_info=True)
 
     # 2) 实时广播
     try:
@@ -128,7 +128,7 @@ def _on_post_save(sender, instance, created, raw, **kwargs):
 
         emit_resource_changed(resource, record_id, competition_id, action)
     except Exception:  # noqa: BLE001
-        logger.debug("广播失败 resource=%s id=%s", resource, record_id, exc_info=True)
+        logger.warning("广播失败 resource=%s id=%s", resource, record_id, exc_info=True)
 
 
 def _on_post_delete(sender, instance, **kwargs):
@@ -161,14 +161,14 @@ def _on_post_delete(sender, instance, **kwargs):
             competition_id=competition_id,
         )
     except Exception:  # noqa: BLE001
-        logger.debug("审计写入失败 model=%s del", resource, exc_info=True)
+        logger.warning("审计写入失败 model=%s del", resource, exc_info=True)
 
     try:
         from apps.realtime.emit import emit_resource_changed
 
         emit_resource_changed(resource, record_id, competition_id, action)
     except Exception:  # noqa: BLE001
-        logger.debug("广播失败 resource=%s id=%s del", resource, record_id, exc_info=True)
+        logger.warning("广播失败 resource=%s id=%s del", resource, record_id, exc_info=True)
 
 
 # ==================== 统一 connect：在 CommonConfig.ready() 调用 ====================

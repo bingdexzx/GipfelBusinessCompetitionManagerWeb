@@ -82,16 +82,20 @@ export const useMessageStore = defineStore("message", () => {
     onRealtime("message:new", onNewMessage);
   }
 
-  /** 重置实时监听幂等锁：socket 因改服务器地址 / 被顶号重建后，旧 handler 绑在旧实例上失效，
+  /** 重置实时监听幂等锁：socket 因改服务器地址重建后，旧 handler 绑在旧实例上失效，
    *  需在下次连接成功时重新绑定，否则新消息实时推送会静默丢失。 */
   function resetRealtime() {
     initialized = false;
     initRealtime();
   }
+  /** 被顶号/登录过期时：重置幂等锁但不尝试重连（token 已失效，重连会持续401）。 */
+  function handleAuthKicked() {
+    initialized = false;
+  }
   window.removeEventListener("server:changed", resetRealtime);
   window.addEventListener("server:changed", resetRealtime);
-  window.removeEventListener("auth:kicked", resetRealtime);
-  window.addEventListener("auth:kicked", resetRealtime);
+  window.removeEventListener("auth:kicked", handleAuthKicked);
+  window.addEventListener("auth:kicked", handleAuthKicked);
 
   /** 全部标记为已读（消息中心页调用），成功后清零红点。 */
   async function markAllRead() {
