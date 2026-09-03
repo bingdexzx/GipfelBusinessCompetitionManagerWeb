@@ -1261,8 +1261,10 @@ async function submitField() {
           : fieldForm.timerValue || null;
       })(),
     };
+    let refWarnings: any = null;
     if (fieldForm.id) {
-      await industryTypesApi.updateField(fieldForm.id, payload);
+      const res: any = await industryTypesApi.updateField(fieldForm.id, payload);
+      refWarnings = res?.refWarnings;
       ElMessage.success("字段已更新");
     } else {
       await industryTypesApi.createField(fieldTarget.value.id, payload);
@@ -1272,11 +1274,36 @@ async function submitField() {
     resetFieldForm();
     await loadFields();
     await loadTypes();
+    showRefWarnings(refWarnings, "字段键已改名，以下引用需要人工核对");
   } catch {
     // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   } finally {
     fieldSaving.value = false;
   }
+}
+
+// 后端返回的 refWarnings：字段改名 / 删除后「无法自动修正」的引用影响，
+// 例如合同类型（全局模板，跨产业复用，不能静默改写）仍按旧键引用、
+// 或兄弟字段公式里的变量被替换成 0。这类信息一旦只落服务端日志，
+// 操作者完全无感知，等到合同执行时才炸；所以用弹窗强提示，而不是一闪而过的 toast。
+function showRefWarnings(warnings: any, title: string) {
+  const list: string[] = Array.isArray(warnings)
+    ? warnings.filter((w: any) => typeof w === "string" && w.trim())
+    : [];
+  if (!list.length) return;
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  ElMessageBox.alert(
+    `<div style="max-height:50vh;overflow:auto;line-height:1.7">${list
+      .map((w) => `<div style="margin-bottom:6px">• ${esc(w)}</div>`)
+      .join("")}</div>`,
+    title,
+    {
+      type: "warning",
+      dangerouslyUseHTMLString: true,
+      confirmButtonText: "我知道了",
+    },
+  ).catch(() => {});
 }
 
 async function deleteField(row: any) {
@@ -1290,10 +1317,11 @@ async function deleteField(row: any) {
     return;
   }
   try {
-    await industryTypesApi.removeField(row.id);
+    const res: any = await industryTypesApi.removeField(row.id);
     ElMessage.success("已删除");
     await loadFields();
     await loadTypes();
+    showRefWarnings(res?.refWarnings, "字段已删除，但以下引用需要人工处理");
   } catch {
     // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   }

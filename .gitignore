@@ -32,6 +32,9 @@ dist/
 frontend-dist/
 .vite/
 *.local
+# vite 加载 vite.config.ts 时生成的临时编译文件，构建中断时会残留
+vite.config.ts.timestamp-*.mjs
+vite.config.js.timestamp-*.mjs
 
 # ===== 日志（保留项目根 logs/ 空目录）=====
 logs/

@@ -596,14 +596,22 @@ class FieldItemView(APIView):
 
         field.save()
         # 字段键改名：同步同产业类型内的财年定时器引用与计算图引用
-        # （合同类型效果为全局模板、可能跨产业复用，不做静默改写，rename 内部仅告警）
+        # （合同类型效果为全局模板、可能跨产业复用，不做静默改写，rename 内部仅返回告警）
+        ref_warnings: list[str] = []
         if renamed_from:
-            rename_field_references(field.industry_type_id, old_field_key, field.field_key)
+            ref_warnings = rename_field_references(
+                field.industry_type_id, old_field_key, field.field_key
+            )
         # 定义变更后级联重算：公式改了、被引用的键改名了、默认值/类型变了都会影响结果。
         # 仅排序/可见性/定时器这类 PATCH 不重算，避免拖拽排序时逐条全量算。
         if set(data) & _CALC_RELEVANT_KEYS and _has_calc_fields(field.industry_type_id):
             _recompute_industry_type(field.industry_type_id)
-        return Response(IndustryFieldSerializer(field).data)
+        payload = IndustryFieldSerializer(field).data
+        # 无法自动修正的外部引用（合同类型）随响应回传，前端当场提示管理员，
+        # 避免只落服务端日志、操作者毫无感知。
+        if ref_warnings:
+            payload = {**payload, "refWarnings": ref_warnings}
+        return Response(payload)
 
     @require_permissions("industryType:manage")
     def delete(self, request, field_id):
@@ -619,9 +627,10 @@ class FieldItemView(APIView):
         industry_type_id = field.industry_type_id
         field_key = field.field_key
         field.delete()
-        # 清理兄弟字段对该字段的悬空引用（财年定时器 field: 引用、计算图 value 节点）
-        cleanup_field_references(industry_type_id, field_key)
+        # 清理兄弟字段对该字段的悬空引用（财年定时器 field: 引用、计算图 value 节点、公式变量）
+        ref_warnings = cleanup_field_references(industry_type_id, field_key)
         # 引用被清理后依赖该字段的公式结果已变化，需级联重算并广播
         if _has_calc_fields(industry_type_id):
             _recompute_industry_type(industry_type_id)
-        return Response({"ok": True})
+        # 合同类型引用 / 公式被置 0 这类无法自动修正的影响随响应回传，前端当场提示
+        return Response({"ok": True, "refWarnings": ref_warnings})
