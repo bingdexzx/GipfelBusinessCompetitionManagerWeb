@@ -81,6 +81,15 @@ export function bindResourceChanged() {
     },
   );
 
+  // 顶号事件：后端在 token 版本不匹配时经 socket 广播 auth:required，
+  // 前端此前仅由 HTTP 401 拦截器派发 auth:kicked。此处补上 socket 链路，
+  // 使旧连接被顶号后即时触发登出（不再等待最长 45s 的心跳超时）。
+  onRealtime("auth:required", (payload: { reason?: string }) => {
+    if (payload && payload.reason === "token_version_mismatch") {
+      window.dispatchEvent(new CustomEvent("auth:kicked"));
+    }
+  });
+
   // 公司产业字段写入后实时广播（自定义事件，非标准 resource:changed）。
   // 统一转译为 window 的 resource-changed 事件（resource="company-field"），
   // 使所有消费组件（含参赛队员的公司详情页）都能在本地全量副本上做增量刷新，

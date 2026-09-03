@@ -291,7 +291,7 @@ export const consumerDemandsApi = {
     if (region != null) params.region = region;
     return api.get("/consumer-demands", { params, cache: false });
   },
-  create: (data: { competitionId?: number; region: string; productId: number; quantity?: number; note?: string }) =>
+  create: (data: { competitionId: number; region: string; productId: number; quantity?: number; note?: string }) =>
     api.post("/consumer-demands", data),
   update: (id: number, data: { region?: string; productId?: number; quantity?: number; note?: string }) =>
     api.patch(`/consumer-demands/${id}`, data),

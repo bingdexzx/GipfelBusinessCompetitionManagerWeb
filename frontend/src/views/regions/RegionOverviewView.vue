@@ -412,7 +412,7 @@ async function saveDemand() {
       await consumerDemandsApi.update(editingDemand.value.id, payload);
     } else {
       await consumerDemandsApi.create({
-        competitionId: compStore.competitionId ?? undefined,
+        competitionId: compStore.competitionId as number,
         ...payload,
       });
     }
