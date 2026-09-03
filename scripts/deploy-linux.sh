@@ -19,8 +19,13 @@ set -euo pipefail
 # 强制标准输入来自 /dev/null：任何隐式 read/openssl 等待熵等都不会卡在终端等待输入。
 # 需要交互的场景（手动填写公网 IP）已在脚本内用显式 read < /dev/stdin 处理。
 exec 0</dev/null
-# 输出即时刷新，避免卡住时日志缓冲区看不到进度（便于定位阻塞点）。
-exec 1>&1
+
+# 输出助手必须先于参数清洗定义：非法 DOMAIN 检查会调用 warn，
+# set -e 下未定义命令返回 127 会直接终止脚本。
+log()   { printf "\033[36m[INFO]\033[0m %s\n" "$*"; }
+ok()    { printf "\033[32m[OK]\033[0m   %s\n" "$*"; }
+warn()  { printf "\033[33m[WARN]\033[0m %s\n" "$*"; }
+err()   { printf "\033[31m[ERROR]\033[0m %s\n" "$*"; exit 1; }
 
 # ---------------- 参数解析 ----------------
 DOMAIN=""
@@ -58,7 +63,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# 输入清洗（M7）：移除会破坏 sed 替换 / 正则 / nginx 配置注入的元字符（& \ /）。
+# 输入清洗：移除会破坏 sed 替换 / 正则 / nginx 配置注入的元字符（& \ /）。
 # DOMAIN 仅允许主机名合法字符，PUBLIC_IP 仅允许 IP 合法字符，二者均不含上述元字符。
 DOMAIN="${DOMAIN//[&\\/]/}"
 PUBLIC_IP="${PUBLIC_IP//[&\\/]/}"
@@ -73,11 +78,6 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." &>/dev/null && pwd)"
 BACKUP_DIR="${INSTALL_DIR}/_backup/$(date +%F_%H%M%S)"
 SUDO_USER_HOME="$(eval echo ~${SUDO_USER:-$USER})"
-
-log()   { printf "\033[36m[INFO]\033[0m %s\n" "$*"; }
-ok()    { printf "\033[32m[OK]\033[0m   %s\n" "$*"; }
-warn()  { printf "\033[33m[WARN]\033[0m %s\n" "$*"; }
-err()   { printf "\033[31m[ERROR]\033[0m %s\n" "$*"; exit 1; }
 
 # 规范化用户/探测得到的地址：去 http(s):// 前缀、去路径/端口后缀；IPv6 保留方括号。
 # 用法：normalize_ip "$RAW"  （结果经 stdout 返回）
@@ -112,6 +112,7 @@ check_exists() {
     [[ -f "$1" ]] || { err "缺少必要文件：$1"; }
 }
 check_exists "$PROJECT_ROOT/backend/requirements.txt"
+check_exists "$PROJECT_ROOT/backend/.env.example"
 check_exists "$PROJECT_ROOT/frontend/package.json"
 check_exists "$PROJECT_ROOT/deploy/gipfel.service"
 check_exists "$PROJECT_ROOT/deploy/logviewer.service"
@@ -235,8 +236,7 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
         fi
     fi
     # 日志查看器防直连令牌密钥：必须生成强随机值，且部署幂等——无论 .env.example 是否
-    # 已带默认值（修复 C1：原逻辑因 .env.example 已含 LOGVIEWER_SECRET_KEY 行，复制后
-    # grep 命中导致随机生成被跳过，弱默认值残留在生产环境），首次部署都强制覆盖为随机串。
+    # 已带默认值（避免自带的弱默认值残留在生产环境），首次部署都强制覆盖为随机串。
     LVSECRET="$(head -c 32 /dev/urandom | base64 | tr -d '\n+/=')"
     if grep -q '^LOGVIEWER_SECRET_KEY=' "$INSTALL_DIR/backend/.env"; then
         sed -i -E "s|^LOGVIEWER_SECRET_KEY=.*|LOGVIEWER_SECRET_KEY=${LVSECRET}|" "$INSTALL_DIR/backend/.env"
