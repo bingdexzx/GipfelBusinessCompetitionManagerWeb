@@ -118,7 +118,7 @@ class CompanyFieldsView(APIView):
         include_hidden = _truthy(request.query_params.get("includeHidden"))
         industry_type = company.industry_type
         if industry_type is None:
-            return Response([])
+            return Response({"industryTypeId": None, "fields": []})
 
         # 延迟导入：industry_types app 可能尚未就绪，避免本模块导入期失败
         from apps.industry_types.models import IndustryField
@@ -135,7 +135,9 @@ class CompanyFieldsView(APIView):
             for fv in CompanyFieldValue.objects.filter(company=company)
         }
         result = [_field_to_dict(f, fvs.get(f.id), company.name) for f in fields]
-        return Response(result)
+        # 对齐前端契约：返回 { industryTypeId, fields:[...] }（见 frontend/src/api/request.ts
+        # storeCompanyFieldsAndReturn），而非裸数组，否则前端 fields 全空。
+        return Response({"industryTypeId": industry_type.id, "fields": result})
 
     @require_permissions(_MANAGE_PERM)
     def put(self, request, company_id):

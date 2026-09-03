@@ -304,6 +304,7 @@ class StockConfigSerializer(serializers.Serializer):
     mmMinQty = serializers.IntegerField(min_value=0, max_value=1_000_000, required=False)
     mmMaxQty = serializers.IntegerField(min_value=0, max_value=10_000_000, required=False)
     mmSpreadPct = serializers.FloatField(min_value=0, max_value=0.2, required=False)
+    carbonSaturateRatio = serializers.FloatField(min_value=1.1, max_value=20, required=False)
     interventionMode = serializers.ChoiceField(
         choices=["regression", "expand-limit"], required=False
     )

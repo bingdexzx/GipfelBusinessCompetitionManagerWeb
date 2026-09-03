@@ -128,6 +128,29 @@ class CompetitionScopePermission(permissions.BasePermission):
         return True
 
 
+def create_competition_id(user, data: dict | None = None):
+    """create 时确定资源归属比赛：非超管强制用自身比赛，杜绝跨比赛写入。
+
+    超管可显式指定 competitionId；非超管一律忽略请求体中的 competitionId，
+    强制归属到 request.user.competition_id。
+    """
+    data = data or {}
+    if getattr(user, "role", None) == "SUPER_ADMIN":
+        cid = data.get("competitionId")
+        if not cid:
+            raise PermissionDenied("缺少比赛上下文")
+        return cid
+    cid = getattr(user, "competition_id", None)
+    if not cid:
+        raise PermissionDenied("当前账号未归属任何比赛")
+    return cid
+
+
+def strip_competition_fields(data: dict) -> dict:
+    """从更新数据中剔除 competitionId/competition_id，防止跨比赛迁移。"""
+    return {k: v for k, v in data.items() if k not in ("competitionId", "competition_id")}
+
+
 def _normalize_competition_id(value):
     """把前端可能传来的各种「无值」形态统一为 None 或 int。
 

@@ -119,9 +119,14 @@ class CollectionView(APIView):
 
     @require_permissions(_EDIT_PERM)
     def post(self, request):
+        from apps.common.guards import create_competition_id
+
         serializer = ConsumerDemandSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        demand = serializer.create(serializer.validated_data)
+        # 非超管强制归属自身比赛，防止跨比赛写入
+        data = dict(serializer.validated_data)
+        data["competitionId"] = create_competition_id(request.user, data)
+        demand = serializer.create(data)
         emit_resource_changed(
             "consumer-demand", demand.id, demand.competition_id, "created"
         )
@@ -141,7 +146,12 @@ class ItemView(APIView):
         old_region = demand.region
         serializer = ConsumerDemandSerializer(demand, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.update(demand, serializer.validated_data)
+        # 禁止跨比赛迁移：剔除 competitionId
+        data = {
+            k: v for k, v in serializer.validated_data.items()
+            if k not in ("competitionId", "competition_id")
+        }
+        serializer.update(demand, data)
         emit_resource_changed(
             "consumer-demand", demand.id, demand.competition_id, "updated"
         )

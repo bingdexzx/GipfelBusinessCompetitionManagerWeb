@@ -154,10 +154,10 @@ MODEL_TO_RESOURCE: dict[str, str] = {
     "Message": "messages",
     "MessageRecipient": None,
     "Stock": "stocks",
-    "StockFundsAccount": "stockFundsAccounts",
-    "StockHolding": "stockHoldings",
-    "StockOrder": "stockOrders",
-    "StockCandle": "stockCandles",
+    "StockFundsAccount": "stock-accounts",
+    "StockHolding": "stock-holdings",
+    "StockOrder": "stock-orders",
+    "StockCandle": "stock-candles",
 }
 
 GLOBAL_RESOURCES = {"industryTypes"}
@@ -256,6 +256,7 @@ def emit_resource_changed(
 
     payload = {
         "resource": resource,
+        "id": record_id if isinstance(record_id, int) else (ids[0] if ids else None),
         "ids": ids,
         "action": action,
         "competitionId": competition_id,
@@ -287,6 +288,7 @@ def emit_resource_changed_to_users(
         ids = [record_id] if isinstance(record_id, int) else []
     payload = {
         "resource": resource,
+        "id": record_id if isinstance(record_id, int) else (ids[0] if ids else None),
         "ids": ids,
         "action": action,
         "competitionId": competition_id,

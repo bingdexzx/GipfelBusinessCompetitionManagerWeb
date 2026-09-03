@@ -259,11 +259,14 @@ async def on_sync_replay(sid, data):
                 filtered.append({"event": e["event"], "data": e["data"]})
         # 其他房间类型暂不重放
 
-    return {
-        "ok": True,
-        "events": filtered,
-        "serverSeq": server_seq(),
-    }
+    # 前端（resource-changed.ts）以 onRealtime("sync:replay:result", ...) 监听补发结果，
+    # 且 emit("sync:replay") 不带回调，故此处必须主动 emit 事件而非仅 return（return 的 ack 会被丢弃）。
+    await sio.emit(
+        "sync:replay:result",
+        {"ok": True, "events": filtered, "serverSeq": server_seq()},
+        room=sid,
+    )
+    return {"ok": True}
 
 
 # ==================== ASGI 应用 ====================

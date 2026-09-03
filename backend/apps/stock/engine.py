@@ -985,7 +985,8 @@ def advance_one_stock(
             rounded_cash = round2(cash)
             if acc is not None and acc.bind_field_id and acc.company_id:
                 write_field_value_in_tx(acc.company_id, acc.bind_field_id, str(rounded_cash))
-            else:
+            # 同步账户余额列：绑定字段账户列表展示依赖 cash_balance，否则会显示陈旧值
+            if acc is not None:
                 StockFundsAccount.objects.filter(pk=acc_id).update(cash_balance=rounded_cash)
 
         # 持仓（仅被撮合涉及的账户）

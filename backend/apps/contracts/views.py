@@ -357,7 +357,6 @@ class ContractExecuteAPIView(APIView):
             _recompute_calc_fields_safe(cid)
             emit_resource_changed("company-field", cid, contract.competition_id, "updated")
 
-        emit_resource_changed("contract", contract.id, contract.competition_id, "updated")
         return Response(_serialize_contract(contract))
 
 
@@ -410,7 +409,6 @@ class ContractPartyNumbersAPIView(APIView):
         contract.status = new_status
         contract.save(update_fields=["parties", "status", "updated_at"])
 
-        emit_resource_changed("contract", contract.id, contract.competition_id, "updated")
         return Response(_serialize_contract(contract))
 
 
@@ -446,7 +444,6 @@ class ContractStatusAPIView(APIView):
 
         contract.status = status
         contract.save(update_fields=["status", "updated_at"])
-        emit_resource_changed("contract", contract.id, contract.competition_id, "updated")
         return Response(_serialize_contract(contract))
 
 

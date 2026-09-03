@@ -33,7 +33,7 @@ _VIEW_PERM = "company:view"
 _MANAGE_PERM = "company:manage"
 _PERM_CLASSES = (IsAuthenticated, PermissionsPermission)
 # PATCH 仅允许以下字段（与前端 companiesApi.update 契约一致）
-_UPDATE_FIELDS = {"name", "status", "regionId"}
+_UPDATE_FIELDS = {"name", "status", "regionId", "industryTypeId"}
 
 
 
@@ -90,9 +90,14 @@ class CollectionAPIView(APIView):
 
     @require_permissions(_MANAGE_PERM)
     def post(self, request):
+        from apps.common.guards import create_competition_id
+
         serializer = CompanySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        company = serializer.create(serializer.validated_data)
+        # 非超管强制归属自身比赛，防止跨比赛写入
+        data = dict(serializer.validated_data)
+        data["competitionId"] = create_competition_id(request.user, data)
+        company = serializer.create(data)
         return Response(_serialize(company))
 
 

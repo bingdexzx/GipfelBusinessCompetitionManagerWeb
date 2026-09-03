@@ -229,9 +229,10 @@ class CollectionView(APIView):
 
     @require_permissions(_MANAGE_PERM)
     def post(self, request):
-        cid = request.data.get("competitionId") or getattr(request.user, "competition_id", None)
-        if not cid:
-            raise BusinessError("缺少比赛上下文", code=400, status_code=400)
+        from apps.common.guards import create_competition_id
+
+        # 非超管强制归属自身比赛，防止跨比赛写入
+        cid = create_competition_id(request.user, request.data)
         data = dict(request.data)
         data["competitionId"] = cid
         serializer = StockSerializer(data=data)
@@ -570,27 +571,36 @@ class AccountItemView(APIView):
         # 否则仅持 stock:edit 的玩家即可自行改余额（无限资金）或把账户改派到任意公司，
         # 而 _assert_account_operable 只校验「改之前」的归属，改派后即获得他公司账户控制权。
         high = _is_high_manager(request.user)
+        update_fields = []
         if "name" in data:
             account.name = data["name"]
+            update_fields.append("name")
         if "cashBalance" in data:
             if not high:
                 raise BusinessError("仅高级管理可调整资金账户余额", code=403, status_code=403)
             account.cash_balance = data["cashBalance"]
+            update_fields.append("cash_balance")
         if "companyId" in data:
             if not high:
                 raise BusinessError("仅高级管理可变更账户归属公司", code=403, status_code=403)
             account.company_id = data["companyId"]
+            update_fields.append("company_id")
         if "userId" in data:
             if not high:
                 raise BusinessError("仅高级管理可变更账户归属用户", code=403, status_code=403)
             account.user_id = data["userId"]
+            update_fields.append("user_id")
         if "bindFieldId" in data:
             account.bind_field_id = data["bindFieldId"]
+            update_fields.append("bind_field_id")
             if data["bindFieldId"] and account.company_id:
                 v = _resolve_field_value_or_default(account.company_id, data["bindFieldId"])
                 if v is not None:
                     account.cash_balance = v
-        account.save()
+                    update_fields.append("cash_balance")
+        if update_fields:
+            update_fields.append("updated_at")
+            account.save(update_fields=update_fields)
         return Response(_serialize_account(account, with_field_balance=True))
 
     @require_permissions(_MANAGE_PERM)
@@ -770,15 +780,27 @@ class OrderCollectionView(APIView):
                 if v is not None:
                     available_balance = v
 
+            # 已挂未成交的占用：买占用现金、卖占用持仓，避免同一账户多笔挂单合计超余额/超持仓
+            pending = StockOrder.objects.filter(
+                funds_account_id=locked_account.id, stock_id=stock.id, status="PENDING"
+            )
+            pending_buy_cost = 0.0
+            pending_sell_shares = 0
+            for o in pending:
+                if o.side == "BUY":
+                    pending_buy_cost += float(o.price) * float(o.quantity)
+                else:
+                    pending_sell_shares += int(o.quantity)
+
             if data["side"] == "BUY":
                 need = data["price"] * data["quantity"]
-                if available_balance < need - 1e-6:
+                if available_balance < need + pending_buy_cost - 1e-6:
                     raise BusinessError("现金余额不足", code=400, status_code=400)
             else:
                 holding = StockHolding.objects.filter(
                     funds_account_id=locked_account.id, stock_id=stock.id
                 ).first()
-                available_shares = holding.shares if holding else 0
+                available_shares = (holding.shares if holding else 0) - pending_sell_shares
                 if available_shares < data["quantity"] - 1e-9:
                     raise BusinessError("持仓不足", code=400, status_code=400)
 
@@ -927,15 +949,6 @@ class AdvanceRoundView(APIView):
             market_maker=data.get("marketMaker"),
             stock_config=data.get("stockConfig"),
         )
-        # 单次 bulk 广播已在 engine.advance_round 内发出
-        # 额外广播 stock:round-advanced 事件。
-        # 修复（M12）：原先裸用 asyncio.get_event_loop() + create_task / run_until_complete
-        # 在同步 Django 线程中会因「无运行中的事件循环」而静默失败或被吞。改为统一经
-        # emit 通道（run_coroutine_threadsafe 投递到已注册的 ASGI loop），loop 未就绪时降级跳过。
-        try:
-            from apps.realtime.emit import emit_to_competition
-
-            emit_to_competition(cid, "stock:round-advanced", {"competitionId": cid, **result})
-        except Exception:  # noqa: BLE001
-            pass
+        # 单次 bulk 广播已在 engine.advance_round 内发出（stocks/stock-orders/stock-holdings），
+        # 前端据此刷新行情与账户，无需额外事件（原 stock:round-advanced 无订阅方，已移除）。
         return Response(result)

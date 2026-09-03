@@ -304,10 +304,15 @@ class CollectionView(APIView):
 
     @require_permissions(_EDIT_PERM)
     def post(self, request):
+        from apps.common.guards import create_competition_id
+
         serializer = RegionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        _check_conflict(serializer.validated_data)
-        region = serializer.create(serializer.validated_data)
+        # 非超管强制归属自身比赛，防止跨比赛写入
+        data = dict(serializer.validated_data)
+        data["competitionId"] = create_competition_id(request.user, data)
+        _check_conflict(data)
+        region = serializer.create(data)
         emit_resource_changed("region", region.id, region.competition_id, "created")
         return Response(_serialize(region))
 
@@ -368,8 +373,15 @@ class ItemView(APIView):
         region = _get_region(pk, request)
         serializer = RegionSerializer(region, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        _check_conflict(serializer.validated_data, exclude_id=pk)
-        serializer.update(region, serializer.validated_data)
+        # 禁止跨比赛迁移：剔除 competitionId，冲突检测基于实例当前所属比赛
+        data = {
+            k: v for k, v in serializer.validated_data.items()
+            if k not in ("competitionId", "competition_id")
+        }
+        conflict_data = dict(data)
+        conflict_data["competitionId"] = region.competition_id
+        _check_conflict(conflict_data, exclude_id=pk)
+        serializer.update(region, data)
         emit_resource_changed("region", region.id, region.competition_id, "updated")
         return Response(_serialize(region))
 

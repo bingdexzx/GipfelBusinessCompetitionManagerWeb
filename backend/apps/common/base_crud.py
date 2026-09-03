@@ -135,10 +135,15 @@ class CrudCreateView(CrudMixin, APIView):
     permission_classes = _PERM_CLASSES
 
     def post(self, request):
+        from .guards import create_competition_id
+
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
-        self._check_conflict(serializer.validated_data)
-        instance = serializer.create(serializer.validated_data)
+        data = dict(serializer.validated_data)
+        # 非超管强制归属自身比赛，防止跨比赛写入（超管可指定 competitionId）
+        data["competitionId"] = create_competition_id(request.user, data)
+        self._check_conflict(data)
+        instance = serializer.create(data)
         return Response(self.serialize(instance))
 
 
@@ -163,8 +168,15 @@ class CrudUpdateView(CrudMixin, APIView):
         instance = self._get_object(pk, request)
         serializer = self.serializer_class(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
-        self._check_conflict(serializer.validated_data, exclude_id=pk)
-        serializer.update(instance, serializer.validated_data)
+        # 禁止跨比赛迁移：剔除 competitionId，冲突检测基于实例当前所属比赛
+        data = {
+            k: v for k, v in serializer.validated_data.items()
+            if k not in ("competitionId", "competition_id")
+        }
+        conflict_data = dict(data)
+        conflict_data["competitionId"] = getattr(instance, "competition_id", None)
+        self._check_conflict(conflict_data, exclude_id=pk)
+        serializer.update(instance, data)
         return Response(self.serialize(instance))
 
 

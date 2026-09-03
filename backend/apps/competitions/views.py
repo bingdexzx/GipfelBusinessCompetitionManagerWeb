@@ -146,6 +146,12 @@ class CompetitionUpdateView(APIView):
         if name and name != comp.name and Competition.objects.filter(name=name).exists():
             raise BusinessError("比赛名称已存在", code=409, status_code=409)
         serializer.save()
+        # 广播 competition:changed，使其他客户端即时同步比赛信息（前端 handleCompetitionChanged）。
+        emit_to_competition(
+            comp.id,
+            "competition:changed",
+            {"id": comp.id, "name": comp.name},
+        )
         return Response(CompetitionSerializer(comp).data)
 
 
