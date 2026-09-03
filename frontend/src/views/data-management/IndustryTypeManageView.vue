@@ -862,11 +862,18 @@ const formulaFields = computed(() => {
 
 // 兄弟字段的引用关系表（fieldKey -> 该字段计算图引用的字段键列表），
 // 供蓝图编辑器做实时跨字段循环依赖检测（与后端环检测对齐）。
+// 按全字段键集合过滤，剔除 FORMULA 表达式里的 assign 局部变量（避免误报假边）。
+const allFieldKeys = computed<Set<string>>(() => {
+  const s = new Set<string>();
+  for (const f of fields.value || []) if (f?.fieldKey) s.add(f.fieldKey);
+  return s;
+});
 const fieldDepMap = computed<Record<string, string[]>>(() => {
   const m: Record<string, string[]> = {};
+  const keys = allFieldKeys.value;
   for (const f of fields.value || []) {
     if (!f?.fieldKey || !f.calcGraph) continue;
-    const refs = extractCalcGraphFieldRefs(f.calcGraph);
+    const refs = extractCalcGraphFieldRefs(f.calcGraph, keys);
     m[f.fieldKey] = Array.from(refs);
   }
   return m;
