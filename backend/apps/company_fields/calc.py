@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from django.db import transaction
 
@@ -88,8 +89,63 @@ def _parse_graph(raw: str | None) -> dict | None:
     return g
 
 
-def _graph_field_refs(raw: str | None) -> set[str]:
-    """提取计算图引用的全部 FIELD 字段键（用于依赖排序）。"""
+# 表达式保留字：mathjs 关键字 / 常量，提取公式依赖时必须排除（这些不是字段引用）。
+# 注意不放入 e / pi / phi —— 若用户真定义了同名字段，应作为合法引用保留。
+_FORMULA_RESERVED = {
+    "true", "false", "null", "undefined", "NaN", "Infinity",
+    "and", "or", "not", "xor",
+    "if", "then", "else", "elseif", "end",
+    "for", "while", "do", "in", "of", "let", "const", "var",
+    "function", "return", "break", "continue", "new", "this",
+}
+
+# 标识符（字段键 / 运行期变量等）：字母或下划线开头，后续字母/数字/下划线
+_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _formula_field_refs(expr: str | None, known_keys: set[str] | None = None) -> set[str]:
+    """从 FORMULA 表达式（mathjs）提取以变量形式引用的字段键。
+
+    机制：剔除外层字符串字面量（避免引号内文本被误认），再扫描标识符；
+    - 保留字（_FORMULA_RESERVED）一律排除；
+    - 以「函数调用」形态出现的表达式助手（如 IF(...)、len(...)）排除，但其作为
+      变量出现的同名标识符（如 a.keys）仍视为候选引用；
+    - known_keys 非空时仅保留确属本产业类型已有字段的引用，过滤 assign 局部变量等干扰。
+    """
+    if not expr:
+        return set()
+    # 去掉字符串字面量（双/单/反引号），防止把引号内文本当字段键
+    stripped = re.sub(r'"[^"]*"', " ", str(expr))
+    stripped = re.sub(r"'[^']*'", " ", stripped)
+    stripped = re.sub(r"`[^`]*`", " ", stripped)
+    from apps.contracts.engine import EXPR_HELPERS  # 延迟导入避免加载期循环依赖
+
+    helper_names = set(EXPR_HELPERS.keys())
+    refs: set[str] = set()
+    for m in _IDENT_RE.finditer(stripped):
+        name = m.group(0)
+        if name in _FORMULA_RESERVED:
+            continue
+        # 仅当「函数调用形态」时才把助手名排除
+        after = stripped[m.end():].lstrip()
+        if name in helper_names and after.startswith("("):
+            continue
+        if known_keys is not None and name not in known_keys:
+            continue
+        refs.add(name)
+    return refs
+
+
+def _graph_field_refs(raw: str | None, known_keys: set[str] | None = None) -> set[str]:
+    """提取计算图引用的全部 FIELD 字段键（用于依赖排序 / 循环依赖检测）。
+
+    覆盖两类引用：
+    - value(FIELD) 节点：data.fieldKey 直接给出被引用字段键；
+    - value(FORMULA) 节点：data.expr 中以变量形式出现的字段键（见 _formula_field_refs）。
+
+    known_keys 非空时仅返回确属本产业类型已有字段的引用（过滤 assign 局部变量等干扰项，
+    避免环检测出现假边）；为 None 时返回候选全集，由调用方自行取交集（如 _order_calc_fields）。
+    """
     g = _parse_graph(raw)
     if not g:
         return set()
@@ -98,8 +154,11 @@ def _graph_field_refs(raw: str | None) -> set[str]:
         if not isinstance(n, dict) or n.get("type") != "value":
             continue
         d = n.get("data") or {}
-        if d.get("kind") == "FIELD" and d.get("fieldKey"):
+        kind = d.get("kind")
+        if kind == "FIELD" and d.get("fieldKey"):
             keys.add(str(d["fieldKey"]))
+        elif kind == "FORMULA" and d.get("expr"):
+            keys |= _formula_field_refs(d.get("expr"), known_keys)
     return keys
 
 

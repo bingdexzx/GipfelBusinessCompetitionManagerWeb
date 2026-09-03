@@ -2,12 +2,70 @@
 
 - timerValue === "field:<deletedFieldKey>" → 置空
 - calcGraph 中 type:"value" 且 data.fieldKey === deletedFieldKey 的节点 → 移除节点及相关边
+- calcGraph 中 value(FORMULA) 节点的 data.expr 里以变量形式引用该字段的标识符：
+  - 改名：整体替换为新字段键
+  - 删除：整体替换为 0（数字占位，避免公式求值因变量未定义而报错；语义偏离由告警提示人工核对）
 """
 from __future__ import annotations
 
 import json
+import logging
+import re
+
+logger = logging.getLogger("gipfel")
 
 TIMER_REF_PREFIX = "field:"
+
+
+def _rewrite_formula_expr(expr: str, old_key: str, new_token: str) -> str:
+    """把表达式里独立出现的 old_key 标识符整体替换为 new_token。
+
+    字符串字面量（双/单/反引号）内的同名文本不受影响，避免误改引号内容。
+    """
+    if not expr or not old_key:
+        return expr
+    # 先匹配字符串字面量（原样保留），再匹配词边界内的 old_key
+    pattern = re.compile(
+        r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|`(?:[^`\\]|\\.)*`|\b'
+        + re.escape(old_key)
+        + r"\b"
+    )
+
+    def repl(m):  # noqa: ANN001
+        s = m.group(0)
+        if s[:1] in ('"', "'", "`"):
+            return s  # 字符串字面量，不动
+        return new_token
+
+    return pattern.sub(repl, expr)
+
+
+def _rewrite_formula_refs(graph: dict, old_key: str, new_token: str) -> bool:
+    """遍历计算图所有 value(FORMULA) 节点，改写 data.expr 中对 old_key 的变量引用。
+
+    new_token 为改名时的新字段键，或删除时的 0 / null 占位。返回是否发生过改写。
+    """
+    if not old_key:
+        return False
+    nodes = graph.get("nodes") if isinstance(graph, dict) else None
+    if not isinstance(nodes, list):
+        return False
+    hit = False
+    for n in nodes:
+        if (
+            isinstance(n, dict)
+            and n.get("type") == "value"
+            and (n.get("data") or {}).get("kind") == "FORMULA"
+        ):
+            data = n.get("data") or {}
+            expr = data.get("expr")
+            if not expr:
+                continue
+            new_expr = _rewrite_formula_expr(str(expr), old_key, new_token)
+            if new_expr != str(expr):
+                data["expr"] = new_expr
+                hit = True
+    return hit
 
 
 def cleanup_field_references(industry_type_id: int, deleted_field_key: str) -> None:
@@ -45,8 +103,18 @@ def cleanup_field_references(industry_type_id: int, deleted_field_key: str) -> N
                                 if e.get("source") not in removed
                                 and e.get("target") not in removed
                             ]
-                        f.calc_graph = json.dumps(g, ensure_ascii=False)
                         changed = True
+                    # FORMULA 表达式里以变量形式引用被删字段 → 替换为 0 占位，
+                    # 避免该公式后续求值因未定义变量而报错；语义变化由告警提示人工核对
+                    if _rewrite_formula_refs(g, deleted_field_key, "0"):
+                        logger.warning(
+                            "[field-cleanup] 字段 %s 被删除，已将引用它的公式"
+                            "（产业 #%s 字段 %s）中的变量替换为 0，请人工核对公式语义",
+                            deleted_field_key, industry_type_id, f.field_key,
+                        )
+                        changed = True
+                    if changed:
+                        f.calc_graph = json.dumps(g, ensure_ascii=False)
             except (ValueError, TypeError):
                 # 计算图 JSON 损坏：跳过，不阻断删除
                 pass
@@ -90,6 +158,9 @@ def rename_field_references(industry_type_id: int, old_field_key: str, new_field
                         ):
                             n["data"]["fieldKey"] = new_field_key
                             hit = True
+                    # FORMULA 表达式里以变量形式引用旧字段键 → 整体替换为新字段键
+                    if _rewrite_formula_refs(g, old_field_key, new_field_key):
+                        hit = True
                     if hit:
                         f.calc_graph = json.dumps(g, ensure_ascii=False)
                         changed = True

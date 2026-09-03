@@ -478,7 +478,8 @@
             <el-button
               type="primary"
               :loading="fieldSaving"
-              :disabled="!authStore.can('industryType:manage')"
+              :disabled="!authStore.can('industryType:manage') || !!graphCycle"
+              :title="graphCycle ? `检测到循环依赖，无法保存：${graphCycle.join(' → ')}` : ''"
               @click="submitField"
               >保存</el-button
             >
@@ -572,6 +573,10 @@
                 v-else
                 v-model="fieldForm.calcGraph"
                 :available-fields="formulaFields"
+                :field-dep-map="fieldDepMap"
+                :current-field-key="fieldForm.fieldKey"
+                :current-field-old-key="fieldForm.fieldKeyOld"
+                @cycle="onGraphCycle"
                 @close="showGraphFullscreen = false"
               />
             </template>
@@ -694,6 +699,7 @@ import { useAuthStore } from "@/stores/auth";
 import { industryTypesApi } from "@/api";
 import { ElMessage, ElMessageBox } from "element-plus";
 import IndustryFieldGraphEditor from "@/components/industry-types/IndustryFieldGraphEditor.vue";
+import { extractCalcGraphFieldRefs } from "@/utils/calcGraphRefs";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
 import SearchToggle from "@/components/common/SearchToggle.vue";
@@ -733,6 +739,7 @@ const fieldForm = reactive<any>({
   id: null,
   name: "",
   fieldKey: "",
+  fieldKeyOld: "",
   fieldType: "NUMBER",
   config: {},
   defaultValue: "",
@@ -852,6 +859,24 @@ const formulaFields = computed(() => {
       defaultValue: f.defaultValue,
     }));
 });
+
+// 兄弟字段的引用关系表（fieldKey -> 该字段计算图引用的字段键列表），
+// 供蓝图编辑器做实时跨字段循环依赖检测（与后端环检测对齐）。
+const fieldDepMap = computed<Record<string, string[]>>(() => {
+  const m: Record<string, string[]> = {};
+  for (const f of fields.value || []) {
+    if (!f?.fieldKey || !f.calcGraph) continue;
+    const refs = extractCalcGraphFieldRefs(f.calcGraph);
+    m[f.fieldKey] = Array.from(refs);
+  }
+  return m;
+});
+
+// 蓝图编辑器实时上报的循环依赖（成环节点序列或 null）；非空时禁用「保存」。
+const graphCycle = ref<string[] | null>(null);
+function onGraphCycle(v: string[] | null) {
+  graphCycle.value = v;
+}
 const formulaTextareaRef = ref<HTMLTextAreaElement>();
 function insertFormulaField(fieldKey: string) {
   const ta = formulaTextareaRef.value;
@@ -1063,6 +1088,7 @@ function editField(row: any) {
   fieldForm.id = row.id;
   fieldForm.name = row.name;
   fieldForm.fieldKey = row.fieldKey;
+  fieldForm.fieldKeyOld = row.fieldKey;
   fieldForm.fieldType = row.fieldType;
   fieldForm.config = cloneConfig(row.fieldType, row.config);
   fieldForm.defaultValue = row.defaultValue || "";

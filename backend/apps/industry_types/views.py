@@ -197,8 +197,9 @@ def _detect_calc_field_cycle(
     edited_field_key: str,
     edited_refs: set[str] | None,
     renamed_from: str | None = None,
+    known_keys: set[str] | None = None,
 ) -> list[str] | None:
-    """检测计算字段之间的循环依赖（跨字段 FIELD 引用成环）。
+    """检测计算字段之间的循环依赖（跨字段引用成环，含公式模式变量引用）。
 
     返回成环节点的 fieldKey 序列（如 [a, b, a]），无环返回 None。
     edited_field 表示本次正在创建/编辑的字段（尚未落库或键已变更），
@@ -207,8 +208,16 @@ def _detect_calc_field_cycle(
     renamed_from：本次编辑同时改了 fieldKey 时传入旧键。库中兄弟字段的计算图
     此刻仍引用旧键（rename_field_references 要等 save 之后才改写），若不做映射
     会断链导致成环漏检。
+    known_keys：本产业类型全部字段键集合，用于把公式表达式里的局部变量（assign 产出）
+    与真实字段键区分开，避免产生假边污染环检测；为 None 时自动查询补全。
     """
     from apps.company_fields.calc import _graph_field_refs
+
+    if known_keys is None:
+        known_keys = set(
+            IndustryField.objects.filter(industry_type_id=industry_type_id)
+            .values_list("field_key", flat=True)
+        )
 
     graph: dict[str, set[str]] = {}
     for f in IndustryField.objects.filter(
@@ -216,14 +225,17 @@ def _detect_calc_field_cycle(
     ):
         if f.id == edited_field_id:
             continue  # 正在编辑的字段用 edited 数据替代
-        refs = _graph_field_refs(f.calc_graph)
+        refs = _graph_field_refs(f.calc_graph, known_keys)
         if renamed_from and renamed_from in refs:
             # 预演改名后的引用关系，与 rename_field_references 的效果保持一致
             refs = (refs - {renamed_from}) | {edited_field_key}
         if refs:
             graph[f.field_key] = refs
     if edited_refs:
-        graph[edited_field_key] = set(edited_refs)
+        # 编辑方自身的引用也按 known_keys 过滤，去掉 assign 局部变量等干扰项
+        filtered = {r for r in edited_refs if r in known_keys} if known_keys else set(edited_refs)
+        if filtered:
+            graph[edited_field_key] = filtered
 
     WHITE, GRAY, BLACK = 0, 1, 2
     color: dict[str, int] = {k: WHITE for k in graph}

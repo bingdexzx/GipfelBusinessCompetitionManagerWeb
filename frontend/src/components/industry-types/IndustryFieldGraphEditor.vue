@@ -84,6 +84,7 @@
             'ge-node-sel': n.id === selectedId,
             'ge-node-match': isNodeMatched(n.id),
             'ge-node-dim': isNodeDimmed(n.id),
+            'ge-node-cycle': isNodeInCycle(n),
           }"
           :style="nodeStyle(n)"
           @click.stop="select(n.id)"
@@ -151,6 +152,15 @@
 
       <!-- 右侧属性面板 -->
       <div class="ge-panel">
+        <el-alert
+          v-if="cycleResult"
+          type="error"
+          :closable="false"
+          show-icon
+          class="ge-cycle-warn"
+          title="检测到循环依赖"
+          :description="cycleAlertText"
+        />
         <el-alert
           v-if="warnings.length"
           type="warning"
@@ -403,14 +413,26 @@ import {
   OP_ARG_LABELS,
   ARITH_OPS,
 } from "@/contracts/graph-model";
+import {
+  extractCalcGraphFieldRefs,
+  detectCycle,
+} from "@/utils/calcGraphRefs";
 
 const props = defineProps<{
   modelValue?: string | null;
   availableFields?: { fieldKey: string; name?: string; fieldType?: string }[];
+  /** 兄弟字段的引用关系：fieldKey -> 该字段计算图引用的字段键列表（由父组件从已存字段派生）。 */
+  fieldDepMap?: Record<string, string[]>;
+  /** 当前正在编辑的字段键（用于在依赖图中锚定本字段）。 */
+  currentFieldKey?: string;
+  /** 若本次同时改名，传入改名前的旧键（用于把兄弟依赖中的旧键映射为新键）。 */
+  currentFieldOldKey?: string;
 }>();
 const emit = defineEmits<{
   (e: "close"): void;
   (e: "update:modelValue", v: string): void;
+  /** 实时循环依赖检测结果：成环节点序列（如 ["a","b","a"]）或 null。供父组件禁用保存。 */
+  (e: "cycle", v: string[] | null): void;
 }>();
 
 // ===== 几何常量（与合同可视化编辑器一致） =====
@@ -800,6 +822,74 @@ const warnings = computed<string[]>(() => {
     if (!connected) w.push("「输出」节点的「值」端口未连接任何表达式");
   }
   return w;
+});
+
+// ===== 实时循环依赖检测（跨字段） =====
+// 本编辑器只编辑「单个字段」的计算图；跨字段成环需结合兄弟字段的引用关系。
+// 思路：把「当前字段的实时引用」与「兄弟字段的引用表」合并成一张依赖图，做 DFS 环检测。
+// 与后端 apps/industry_types/views.py::_detect_calc_field_cycle 命中同一类环。
+const allKeys = computed<Set<string>>(() => {
+  const s = new Set<string>();
+  for (const f of props.availableFields || []) if (f.fieldKey) s.add(f.fieldKey);
+  if (props.currentFieldKey) s.add(props.currentFieldKey);
+  return s;
+});
+
+// 当前字段计算图实时引用（公式模式按已知字段键过滤掉局部变量）
+const currentDeps = computed<Set<string>>(() =>
+  extractCalcGraphFieldRefs(graph as unknown as GGraph, allKeys.value),
+);
+
+// 兄弟依赖表：改名时把兄弟依赖中的旧键映射为新键，与后端 rename_field_references 一致
+const siblingDeps = computed<Record<string, string[]>>(() => {
+  const m: Record<string, string[]> = {};
+  const oldKey = props.currentFieldOldKey;
+  const newKey = props.currentFieldKey;
+  const remap = !!oldKey && !!newKey && oldKey !== newKey;
+  for (const [k, deps] of Object.entries(props.fieldDepMap || {})) {
+    m[k] = remap ? deps.map((d) => (d === oldKey ? newKey : d)) : [...deps];
+  }
+  return m;
+});
+
+const cycleResult = computed<string[] | null>(() => {
+  const combined: Record<string, string[]> = {};
+  for (const [k, deps] of Object.entries(siblingDeps.value)) combined[k] = deps;
+  const key = props.currentFieldKey;
+  if (key) combined[key] = Array.from(currentDeps.value);
+  return detectCycle(combined, key);
+});
+
+// 成环涉及的字段键集合（用于红框高亮相关节点）
+const cycleKeySet = computed<Set<string>>(() => new Set(cycleResult.value || []));
+
+function isNodeInCycle(n: GNode): boolean {
+  if (!cycleKeySet.value.size) return false;
+  const d = (n.data || {}) as Record<string, any>;
+  if (n.type === "value") {
+    if (d.kind === "FIELD" && d.fieldKey && cycleKeySet.value.has(String(d.fieldKey))) return true;
+    if (d.kind === "FORMULA" && d.expr) {
+      for (const r of extractCalcGraphFieldRefs(
+        { nodes: [n], edges: [] } as unknown as GGraph,
+        allKeys.value,
+      )) {
+        if (cycleKeySet.value.has(r)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+// 环检测结果实时上报父组件（用于禁用保存按钮）
+watch(
+  cycleResult,
+  (v) => emit("cycle", v),
+  { immediate: true },
+);
+
+const cycleAlertText = computed(() => {
+  if (!cycleResult.value) return "";
+  return `存在循环依赖：${cycleResult.value.join(" → ")}（计算字段彼此相互引用，无法求值，请修改引用关系）`;
 });
 
 // ===== 坐标计算 =====
@@ -1315,6 +1405,18 @@ onUnmounted(() => {
 }
 .ge-warn {
   margin-bottom: 8px;
+}
+.ge-cycle-warn {
+  margin-bottom: 8px;
+  border-color: #f56c6c;
+}
+/* 实时循环依赖：相关节点红框高亮 */
+.ge-node-cycle {
+  border-color: #f56c6c !important;
+  box-shadow: 0 0 0 2px rgba(245, 108, 108, 0.45), 0 2px 6px rgba(0, 0, 0, 0.12) !important;
+}
+.ge-node-cycle .ge-node-header {
+  background: #f56c6c !important;
 }
 .ge-source-title {
   font-weight: bold;
