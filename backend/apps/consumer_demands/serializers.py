@@ -6,13 +6,8 @@ from rest_framework import serializers
 from apps.common.exceptions import BusinessError
 
 from .models import ConsumerDemand
+from apps.common.helpers import assert_competition_exists as _assert_competition_exists
 
-
-def _assert_competition_exists(cid: int) -> None:
-    from apps.competitions.models import Competition
-
-    if not Competition.objects.filter(pk=cid).exists():
-        raise serializers.ValidationError({"competitionId": f"比赛 {cid} 不存在"})
 
 
 def _resolve_product(product_id):

@@ -39,6 +39,9 @@ from apps.realtime.emit import emit_resource_changed
 
 from .models import Region
 from .serializers import OverviewCardItemSerializer, RegionSerializer
+from apps.common.helpers import truthy as _truthy
+from apps.common.helpers import parse_previous_ids as _parse_previous_ids
+from apps.common.helpers import effective_competition_id as _effective_competition_id
 
 _VIEW_PERM = "data:region:view"
 _EDIT_PERM = "data:region:edit"
@@ -46,44 +49,7 @@ _PERM_CLASSES = (IsAuthenticated, PermissionsPermission)
 
 
 # ==================== 工具函数 ====================
-def _truthy(value) -> bool:
-    if value is None:
-        return False
-    return str(value).strip().lower() in ("1", "true", "yes", "on")
 
-
-def _parse_previous_ids(raw) -> list | None:
-    """解析逗号分隔的 previousIds，用于增量同步 deletedIds 计算。"""
-    if not raw:
-        return None
-    ids: list[int] = []
-    for part in str(raw).split(","):
-        part = part.strip()
-        if not part:
-            continue
-        try:
-            ids.append(int(part))
-        except ValueError:
-            pass
-    return ids or None
-
-
-def _effective_competition_id(request) -> int | None:
-    """解析当前请求的比赛上下文。
-
-    SUPER_ADMIN：取 query 中 competitionId（可空）；其余角色：取 query 或
-    user.competition_id，强制隔离。
-    """
-    raw = request.query_params.get("competitionId")
-    cid = None
-    if raw:
-        try:
-            cid = int(raw)
-        except (TypeError, ValueError):
-            cid = None
-    if getattr(request.user, "role", None) == "SUPER_ADMIN":
-        return cid
-    return cid or getattr(request.user, "competition_id", None)
 
 
 def _get_region(pk, request) -> Region:

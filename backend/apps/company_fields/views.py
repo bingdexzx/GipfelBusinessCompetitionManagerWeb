@@ -20,6 +20,7 @@ from apps.realtime.emit import emit_resource_changed
 from apps.companies.models import Company, CompanyFieldValue
 
 from .serializers import SetFieldSerializer, SetValuesSerializer
+from apps.common.helpers import truthy as _truthy
 
 _VIEW_PERM = "company:view"
 _MANAGE_PERM = "company:manage"
@@ -30,23 +31,11 @@ def _can_manage(user) -> bool:
     return has_permission(user.role, user.permissions_list, _MANAGE_PERM)
 
 
-def _truthy(value) -> bool:
-    if value is None:
-        return False
-    return str(value).strip().lower() in ("1", "true", "yes", "on")
 
-
-def _get_company(company_id, user) -> Company:
-    """取公司并做比赛域隔离，越权视作不存在。"""
-    try:
-        company = Company.objects.get(pk=company_id)
-    except Company.DoesNotExist:
-        raise BusinessError("请求的资源不存在", code=404, status_code=404)
-    if getattr(user, "role", None) != "SUPER_ADMIN" and company.competition_id != getattr(
-        user, "competition_id", None
-    ):
-        raise BusinessError("请求的资源不存在", code=404, status_code=404)
-    return company
+# 公司读取统一走 apps.common.helpers.get_company_scoped：比赛域 + viewCompanyScopes
+# 双重隔离。此前此处只校验比赛域，被 viewCompanyScopes 限制的用户仍可读写范围外
+# 公司的产业字段值（与 companies.views 的同名实现不一致导致的越权面）。
+from apps.common.helpers import get_company_scoped as _get_company
 
 
 def _parse_json(value):

@@ -51,6 +51,9 @@ from .serializers import (
     StockFundsAccountSerializer,
     StockSerializer,
 )
+from apps.common.helpers import truthy as _truthy
+from apps.common.helpers import parse_previous_ids as _parse_previous_ids
+from apps.common.helpers import effective_competition_id as _effective_competition_id
 
 _VIEW_PERM = "stock:view"
 _EDIT_PERM = "stock:edit"
@@ -75,21 +78,6 @@ def _is_high_manager(user) -> bool:
     return _is_super(user) or _can(user, _MANAGE_PERM)
 
 
-def _effective_competition_id(request) -> int | None:
-    """解析当前请求的比赛上下文。"""
-    raw = request.query_params.get("competitionId")
-    cid = None
-    if raw:
-        try:
-            cid = int(raw)
-        except (TypeError, ValueError):
-            cid = None
-    if _is_super(request.user):
-        return cid
-    # 非超管：强制按自身比赛上下文，忽略前端传入的 competitionId（防越权读其他比赛）
-    return getattr(request.user, "competition_id", None)
-
-
 def _get_stock_scoped(pk, request) -> Stock:
     """取股票并做比赛域隔离：非超管仅能访问自己所属比赛的股票，否则视作不存在。
 
@@ -104,26 +92,6 @@ def _get_stock_scoped(pk, request) -> Stock:
             raise BusinessError("股票不存在", code=404, status_code=404)
     return stock
 
-
-def _parse_previous_ids(raw) -> list | None:
-    if not raw:
-        return None
-    ids: list[int] = []
-    for part in str(raw).split(","):
-        part = part.strip()
-        if not part:
-            continue
-        try:
-            ids.append(int(part))
-        except ValueError:
-            pass
-    return ids or None
-
-
-def _truthy(value) -> bool:
-    if value is None:
-        return False
-    return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
 def _resolve_field_value_or_default(company_id: int, industry_field_id: int):

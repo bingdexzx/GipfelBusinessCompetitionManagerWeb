@@ -36,6 +36,8 @@ from apps.realtime.emit import emit_resource_changed
 from .engine import ContractEngine
 from .models import Contract, ContractFieldEffect, ContractType
 from .serializers import ContractSerializer, ContractTypeSerializer
+from apps.common.helpers import truthy as _truthy
+from apps.common.helpers import parse_previous_ids as _parse_previous_ids
 
 # ==================== 权限常量 ====================
 
@@ -465,25 +467,6 @@ class ContractImpactAPIView(APIView):
 
 # ==================== 工具函数 ====================
 
-def _truthy(value) -> bool:
-    if value is None:
-        return False
-    return str(value).strip().lower() in ("1", "true", "yes", "on")
-
-
-def _parse_previous_ids(raw) -> list | None:
-    if not raw:
-        return None
-    ids: list[int] = []
-    for part in str(raw).split(","):
-        part = part.strip()
-        if not part:
-            continue
-        try:
-            ids.append(int(part))
-        except ValueError:
-            pass
-    return ids or None
 
 
 def _get_contract_type(pk: int) -> ContractType:

@@ -23,6 +23,11 @@ from apps.common.sync import apply_updated_after, build_incremental_result
 
 from .models import Company
 from .serializers import CompanySerializer
+from apps.common.helpers import (
+    company_list_scopes as _company_list_scopes,
+    get_company_scoped as _get_company,
+    parse_previous_ids as _parse_previous_ids,
+)
 
 _VIEW_PERM = "company:view"
 _MANAGE_PERM = "company:manage"
@@ -31,52 +36,6 @@ _PERM_CLASSES = (IsAuthenticated, PermissionsPermission)
 _UPDATE_FIELDS = {"name", "status", "regionId"}
 
 
-def _company_list_scopes(user) -> list | None:
-    """返回 company:view 作用域内可见公司 id 列表；None 表示不过滤。
-
-    对应原 companyListScopes 逻辑：
-    - SUPER_ADMIN：不过滤
-    - 无 company:view 权限：不过滤（由权限层拦截）
-    - 有 company:view 且 viewCompanyScopes 非空：仅这些公司
-    - 有 company:view 且 viewCompanyScopes 为空：不过滤（见自己比赛全部公司）
-    """
-    if getattr(user, "role", None) == "SUPER_ADMIN":
-        return None
-    if not has_permission(user.role, user.permissions_list, _VIEW_PERM):
-        return None
-    scopes = user.view_company_scopes_list
-    return scopes if scopes else None
-
-
-def _parse_previous_ids(raw) -> list | None:
-    """解析逗号分隔的 previousIds，用于增量同步 deletedIds 计算。"""
-    if not raw:
-        return None
-    ids: list[int] = []
-    for part in str(raw).split(","):
-        part = part.strip()
-        if not part:
-            continue
-        try:
-            ids.append(int(part))
-        except ValueError:
-            pass
-    return ids or None
-
-
-def _get_company(pk, user) -> Company:
-    """取公司并做比赛域 + viewCompanyScopes 隔离，越权视作不存在。"""
-    try:
-        company = Company.objects.get(pk=pk)
-    except Company.DoesNotExist:
-        raise BusinessError("请求的资源不存在", code=404, status_code=404)
-    if getattr(user, "role", None) != "SUPER_ADMIN":
-        if company.competition_id != getattr(user, "competition_id", None):
-            raise BusinessError("请求的资源不存在", code=404, status_code=404)
-    scopes = _company_list_scopes(user)
-    if scopes is not None and pk not in scopes:
-        raise BusinessError("请求的资源不存在", code=404, status_code=404)
-    return company
 
 
 def _serialize(company: Company) -> dict:

@@ -14,35 +14,12 @@ from django.db import models
 from rest_framework import serializers
 
 from .models import Part
+from apps.common.helpers import to_camel as _to_camel
+from apps.common.helpers import instance_to_camel as _instance_to_camel
 
 
 # ==================== 通用 camelCase 序列化 ====================
-def _to_camel(name: str) -> str:
-    parts = name.split("_")
-    return parts[0] + "".join(p.capitalize() for p in parts[1:])
 
-
-def _instance_to_camel(instance, include_id: bool = True) -> dict | None:
-    """把模型实例的所有具体字段序列化为 camelCase dict。
-
-    - 外键字段输出为 <stem>Id（取 _id 列值，与 Prisma include 一致）
-    - 时间字段输出 ISO 字符串
-    - include_id=False 时省略自增 id（用于复合关联表，Prisma 无此列）
-    """
-    if instance is None:
-        return None
-    data = {}
-    for f in instance._meta.concrete_fields:
-        if not include_id and f.name == "id":
-            continue
-        if isinstance(f, (models.ForeignKey, models.OneToOneField)):
-            data[_to_camel(f.name) + "Id"] = getattr(instance, f.attname)
-        elif isinstance(f, (models.DateTimeField, models.DateField)):
-            v = getattr(instance, f.name)
-            data[_to_camel(f.name)] = v.isoformat() if v else None
-        else:
-            data[_to_camel(f.name)] = getattr(instance, f.name)
-    return data
 
 
 def _serialize_part(instance: Part) -> dict:

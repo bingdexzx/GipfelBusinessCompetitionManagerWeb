@@ -14,6 +14,7 @@ from typing import Any
 from rest_framework import serializers
 
 from .models import Contract, ContractType
+from apps.common.helpers import assert_competition_exists as _assert_competition_exists
 
 
 # ==================== JSON 工具 ====================
@@ -40,12 +41,6 @@ def _to_stored(value: Any, default: str = "[]") -> str:
         return value
     return json.dumps(value, ensure_ascii=False)
 
-
-def _assert_competition_exists(cid: int) -> None:
-    from apps.competitions.models import Competition
-
-    if not Competition.objects.filter(pk=cid).exists():
-        raise serializers.ValidationError({"competitionId": f"比赛 {cid} 不存在"})
 
 
 # ==================== ContractType ====================

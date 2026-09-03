@@ -7,15 +7,10 @@ from __future__ import annotations
 from rest_framework import serializers
 
 from .models import Company
+from apps.common.helpers import assert_competition_exists as _assert_competition_exists
 
 _STATUS_CHOICES = [c[0] for c in Company.STATUS_CHOICES]
 
-
-def _assert_competition_exists(cid: int) -> None:
-    from apps.competitions.models import Competition
-
-    if not Competition.objects.filter(pk=cid).exists():
-        raise serializers.ValidationError({"competitionId": f"比赛 {cid} 不存在"})
 
 
 def _industry_type_repr(company: Company) -> dict | None:

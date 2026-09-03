@@ -64,6 +64,7 @@ class SecurityHeadersMiddleware(MiddlewareMixin):
 # ==================== 操作员上下文（对应 OperatorMiddleware + AsyncLocalStorage） ====================
 # 用 contextvars 在整个请求生命周期内注入操作员，供审计/日志使用。
 import contextvars  # noqa: E402
+from apps.common.helpers import client_ip as _client_ip
 
 _operator_ctx: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
     "operator_ctx", default=None
@@ -165,12 +166,3 @@ class LoginRateLimitMiddleware(MiddlewareMixin):
         return None
 
 
-def _client_ip(request) -> str:
-    if request is None:
-        return "unknown"
-    # 生产由 nginx 注入 X-Real-IP（取自 $remote_addr，不可伪造）；
-    # 不信任 X-Forwarded-For 首段（攻击者可伪造，曾被用于绕过登录限流）。
-    real_ip = request.headers.get("X-Real-IP") or request.META.get("HTTP_X_REAL_IP")
-    if real_ip:
-        return real_ip.strip().split(",")[0].strip()
-    return request.META.get("REMOTE_ADDR", "unknown")
