@@ -16,7 +16,7 @@
 
 ## 2. 环境要求
 
-- **Python** 3.10+（实测 3.13 可用，需 Pillow≥11）
+- **Python** 3.10+（需 Pillow≥12：12.0 起官方支持 Python 3.14）
 - **Node.js** 18+（推荐 20 LTS，22 已验证）
 - 操作系统：Linux（Ubuntu 22.04 / Debian 12，生产推荐）、Windows 10/11（仅开发）
 

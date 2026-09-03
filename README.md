@@ -110,7 +110,7 @@ GipfelBusinessCompetitionManagerWeb/
 
 | 组件 | 最低版本 | 建议版本 |
 | --- | --- | --- |
-| Python | 3.10 | **3.12**（3.13 已验证可用，需 Pillow≥11） |
+| Python | 3.10 | **3.12**（3.13/3.14 可用，需 Pillow≥12） |
 | Node.js | 18 | **20 LTS**（22 也已验证） |
 | npm | 9 | 10 |
 | 操作系统 | — | Windows 10/11、Linux（Ubuntu 22.04+ / Debian 12） |
@@ -118,7 +118,7 @@ GipfelBusinessCompetitionManagerWeb/
 
 依赖亮点（详见 `requirements.txt` 与 `package.json`）：
 
-- 后端（`backend/requirements.txt`）：`Django 5.0.6`、`djangorestframework 3.15`、`djangorestframework-simplejwt 5.3`（JWT，内含 PyJWT）、`daphne 4.1`（ASGI）、`python-socketio 5.11`、`bcrypt`、`django-cors-headers`、`Pillow 11`、`simpleeval`、`python-dotenv`
+- 后端（`backend/requirements.txt`）：`Django 5.0.6`、`djangorestframework 3.15`、`djangorestframework-simplejwt 5.3`（JWT，内含 PyJWT）、`daphne 4.1`（ASGI）、`python-socketio 5.11`、`bcrypt`、`django-cors-headers`、`Pillow 12`、`simpleeval`、`python-dotenv`
 - 前端（`frontend/package.json`）：`Vue 3.4`、`Vue Router 4.4`、`Pinia 4.0`、`Element Plus 2.7`、`Vite 5.3`、`axios 1.7`、`echarts 6.1`、`socket.io-client 4.7`、`konva 10.3` + `vue-konva 3.4`（地图画布）、`pinyin-pro 3.29`、`typescript 5.4`、`vue-tsc 2.0`
 - 状态持久化由各 store 手写 `localStorage` 完成，**未使用** `pinia-plugin-persistedstate`
 
