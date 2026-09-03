@@ -170,6 +170,7 @@ class UploadView(APIView):
 
     permission_classes = _PERM_CLASSES
 
+    @require_permissions(_EDIT_PERM)
     def post(self, request):
         f = request.FILES.get("file")
         if not f:
