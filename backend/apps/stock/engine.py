@@ -980,14 +980,23 @@ def advance_one_stock(
         new_round = stock.round + 1
 
         # 现金（绑定字段的账户更新字段值，否则更新账户余额）
+        # touched_field_companies：本次撮合写入了「绑定产业字段」的公司，结算后广播 company-field
+        # 让公司详情/仪表盘/行情等订阅方实时刷新绑定字段（如现金）的最新值。
+        touched_field_companies: set[int] = set()
         for acc_id, cash in cash_map.items():
             acc = account_objs.get(acc_id)
             rounded_cash = round2(cash)
             if acc is not None and acc.bind_field_id and acc.company_id:
                 write_field_value_in_tx(acc.company_id, acc.bind_field_id, str(rounded_cash))
+                touched_field_companies.add(acc.company_id)
             # 同步账户余额列：绑定字段账户列表展示依赖 cash_balance，否则会显示陈旧值
             if acc is not None:
                 StockFundsAccount.objects.filter(pk=acc_id).update(cash_balance=rounded_cash)
+        if touched_field_companies:
+            from apps.realtime.emit import emit_resource_changed
+
+            for cid in touched_field_companies:
+                emit_resource_changed("company-field", cid, competition_id, "updated")
 
         # 持仓（仅被撮合涉及的账户）
         for acc_id in touched_accounts:

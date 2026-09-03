@@ -144,6 +144,7 @@ def _run_fiscal_year_timer(competition_id: int, trigger: str) -> None:
     for f in timer_fields:
         by_type.setdefault(f.industry_type_id, []).append(f)
 
+    affected_companies: list[int] = []
     for industry_type_id, fields in by_type.items():
         companies = list(
             Company.objects.filter(
@@ -153,10 +154,19 @@ def _run_fiscal_year_timer(competition_id: int, trigger: str) -> None:
         for c in companies:
             try:
                 _apply_timer_to_company(c, fields)
+                affected_companies.append(c.id)
             except Exception as e:  # noqa: BLE001
                 logger.warning(
                     "财年定时器：公司 #%s 处理失败：%s", c.id, getattr(e, "message", e)
                 )
+
+    # 广播字段值变更：定时器写入基础字段 + 级联重算计算字段后，通知同比赛前端刷新。
+    # 此前遗漏 emit，导致仪表盘/公司详情/行情等订阅 company-field 的视图停留在旧值。
+    if affected_companies:
+        from apps.realtime.emit import emit_resource_changed
+
+        for cid in affected_companies:
+            emit_resource_changed("company-field", cid, competition_id, "updated")
 
 
 def _apply_timer_to_company(company: Company, fields: list[IndustryField]) -> None:

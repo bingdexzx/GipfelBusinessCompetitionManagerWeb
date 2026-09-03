@@ -1285,6 +1285,12 @@ onMounted(async () => {
 useResourceChanged("industry-types", () => {
   loadTypes();
 }, { scope: "global" });
+
+// 产业字段定义（增/删/改）实时刷新：后端 IndustryField 经 signals 广播 "industry-fields"
+// （全局资源，competitionId 为 null），此处以 scope:"global" 订阅，重载当前展开类型的字段列表。
+useResourceChanged("industry-fields", () => {
+  loadFields();
+}, { scope: "global" });
 </script>
 
 <style scoped>

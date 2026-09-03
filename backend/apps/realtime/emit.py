@@ -142,7 +142,7 @@ MODEL_TO_RESOURCE: dict[str, str] = {
     "ProductionLine": "production-lines",
     # P2
     "IndustryType": "industry-types",
-    "IndustryField": None,
+    "IndustryField": "industry-fields",
     "Company": "companies",
     "CompanyFieldValue": None,
     "ContractType": "contract-types",
@@ -160,7 +160,7 @@ MODEL_TO_RESOURCE: dict[str, str] = {
     "StockCandle": "stock-candles",
 }
 
-GLOBAL_RESOURCES = {"industry-types"}
+GLOBAL_RESOURCES = {"industry-types", "industry-fields"}
 
 
 def resolve_model_info(model_class) -> tuple[str | None, bool]:
