@@ -277,7 +277,13 @@ def has_permission(
     for req_key in req_list:
         domain = _domain_of(req_key)
         req_action = _action_of(req_key)
-        req_rank = _domain_action_rank(domain).get(req_action, 0)
+        ranks = _domain_action_rank(domain)
+        if req_action not in ranks:
+            # fail-closed：required key 的 action 不在目录等级表内（拼错 key /
+            # 目录漂移）时直接拒绝，而非落到 rank 0 被任意 view 满足。
+            # 目录是闭集且装饰处经静态审计全部合法，正常路径不受影响。
+            return False
+        req_rank = ranks[req_action]
         # 用户持有该域任一动作且等级 ≥ 所需即满足
         satisfied = False
         for p in perms:
