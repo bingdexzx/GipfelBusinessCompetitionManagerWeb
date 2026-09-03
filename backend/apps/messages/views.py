@@ -63,6 +63,8 @@ def _detect_image_mime(head: bytes) -> str | None:
     return None
 _MAX_RECIPIENTS = 500
 _SENT_TAKE = 500  # 与原 NestJS sent/inbox 的 take 上限一致
+# 消息图片单文件上限 10MB（与通用 files/UploadView 一致）
+_MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
 
 # ==================== 辅助 ====================
@@ -259,6 +261,21 @@ class UploadImageView(APIView):
         file = request.FILES.get("file")
         if not file:
             raise BusinessError("未收到文件", code=400, status_code=400)
+        # 修复 DoS 缺口：此前无大小校验，攻击者可上传 GB 级文件耗尽磁盘。
+        # 用 request.META 的 Content-Length 做早失败；f.size 兜底（multipart 已分块）。
+        content_length = request.META.get("CONTENT_LENGTH")
+        if content_length and content_length.isdigit() and int(content_length) > _MAX_IMAGE_BYTES:
+            raise BusinessError(
+                f"图片文件大小不能超过 {_MAX_IMAGE_BYTES // (1024 * 1024)}MB",
+                code=400,
+                status_code=400,
+            )
+        if file.size > _MAX_IMAGE_BYTES:
+            raise BusinessError(
+                f"图片文件大小不能超过 {_MAX_IMAGE_BYTES // (1024 * 1024)}MB",
+                code=400,
+                status_code=400,
+            )
         # 越权/类型混淆修复（M17）：只读文件头 12 字节做魔数校验，
         # 不信任客户端声明的 content_type；校验通过后再按真实格式落盘。
         head = file.read(12)

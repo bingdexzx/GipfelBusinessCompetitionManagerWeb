@@ -424,7 +424,13 @@ def clamp_pb(v: float) -> float:
 
 
 def resolve_effective_pbs(stocks: list) -> dict[int, float]:
-    """批量计算股票的有效 PE。"""
+    """批量计算股票的有效 PE。
+
+    与原实现一致：value 非数值或 default 非数值时静默 fallback 到产业 PE；
+    现改为 logger.warning 留据，便于排查"为什么 PE 与公司字段值对不上"。
+    玩家填写垃圾数据时仍按 fallback 行为工作（避免拖崩列表渲染），
+    但后台记录每条非法值供管理员复查。
+    """
     result: dict[int, float] = {}
     linked = [s for s in stocks if getattr(s, "pb_company_id", None) and getattr(s, "pb_field_id", None)]
     if linked:
@@ -437,21 +443,40 @@ def resolve_effective_pbs(stocks: list) -> dict[int, float]:
         for fv in CompanyFieldValue.objects.filter(
             company_id__in=company_ids, industry_field_id__in=field_ids
         ):
+            if fv.value is None:
+                continue
             try:
-                n = float(fv.value) if fv.value is not None else float("nan")
+                n = float(fv.value)
                 if math.isfinite(n):
                     val_map[(fv.company_id, fv.industry_field_id)] = n
+                else:
+                    logger.warning(
+                        "resolve_effective_pbs: 非有限值 company_id=%s field_id=%s value=%r，回退到 industry_pe",
+                        fv.company_id, fv.industry_field_id, fv.value,
+                    )
             except (ValueError, TypeError):
-                pass
+                logger.warning(
+                    "resolve_effective_pbs: value 无法解析为浮点 company_id=%s field_id=%s value=%r",
+                    fv.company_id, fv.industry_field_id, fv.value,
+                )
         default_map: dict[int, float] = {}
         for f in IndustryField.objects.filter(pk__in=field_ids):
-            if f.default_value is not None:
-                try:
-                    n = float(f.default_value)
-                    if math.isfinite(n):
-                        default_map[f.id] = n
-                except (ValueError, TypeError):
-                    pass
+            if f.default_value is None:
+                continue
+            try:
+                n = float(f.default_value)
+                if math.isfinite(n):
+                    default_map[f.id] = n
+                else:
+                    logger.warning(
+                        "resolve_effective_pbs: IndustryField 非有限默认值 field_id=%s default_value=%r",
+                        f.id, f.default_value,
+                    )
+            except (ValueError, TypeError):
+                logger.warning(
+                    "resolve_effective_pbs: IndustryField default 无法解析 field_id=%s default_value=%r",
+                    f.id, f.default_value,
+                )
         for s in linked:
             v = val_map.get((s.pb_company_id, s.pb_field_id))
             if v is None:
