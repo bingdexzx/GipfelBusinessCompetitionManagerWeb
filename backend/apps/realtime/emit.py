@@ -128,30 +128,30 @@ MODEL_TO_RESOURCE: dict[str, str] = {
     "Product": "products",
     "ProductPart": None,
     "ProductTechRequirement": None,
-    "TechNode": "techNodes",
+    "TechNode": "tech-nodes",
     "TechPrerequisite": None,
-    "MapNodeType": "mapNodeTypes",
-    "PathType": "pathTypes",
-    "MapNode": "mapNodes",
-    "MapEdge": "mapEdges",
+    "MapNodeType": "map-node-types",
+    "PathType": "path-types",
+    "MapNode": "map-nodes",
+    "MapEdge": "map-edges",
     "Infrastructure": "infrastructures",
     "Fuel": "fuels",
     "Vehicle": "vehicles",
     "VehiclePathType": None,
     "Warehouse": "warehouses",
-    "ProductionLine": "productionLines",
+    "ProductionLine": "production-lines",
     # P2
-    "IndustryType": "industryTypes",
+    "IndustryType": "industry-types",
     "IndustryField": None,
     "Company": "companies",
     "CompanyFieldValue": None,
-    "ContractType": "contractTypes",
+    "ContractType": "contract-types",
     "Contract": "contracts",
     "ContractFieldEffect": None,
-    "Region": "regions",
-    "ConsumerDemand": "consumerDemands",
+    "Region": "region",
+    "ConsumerDemand": "consumer-demand",
     # P3
-    "Message": "messages",
+    "Message": "message",
     "MessageRecipient": None,
     "Stock": "stocks",
     "StockFundsAccount": "stock-accounts",
@@ -160,7 +160,7 @@ MODEL_TO_RESOURCE: dict[str, str] = {
     "StockCandle": "stock-candles",
 }
 
-GLOBAL_RESOURCES = {"industryTypes"}
+GLOBAL_RESOURCES = {"industry-types"}
 
 
 def resolve_model_info(model_class) -> tuple[str | None, bool]:
