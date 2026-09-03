@@ -11,7 +11,7 @@ from apps.common.helpers import assert_competition_exists as _assert_competition
 class FuelSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)
     name = serializers.CharField(max_length=255, trim_whitespace=True)
-    pricePerLiter = serializers.FloatField()
+    pricePerLiter = serializers.DecimalField(max_digits=18, decimal_places=4)
     competitionId = serializers.IntegerField()
     createdAt = serializers.DateTimeField(read_only=True)
     updatedAt = serializers.DateTimeField(read_only=True)

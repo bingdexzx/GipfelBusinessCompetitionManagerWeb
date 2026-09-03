@@ -21,7 +21,7 @@ import logging
 import math
 import random
 import threading
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Any, Iterable
 
 from django.db import connection, transaction
@@ -30,16 +30,27 @@ from apps.common.exceptions import BusinessError
 
 logger = logging.getLogger("gipfel")
 
-EPS = 1e-9
+EPS = Decimal("1e-9")
 
 
 # ==================== 基础数值工具 ====================
-def round2(v: float) -> float:
-    """保留 2 位小数（股价精度），用 Decimal 避免 float 累计误差。"""
+def round2(v) -> Decimal:
+    """保留 2 位小数（股价精度），用 Decimal 避免 float 累计误差。
+
+    接受 Decimal/float/int/str 输入，统一转 Decimal 后四舍五入到 0.01。
+    返回 Decimal（写入 DecimalField 时无需再转 float）。
+    """
+    if isinstance(v, Decimal):
+        d = v
+    else:
+        try:
+            d = Decimal(str(v))
+        except (ValueError, ArithmeticError, TypeError):
+            return Decimal("0")
     try:
-        return float(Decimal(str(v)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-    except (ValueError, ArithmeticError, TypeError):
-        return 0.0
+        return d.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError):
+        return Decimal("0")
 
 
 def clamp(v: float, lo: float, hi: float) -> float:
@@ -48,8 +59,11 @@ def clamp(v: float, lo: float, hi: float) -> float:
 
 
 def candle_noise(seed_a: float, seed_b: float) -> float:
-    """确定性伪随机：由两个种子派生 [0,1) 的伪随机数（正弦哈希，可复现）。"""
-    x = math.sin(seed_a * 127.1 + seed_b * 311.7) * 43758.5453
+    """确定性伪随机：由两个种子派生 [0,1) 的伪随机数（正弦哈希，可复现）。
+
+    输入可能是 Decimal/float/int，内部统一转 float（这是图形指标，非账目）。
+    """
+    x = math.sin(float(seed_a) * 127.1 + float(seed_b) * 311.7) * 43758.5453
     return x - math.floor(x)
 
 
@@ -189,26 +203,31 @@ def build_candle(
     theoretical: float | None = None,
     limit_pct: float = 0.1,
 ) -> dict:
-    """构建 K 线数据。"""
-    upper = round2(open_ * (1 + limit_pct))
-    lower = round2(open_ * (1 - limit_pct))
+    """构建 K 线数据。
+
+    内部保持 float 运算（影线是图形指标，精度足够），
+    仅在最后用 round2 截断到 0.01。
+    """
+    upper = float(round2(Decimal(str(open_)) * (Decimal("1") + Decimal(str(limit_pct)))))
+    lower = float(round2(Decimal(str(open_)) * (Decimal("1") - Decimal(str(limit_pct)))))
     range_ = upper - lower
 
-    body_high = max(open_, close)
-    body_low = min(open_, close)
+    # body_high/low 可能是 Decimal（来自 ORM/price["final"]），统一转 float 后再计算
+    body_high = float(max(open_, close))
+    body_low = float(min(open_, close))
 
     high = body_high
     low = body_low
     if theoretical is not None and math.isfinite(theoretical):
-        t = min(max(theoretical, lower), upper)
+        t = float(min(max(theoretical, lower), upper))
         high = max(high, t)
         low = min(low, t)
 
     wick = range_ * 0.12
     up_wick = wick * candle_noise(round_, open_)
     down_wick = wick * candle_noise(round_ * 3 + 7, open_)
-    high = round2(min(upper, high + up_wick))
-    low = round2(max(lower, low - down_wick))
+    high = float(round2(min(upper, high + up_wick)))
+    low = float(round2(max(lower, low - down_wick)))
 
     change_pct = (
         float(
@@ -636,7 +655,10 @@ def generate_market_maker_orders(
     else:
         base_quantity = max(
             stock_config["mmMinQty"],
-            min(stock_config["mmMaxQty"], round((stock.total_shares or 0) * 10000 * stock_config["mmDepthPct"])),
+            min(
+                stock_config["mmMaxQty"],
+                int(round(Decimal(str(stock.total_shares or 0)) * 10000 * Decimal(str(stock_config["mmDepthPct"])))),
+            ),
         )
 
     base_price = stock.current_price
@@ -689,15 +711,17 @@ def generate_market_maker_orders(
             StockHolding.objects.create(
                 funds_account_id=mm_account.id,
                 stock_id=stock.id,
-                shares=total_sell_qty,
-                cost_price=base_price,
+                shares=round2(total_sell_qty),
+                cost_price=round2(base_price),
                 competition_id=competition_id,
             )
         else:
-            mm_holding.shares = mm_holding.shares + need_shares
+            mm_holding.shares = Decimal(str(mm_holding.shares)) + Decimal(str(need_shares))
             mm_holding.save(update_fields=["shares"])
-        # 扣减做市商现金
-        mm_account.cash_balance = mm_account.cash_balance - round2(base_price * need_shares)
+        # 扣减做市商现金（Decimal 化，避免 float 累计误差）
+        mm_account.cash_balance = Decimal(str(mm_account.cash_balance)) - round2(
+            Decimal(str(base_price)) * Decimal(str(need_shares))
+        )
         mm_account.save(update_fields=["cash_balance"])
 
     # 回归锚干预
@@ -719,12 +743,17 @@ def generate_market_maker_orders(
         ))
 
     for i in range(1, levels + 1):
-        offset = spread_pct * i
-        sell_price = round2(base_price * (1 + offset))
+        offset = Decimal(str(spread_pct * i))
+        base_d = Decimal(str(base_price))
+        sell_price = round2(base_d * (Decimal("1") + offset))
         sell_qty = base_quantity * i
-        sell_amount = round2(sell_price * sell_qty)
-        buy_price = round2(base_price * (1 - offset))
-        buy_qty = round(sell_amount / buy_price * 1e6) / 1e6 if buy_price > 0 else 0
+        sell_amount = round2(sell_price * Decimal(str(sell_qty)))
+        buy_price = round2(base_d * (Decimal("1") - offset))
+        if buy_price > 0:
+            buy_qty_raw = (Decimal(str(sell_amount)) / Decimal(str(buy_price)))
+            buy_qty = (buy_qty_raw * Decimal("1000000")).quantize(Decimal("1"), rounding=ROUND_HALF_UP) / Decimal("1000000")
+        else:
+            buy_qty = Decimal("0")
         if buy_price > 0 and buy_qty > 0:
             orders.append(StockOrder(
                 stock_id=stock.id,
@@ -732,7 +761,7 @@ def generate_market_maker_orders(
                 side="BUY",
                 price=buy_price,
                 quantity=buy_qty,
-                amount=round2(buy_price * buy_qty),
+                amount=round2(Decimal(str(buy_price)) * buy_qty),
                 status="PENDING",
                 round=current_round,
                 competition_id=competition_id,
@@ -768,7 +797,7 @@ def advance_one_stock(
 
     返回结果 dict（skipped=True 表示跳过）或 None。
     """
-    from .models import StockCandle, StockFundsAccount, StockHolding, StockOrder
+    from .models import Stock, StockCandle, StockFundsAccount, StockHolding, StockOrder
 
     with transaction.atomic():
         # 做市商挂单（建仓/扣款/挂单与撮合同一事务）
@@ -809,19 +838,24 @@ def advance_one_stock(
         cfg = dict(stock_config)
         cfg["limitPct"] = limit_pct
 
-        price = compute_price(
-            {
-                "lastClose": stock.current_price,
-                "buyQty": match["totalBuyQty"],
-                "sellQty": match["totalSellQty"],
-                "matched": match["matched"],
-                "tradePrice": match["tradePrice"],
-                "happiness": effective_happiness(stock, field_map),
-                "currentCarbon": effective_carbon(stock, field_map),
-                "industryAvgCarbon": effective_industry_avg_carbon(stock, field_map),
-            },
-            cfg,
-        )
+        # 把所有数值入口转 float（compute_* 内部按 float 接口运行；
+        # price["final"] 再转 Decimal 用于后续 Decimal 化路径）
+        last_close_dec = Decimal(str(stock.current_price))
+        factors_dec = {
+            "lastClose": float(last_close_dec),
+            "buyQty": float(match["totalBuyQty"]),
+            "sellQty": float(match["totalSellQty"]),
+            "matched": match["matched"],
+            "tradePrice": (
+                float(match["tradePrice"]) if match.get("tradePrice") is not None else None
+            ),
+            "happiness": float(effective_happiness(stock, field_map)),
+            "currentCarbon": float(effective_carbon(stock, field_map)),
+            "industryAvgCarbon": float(effective_industry_avg_carbon(stock, field_map)),
+        }
+        price = compute_price(factors_dec, cfg)
+        # 把 final 转 Decimal 用于后续 Decimal 化路径（candle 入库、K 线保存等）
+        price["final"] = Decimal(str(price["final"]))
 
         # 撮合不成交 → 平盘，价格不动、不生成 K 线
         if not match["matched"]:
@@ -840,8 +874,8 @@ def advance_one_stock(
                 "sellAmount": match["totalSellAmount"],
             }
 
-        # 账户现金 / 持仓运行时快照
-        cash_map: dict[int, float] = {}
+        # 账户现金 / 持仓运行时快照（统一 Decimal，规避 float 累计误差）
+        cash_map: dict[int, Decimal] = {}
         account_objs: dict[int, StockFundsAccount] = {}
         for o in orders:
             if o.funds_account_id not in cash_map:
@@ -849,14 +883,19 @@ def advance_one_stock(
                 account_objs[o.funds_account_id] = acc
                 if acc.bind_field_id and acc.company_id:
                     v = resolve_field_value_or_default(acc.company_id, acc.bind_field_id)
-                    cash_map[o.funds_account_id] = v if v is not None else acc.cash_balance
+                    cash_map[o.funds_account_id] = (
+                        Decimal(str(v)) if v is not None else Decimal(str(acc.cash_balance))
+                    )
                 else:
-                    cash_map[o.funds_account_id] = acc.cash_balance
+                    cash_map[o.funds_account_id] = Decimal(str(acc.cash_balance))
 
         account_ids = list(cash_map.keys())
         holding_map: dict[int, dict] = {}
         for h in StockHolding.objects.filter(stock_id=stock.id, funds_account_id__in=account_ids):
-            holding_map[h.funds_account_id] = {"shares": h.shares, "costPrice": h.cost_price}
+            holding_map[h.funds_account_id] = {
+                "shares": Decimal(str(h.shares)),
+                "costPrice": Decimal(str(h.cost_price)),
+            }
         touched_accounts: set[int] = set()
 
         # 价格-时间优先撮合
@@ -868,10 +907,10 @@ def advance_one_stock(
             [o for o in orders if o.side == "SELL"],
             key=lambda o: (o.price, o.created_at),
         )
-        buy_rem = {o.id: o.quantity for o in buys}
-        sell_rem = {o.id: o.quantity for o in sells}
-        filled: dict[int, float] = {}
-        trade_price = match["tradePrice"]
+        buy_rem: dict[int, Decimal] = {o.id: Decimal(str(o.quantity)) for o in buys}
+        sell_rem: dict[int, Decimal] = {o.id: Decimal(str(o.quantity)) for o in sells}
+        filled: dict[int, Decimal] = {}
+        trade_price = Decimal(str(match["tradePrice"])) if match.get("tradePrice") is not None else None
 
         bi = 0
         si = 0
@@ -885,27 +924,31 @@ def advance_one_stock(
             # 它可能越出某笔委托的限价（例：买单挂 9.2、卖单挂 9，中点 9.5 会让买方
             # 以高于自己限价的价格买入）。故把成交价夹到 [卖价, 买价] 区间内，
             # 保证成交不违反任何一方的限价委托语义（此处已确保 sell.price <= buy.price）。
-            pair_price = min(max(trade_price, sell.price), buy.price)
+            pair_price = min(
+                max(trade_price, Decimal(str(sell.price))),
+                Decimal(str(buy.price)),
+            )
             buy_cash = cash_map[buy.funds_account_id]
             if qty * pair_price > buy_cash + EPS:
                 qty = buy_cash / pair_price
                 if qty <= EPS:
-                    buy_rem[buy.id] = 0
+                    buy_rem[buy.id] = Decimal("0")
                     bi += 1
                     continue
             sell_hold = holding_map.get(sell.funds_account_id)
-            sell_shares = sell_hold["shares"] if sell_hold else 0
+            sell_shares = sell_hold["shares"] if sell_hold else Decimal("0")
             if qty > sell_shares + EPS:
                 qty = sell_shares
                 if qty <= EPS:
-                    sell_rem[sell.id] = 0
+                    sell_rem[sell.id] = Decimal("0")
                     si += 1
                     continue
-            qty = round(qty * 1e6) / 1e6
+            # 6 位小数微调（保留买卖双方分摊精度，不入账）
+            qty = (qty * Decimal("1000000")).quantize(Decimal("1"), rounding=ROUND_HALF_UP) / Decimal("1000000")
 
             # 买入方：现金减少，持仓增加（加权成本）
             cash_map[buy.funds_account_id] = cash_map[buy.funds_account_id] - qty * pair_price
-            bh = holding_map.get(buy.funds_account_id, {"shares": 0, "costPrice": 0})
+            bh = holding_map.get(buy.funds_account_id, {"shares": Decimal("0"), "costPrice": Decimal("0")})
             new_shares = bh["shares"] + qty
             new_cost = (
                 (bh["shares"] * bh["costPrice"] + qty * pair_price) / new_shares
@@ -915,16 +958,16 @@ def advance_one_stock(
             holding_map[buy.funds_account_id] = {"shares": new_shares, "costPrice": new_cost}
             # 卖出方：现金增加，持仓减少
             cash_map[sell.funds_account_id] = cash_map[sell.funds_account_id] + qty * pair_price
-            sh = holding_map.get(sell.funds_account_id, {"shares": 0, "costPrice": 0})
+            sh = holding_map.get(sell.funds_account_id, {"shares": Decimal("0"), "costPrice": Decimal("0")})
             holding_map[sell.funds_account_id] = {
-                "shares": max(0, sh["shares"] - qty),
+                "shares": max(Decimal("0"), sh["shares"] - qty),
                 "costPrice": sh["costPrice"],
             }
 
             touched_accounts.add(buy.funds_account_id)
             touched_accounts.add(sell.funds_account_id)
-            filled[buy.id] = filled.get(buy.id, 0) + qty
-            filled[sell.id] = filled.get(sell.id, 0) + qty
+            filled[buy.id] = filled.get(buy.id, Decimal("0")) + qty
+            filled[sell.id] = filled.get(sell.id, Decimal("0")) + qty
 
             buy_rem[buy.id] = buy_rem[buy.id] - qty
             sell_rem[sell.id] = sell_rem[sell.id] - qty
@@ -939,11 +982,11 @@ def advance_one_stock(
         # 现金（绑定字段的账户更新字段值，否则更新账户余额）
         for acc_id, cash in cash_map.items():
             acc = account_objs.get(acc_id)
+            rounded_cash = round2(cash)
             if acc is not None and acc.bind_field_id and acc.company_id:
-                rounded_cash = round2(cash)
                 write_field_value_in_tx(acc.company_id, acc.bind_field_id, str(rounded_cash))
             else:
-                StockFundsAccount.objects.filter(pk=acc_id).update(cash_balance=round2(cash))
+                StockFundsAccount.objects.filter(pk=acc_id).update(cash_balance=rounded_cash)
 
         # 持仓（仅被撮合涉及的账户）
         for acc_id in touched_accounts:
@@ -955,8 +998,8 @@ def advance_one_stock(
                     funds_account_id=acc_id,
                     stock_id=stock.id,
                     defaults={
-                        "shares": h["shares"],
-                        "cost_price": h["costPrice"],
+                        "shares": round2(h["shares"]),
+                        "cost_price": round2(h["costPrice"]),
                         "competition_id": competition_id,
                     },
                 )
@@ -965,22 +1008,27 @@ def advance_one_stock(
 
         # 订单状态
         for o in orders:
-            f = filled.get(o.id, 0)
+            f = filled.get(o.id, Decimal("0"))
             if f > EPS:
-                remaining = o.quantity - f
+                remaining = Decimal(str(o.quantity)) - f
                 if remaining <= EPS:
                     StockOrder.objects.filter(pk=o.id).update(status="FILLED")
                 else:
                     StockOrder.objects.filter(pk=o.id).update(
-                        quantity=round(remaining * 1e6) / 1e6,
-                        amount=round2(o.price * remaining),
+                        quantity=round2(remaining),
+                        amount=round2(Decimal(str(o.price)) * remaining),
                     )
 
-        # K 线
+        # K 线（snake_case 字段映射，build_candle 返回驼峰）
         StockCandle.objects.create(
             stock_id=stock.id,
             competition_id=competition_id,
-            **candle,
+            open=candle["open"],
+            high=candle["high"],
+            low=candle["low"],
+            close=candle["close"],
+            change_pct=candle["changePct"],
+            round=candle["round"],
         )
         # 股票价 / 轮次
         Stock.objects.filter(pk=stock.id).update(current_price=price["final"], round=new_round)

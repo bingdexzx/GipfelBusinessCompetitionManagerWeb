@@ -18,9 +18,12 @@ class Vehicle(models.Model):
         on_delete=models.PROTECT,
         related_name="vehicles",
     )
+    # 油耗/载货：均为比率/容量配置，可保留 Float
     fuel_consumption_per_km = models.FloatField()
     max_cargo = models.FloatField()
-    price = models.FloatField()
+    # 价格：玩家购买场景，必须 Decimal
+    price = models.DecimalField(max_digits=18, decimal_places=4)
+    # 碳排：派生系数，Float 足够
     carbon_emission = models.FloatField()
     competition = models.ForeignKey(
         "competitions.Competition",

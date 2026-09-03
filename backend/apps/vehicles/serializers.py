@@ -11,6 +11,8 @@ vehiclePathTypes: { include: pathType } }）：
 """
 from __future__ import annotations
 
+from decimal import Decimal
+
 from django.db import models
 from rest_framework import serializers
 
@@ -47,9 +49,10 @@ class VehicleSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)
     name = serializers.CharField(max_length=128, trim_whitespace=True)
     fuelId = serializers.IntegerField()
+    # 油耗/载货是系数/容量，Float 足够；价格必须 Decimal。
     fuelConsumptionPerKm = serializers.FloatField(min_value=0)
     maxCargo = serializers.FloatField(min_value=0)
-    price = serializers.FloatField(min_value=0)
+    price = serializers.DecimalField(max_digits=18, decimal_places=4, min_value=Decimal("0"))
     carbonEmission = serializers.FloatField(min_value=0)
     competitionId = serializers.IntegerField()
     vehiclePathTypes = VehiclePathTypeItemSerializer(many=True, required=False)

@@ -6,7 +6,8 @@ class Fuel(models.Model):
     """燃料（比赛级基础数据）。删除比赛时级联删除。"""
 
     name = models.CharField(max_length=255)
-    price_per_liter = models.FloatField()
+    # 燃料单价：玩家购买时累加到现金支出，浮点累计会漂。改 Decimal。
+    price_per_liter = models.DecimalField(max_digits=18, decimal_places=4)
     competition = models.ForeignKey(
         "competitions.Competition",
         on_delete=models.CASCADE,
