@@ -1,4 +1,4 @@
-"""增量查询公共工具：对应原 server/src/common/sync.ts。
+"""增量查询公共工具。
 
 列表接口支持 updatedAfter=<ISO> 参数时，仅返回 updatedAt 晚于该基线的条目，
 同时返回 existingIds 让前端据此 diff 出被删除的本地副本，实现增量同步。

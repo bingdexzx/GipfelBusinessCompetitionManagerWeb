@@ -1,4 +1,4 @@
-"""审计日志模型：对应原 Prisma AuditLog。"""
+"""审计日志模型。"""
 from django.db import models
 
 

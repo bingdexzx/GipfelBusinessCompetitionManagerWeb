@@ -1,4 +1,4 @@
-"""文件上传视图：对应原 NestJS FilesController / FilesService。
+"""文件上传视图。
 
 权限：map-background 读 data:map:view，写 data:map:edit；generic upload 仅需认证。
 路由由 backend.urls 以 path("api/", include("apps.files.urls")) 引入。

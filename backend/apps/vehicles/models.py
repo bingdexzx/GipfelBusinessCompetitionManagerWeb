@@ -1,7 +1,6 @@
-"""载具与通行路径类型模型：对应原 Prisma Vehicle / VehiclePathType。
+"""载具与通行路径类型模型。
 
-Vehicle.fuel 使用 PROTECT（对应 Prisma onDelete: Restrict）：被引用的燃料不允许
-直接删除。VehiclePathType 为复合主键关联表（Prisma @@id），沿用本仓库既定约定：
+Vehicle.fuel 使用 PROTECT：被引用的燃料不允许直接删除。VehiclePathType 为复合主键关联表，沿用本仓库既定约定：
 自增 id 作主键 + unique_together 表达复合唯一约束。
 
 fuel / pathType 位于尚未创建的兄弟应用，使用字符串外键引用，于迁移/运行期解析。

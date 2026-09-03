@@ -1,4 +1,4 @@
-"""区域模型：对应原 Prisma Region。"""
+"""区域模型。"""
 from django.db import models
 
 

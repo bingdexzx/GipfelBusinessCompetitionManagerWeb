@@ -1,4 +1,4 @@
-"""删除产业字段后清理悬空引用：对应原 server/src/common/field-ref-cleanup.ts。
+"""删除产业字段后清理悬空引用。
 
 - timerValue === "field:<deletedFieldKey>" → 置空
 - calcGraph 中 type:"value" 且 data.fieldKey === deletedFieldKey 的节点 → 移除节点及相关边

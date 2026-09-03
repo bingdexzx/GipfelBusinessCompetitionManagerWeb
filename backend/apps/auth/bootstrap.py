@@ -1,4 +1,4 @@
-"""默认超管种子写入：对应原 NestJS onModuleInit 中的 ensureSeedAdmin。
+"""默认超管种子写入。
 
 首次 migrate 后自动写入两类超级管理员，均从 .env（SEED_ADMIN_*）读取凭据：
 1. 业务超管 —— apps.users.User（表 `users`），前端 JWT 登录用，role=SUPER_ADMIN。

@@ -80,7 +80,7 @@ export const SEG_TO_RESOURCE: Record<string, string> = {
   "stock-holdings": "stockHolding", // 股票持仓（细分资源，S6 修复）
   "stock-candles": "stockCandle", // 股票 K 线（细分资源，S6 修复）
   "company-fields": "companyField", // 公司产业字段（派生集合，由 request.ts 特殊处理）
-  "consumer-demands": "consumer-demand", // 消费者需求（后端有资源且广播删除，此前漏登记导致重连对账跳过）
+  "consumer-demands": "consumer-demand", // 消费者需求（后端有资源且广播删除）
   maps: "map", // 仅用于 /maps/full（复合地图由 request.ts 特殊处理）
 };
 

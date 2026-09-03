@@ -1,4 +1,4 @@
-"""比赛与财年模型：对应原 Prisma Competition / FiscalYear。"""
+"""比赛与财年模型。"""
 from django.db import models
 
 

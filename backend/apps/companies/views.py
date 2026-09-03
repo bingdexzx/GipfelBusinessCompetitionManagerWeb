@@ -1,4 +1,4 @@
-"""公司视图：对应原 NestJS CompanyController / CompanyService。
+"""公司视图。
 
 权限：读 company:view，写 company:manage。
 路由由 backend.urls 以 path("api/", include("apps.companies.urls")) 引入。

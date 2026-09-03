@@ -1,4 +1,4 @@
-"""用户模型：对应原 Prisma User。
+"""用户模型。
 
 注意：Django 自带 auth.User 与本系统 User 字段差异较大（权限范围字段、role 枚举、
 tokenVersion 等），故自定义 AbstractBaseUser 体系，避免与 contrib.auth.User 冲突。
@@ -22,10 +22,9 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractBaseUser):
-    """与原 Prisma User 字段 1:1 对应。
+    """用户模型。
 
-    permissions/companyScopes 等 JSON 字段用 TextField 存原始 JSON 字符串
-    （与原 Prisma String? 存 JSON 一致，避免迁移期格式差异）。
+    permissions/companyScopes 等 JSON 字段用 TextField 存原始 JSON 字符串。
     """
 
     ROLE_CHOICES = [

@@ -1,4 +1,4 @@
-"""异常处理器：对应原 NestJS HttpExceptionFilter。
+"""异常处理器。
 
 - 5xx 返回通用中文提示，不暴露堆栈
 - 异常上下文入 AuditLog（脱敏）
@@ -19,7 +19,7 @@ logger = logging.getLogger("gipfel")
 
 
 class FieldWriteConflictException(APIException):
-    """乐观锁冲突（409）。对应原 common/exceptions/field-write-conflict.exception.ts。"""
+    """乐观锁冲突（409）。"""
 
     status_code = status.HTTP_409_CONFLICT
     default_detail = "数据冲突，请刷新后重试"
@@ -79,7 +79,7 @@ def _http_status(code: int) -> int:
 
 
 def _drf_message(exc, response) -> str:
-    """DRF 默认异常 → 中文提示。对应原 request.ts 的 statusText 映射。"""
+    """DRF 默认异常 → 中文提示。"""
     status_code = response.status_code
     detail = getattr(exc, "detail", None)
 

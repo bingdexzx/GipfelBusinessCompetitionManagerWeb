@@ -1,10 +1,9 @@
-"""产品视图：对应原 NestJS ProductController（/api/products）。
+"""产品视图。
 
 权限：data:product:view / data:product:edit。比赛域隔离由 base_crud + _get_object 保证。
 
 列表/详情带嵌套 include（productParts.part、techRequirements.techNode）。
-创建/更新在事务内全量替换嵌套关联（delete old + create new），与原 NestJS
-product.service.ts 的 $transaction 逻辑一致。
+创建/更新在事务内全量替换嵌套关联（delete old + create new）。
 """
 from __future__ import annotations
 
@@ -34,7 +33,7 @@ _PREFETCH = ("product_parts__part", "tech_requirements__tech_node")
 
 
 def _name_conflict(competition_id, name, exclude_id=None) -> None:
-    """比赛域内名称唯一冲突检测（对应原 ConflictException）。"""
+    """比赛域内名称唯一冲突检测。"""
     if not name:
         return
     qs = Product.objects.filter(competition_id=competition_id, name=name)
@@ -161,7 +160,7 @@ class ProductImpactView(_ProductBase, CrudImpactView):
         if c2:
             children.append({"label": "科技树需求关联", "count": c2})
         # ConsumerDemand 属于 consumer_demands 应用，运行时（请求期）必然已注册，
-        # 延迟导入避免循环依赖。productId 在 Prisma 为可空（SetNull），仅统计引用数。
+        # 延迟导入避免循环依赖。productId 可空，仅统计引用数。
         from apps.consumer_demands.models import ConsumerDemand
 
         c3 = ConsumerDemand.objects.filter(product_id=instance.id).count()

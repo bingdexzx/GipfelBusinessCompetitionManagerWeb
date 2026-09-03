@@ -1,4 +1,4 @@
-"""股票系统视图：对应原 NestJS StockController / StockService。
+"""股票系统视图。
 
 权限：view=stock:view，edit=stock:edit，manage=stock:manage。
 路由由 backend.urls 以 path("api/", include("apps.stock.urls")) 引入。
@@ -853,7 +853,7 @@ class OrderItemView(APIView):
             raise BusinessError("仅可撤销挂单", code=400, status_code=400)
         order.status = "CANCELLED"
         order.save(update_fields=["status"])
-        # 撤单广播：此前缺事件，其他端点的挂单列表会一直显示已撤销的挂单
+        # 撤单广播：否则其他端点挂单列表停留旧值
         emit_resource_changed("stock-orders", order.id, order.competition_id, "updated")
         return Response({
             "id": order.id,

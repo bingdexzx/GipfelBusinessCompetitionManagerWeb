@@ -1,4 +1,4 @@
-"""区域视图：对应原 NestJS RegionController / RegionService。
+"""区域视图。
 
 权限：读 data:region:view，写 data:region:edit。
 路由由 backend.urls 以 path("api/", include("apps.regions.urls")) 引入。
@@ -107,7 +107,7 @@ def _companies_in_region(region: Region) -> list:
 def _parse_location_value(raw) -> str:
     """解析 location 字段值：若为 JSON 字符串 '"北京"' 则解析为 北京；否则去空格返回。
 
-    对应原 NestJS parseLocationValue。
+    
     """
     if raw is None:
         return ""
@@ -125,7 +125,7 @@ def _parse_location_value(raw) -> str:
 def _resolve_cards(cards: list, competition_id: int) -> list:
     """解析概览卡片：补全公司/产业字段信息并计算 value，缺项标记 valid=False。
 
-    对应原 NestJS RegionService.resolveCards：
+    
     - 查公司 → 取其 industry_type + 字段
     - 按字段 id 查 IndustryField
     - 查 CompanyFieldValue(companyId, industryFieldId) → card.value = fv.value 或 field.default_value
@@ -183,7 +183,7 @@ def _resolve_cards(cards: list, competition_id: int) -> list:
 def _local_companies(region_name: str, competition_id: int) -> list:
     """返回落在该区域（按 location 字段值匹配地图节点名）的公司。
 
-    对应原 NestJS getLocalCompanies：
+    
     - 取该区域下所有 MapNode 名
     - 查 field_key=='location' 的 IndustryField
     - 查对应 CompanyFieldValue，解析 location 值，匹配节点名

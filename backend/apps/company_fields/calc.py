@@ -7,9 +7,9 @@
   VAR（运行期变量，assign 产出）/ CONSUMER_DEMAND（消费者需求总数·按所在地）
 - 连线：{source, target, sourceHandle, targetHandle}，入参按 handle 名取上游节点值
 
-求值语义与合同引擎 eval_value_spec 对齐（CONST/OP/FORMULA/VAR 同构），因此直接复用
-合同引擎的算子与沙箱，避免两套实现漂移。字段间依赖（计算字段引用计算字段）按
-拓扑序求值；单字段失败记日志跳过，不中断其余字段。
+求值语义与合同引擎 eval_value_spec 对齐（CONST/OP/FORMULA/VAR 同构），直接复用
+合同引擎的算子与沙箱。字段间依赖（计算字段引用计算字段）按拓扑序求值；
+单字段失败记日志跳过，不中断其余字段。
 """
 from __future__ import annotations
 

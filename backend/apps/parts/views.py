@@ -1,10 +1,9 @@
-"""零件视图：对应原 NestJS PartController（/api/parts）。
+"""零件视图。
 
 权限：data:part:view / data:part:edit。比赛域隔离由 base_crud + _get_object 保证。
 
 列表/详情带嵌套 include（partMaterials.material、techRequirements.techNode）。
-创建/更新在事务内全量替换嵌套关联（delete old + create new），与原 NestJS
-part.service.ts 的 $transaction 逻辑一致。
+创建/更新在事务内全量替换嵌套关联（delete old + create new）。
 """
 from __future__ import annotations
 
@@ -34,7 +33,7 @@ _PREFETCH = ("part_materials__material", "tech_requirements__tech_node")
 
 
 def _name_conflict(competition_id, name, exclude_id=None) -> None:
-    """比赛域内名称唯一冲突检测（对应原 ConflictException）。"""
+    """比赛域内名称唯一冲突检测。"""
     if not name:
         return
     qs = Part.objects.filter(competition_id=competition_id, name=name)

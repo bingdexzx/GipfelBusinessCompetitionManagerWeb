@@ -1,4 +1,4 @@
-"""审计日志视图：对应原 NestJS AuditLogController（/api/audit-logs）。
+"""审计日志视图。
 
 只读列表端点，需登录 + account:manage（超管可见全部审计日志）。
 """

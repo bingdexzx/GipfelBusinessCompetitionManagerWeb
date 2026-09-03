@@ -1,4 +1,4 @@
-"""比赛与财年视图：对应原 NestJS CompetitionsController / FiscalYearsController。
+"""比赛与财年视图。
 
 权限：
 - 列表/详情（GET）仅需登录；非超管只能看到自己所属比赛（比赛域隔离）。
@@ -27,7 +27,7 @@ EVENT_FISCAL_YEAR_CHANGED = "fiscal-year:changed"
 
 
 def _broadcast_fiscal_year(fy: FiscalYear) -> None:
-    """广播 fiscal-year:changed，载荷对齐 NestJS：{competitionId, fiscalYear}。
+    """广播 fiscal-year:changed，载荷：{competitionId, fiscalYear}。
 
     前端 stores/competition.ts 的 handleFiscalYearChanged 依赖该事件即时同步顶部栏
     财年标签（无需 HTTP 回源），并作废本地比赛缓存。
@@ -43,7 +43,7 @@ def _broadcast_fiscal_year(fy: FiscalYear) -> None:
 
 
 def _apply_fiscal_year_timer(competition_id: int, trigger: str) -> None:
-    """触发财年定时器（对齐 NestJS applyFiscalYearTimer）。
+    """触发财年定时器。
 
     延迟导入 company_fields.timer 避免模块间循环依赖。无启用定时器字段时静默返回。
     字段写入后的前端刷新由 timer 内部逐公司 emit_resource_changed("company-field", ...)
@@ -198,7 +198,7 @@ class FiscalYearCreateView(APIView):
         )
         # 新建财年即「财年开始」，与 update 对齐广播，使各端顶部栏即刻同步。
         _broadcast_fiscal_year(fy)
-        # 财年定时器：FY_START 触发本比赛全部启用该时机的产业字段写入（对齐 NestJS）。
+        # 财年定时器：FY_START 触发本比赛全部启用该时机的产业字段写入。
         _apply_fiscal_year_timer(comp.id, "FY_START")
         return Response(FiscalYearSerializer(fy).data)
 
@@ -218,8 +218,7 @@ class FiscalYearUpdateView(APIView):
             fy.status = serializer.validated_data["status"]
         if "year" in serializer.validated_data:
             new_year = serializer.validated_data["year"]
-            # 唯一性修复（M16）：更新财年年份时校验 (competition, year) 不冲突，
-            # 与创建接口的约束保持一致，避免同比赛出现重复财年。
+            # 更新财年年份时校验 (competition, year) 不冲突，与创建接口约束一致。
             if new_year != fy.year and FiscalYear.objects.filter(
                 competition_id=fy.competition_id, year=new_year
             ).exclude(pk=fy.pk).exists():
@@ -229,7 +228,7 @@ class FiscalYearUpdateView(APIView):
         # 财年开始/关闭后广播，使各端顶部栏与财年列表即刻同步。
         _broadcast_fiscal_year(fy)
         # 财年定时器：非 ACTIVE→ACTIVE 视为 FY_START；非 CLOSED→CLOSED 视为 FY_END
-        # （对齐 NestJS updateFiscalYear 的 trigger 推导；其它状态切换不触发）。
+        # （由状态切换推导 trigger；其它状态切换不触发）。
         new_status = fy.status
         if prev_status != "ACTIVE" and new_status == "ACTIVE":
             _apply_fiscal_year_timer(fy.competition_id, "FY_START")

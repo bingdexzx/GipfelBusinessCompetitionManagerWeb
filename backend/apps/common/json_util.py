@@ -1,4 +1,4 @@
-"""JSON 解析工具：对应原 server/src/common/json.util.ts。"""
+"""JSON 解析工具。"""
 from __future__ import annotations
 
 import json

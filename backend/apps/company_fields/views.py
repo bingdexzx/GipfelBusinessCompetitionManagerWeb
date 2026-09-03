@@ -1,4 +1,4 @@
-"""公司产业字段视图：对应原 NestJS CompanyFieldsController / CompanyFieldsService。
+"""公司产业字段视图。
 
 权限：读 company:view，写 company:manage。
 路由前缀 /api（由 backend.urls include）。
@@ -33,8 +33,7 @@ def _can_manage(user) -> bool:
 
 
 # 公司读取统一走 apps.common.helpers.get_company_scoped：比赛域 + viewCompanyScopes
-# 双重隔离。此前此处只校验比赛域，被 viewCompanyScopes 限制的用户仍可读写范围外
-# 公司的产业字段值（与 companies.views 的同名实现不一致导致的越权面）。
+# 双重隔离。
 from apps.common.helpers import get_company_scoped as _get_company
 
 

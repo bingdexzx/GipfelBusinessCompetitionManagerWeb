@@ -1,7 +1,6 @@
 """零件序列化器：camelCase 对齐前端契约，含嵌套 include。
 
-输出形如（对应 Prisma include { partMaterials: { include: material },
-techRequirements: { include: techNode } }）：
+输出嵌套结构：
     { id, name, competitionId, createdAt, updatedAt,
       partMaterials: [{ partId, materialId, ratio, material: { ... } }],
       techRequirements: [{ partId, techNodeId, techNode: { ... } }] }

@@ -1,10 +1,9 @@
-"""载具视图：对应原 NestJS VehicleController（/api/vehicles）。
+"""载具视图。
 
 权限：data:vehicle:view / data:vehicle:edit。比赛域隔离由 base_crud + _get_object 保证。
 
 列表/详情带嵌套 include（fuel、vehiclePathTypes.pathType）。
-创建/更新在事务内全量替换 vehiclePathTypes（delete old + create new），与原 NestJS
-vehicle.service.ts 的 $transaction 逻辑一致。fuelId 创建时必填（serializer 约束）。
+创建/更新在事务内全量替换 vehiclePathTypes（delete old + create new）。fuelId 创建时必填（serializer 约束）。
 """
 from __future__ import annotations
 
@@ -47,7 +46,7 @@ _FIELD_MAP = {
 
 
 def _name_conflict(competition_id, name, exclude_id=None) -> None:
-    """比赛域内名称唯一冲突检测（对应原 ConflictException）。"""
+    """比赛域内名称唯一冲突检测。"""
     if not name:
         return
     qs = Vehicle.objects.filter(competition_id=competition_id, name=name)

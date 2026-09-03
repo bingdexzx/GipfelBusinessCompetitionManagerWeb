@@ -1,4 +1,4 @@
-"""产业类型模型：对应原 Prisma IndustryType / IndustryField。
+"""产业类型模型。
 
 产业类型为全局资源（无 competitionId），供各比赛的公司引用。
 """

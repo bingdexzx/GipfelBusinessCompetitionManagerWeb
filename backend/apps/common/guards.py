@@ -1,6 +1,5 @@
 """权限守卫装饰器与 DRF permission 类。
 
-对应原 NestJS：
 - @RequirePermissions() → require_permissions 装饰器
 - PermissionsGuard → PermissionsPermission
 - CompetitionScopeGuard → CompetitionScopePermission

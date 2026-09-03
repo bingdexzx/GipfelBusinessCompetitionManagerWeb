@@ -68,7 +68,7 @@ def serialize_inbox_item(recipient: MessageRecipient, sender_name: str) -> dict:
 
 
 class MessageSerializer(serializers.Serializer):
-    """发布消息入参：对应原 CreateMessageDto。"""
+    """发布消息入参。"""
 
     id = serializers.IntegerField(read_only=True)
     title = serializers.CharField(max_length=255, trim_whitespace=True)
@@ -93,7 +93,7 @@ class MessageSerializer(serializers.Serializer):
         return value
 
     def validate_content(self, value: str) -> str:
-        # 对应原 @MinLength(1)：仅拒绝空字符串，保留正文空白与换行
+        # 仅拒绝空字符串，保留正文空白与换行
         if not value:
             raise serializers.ValidationError("内容不能为空")
         return value

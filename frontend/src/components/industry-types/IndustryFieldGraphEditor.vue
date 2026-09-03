@@ -989,7 +989,7 @@ function select(id: string) {
 }
 function addNode(type: GNodeType) {
   if (type === "output" && outputNode.value) {
-    ElMessage.warning("「输出」节点已存在，计算图只能有一个结果汇点");
+    ElMessage.warning("「输出」节点已存在，仅允许一个结果汇点");
     select(outputNode.value.id);
     return;
   }

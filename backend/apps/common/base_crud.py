@@ -1,4 +1,4 @@
-"""通用 CRUD 基类：对应原 NestJS base-crud.service.ts。
+"""通用 CRUD 基类。
 
 为 materials/parts/products/infrastructures/fuels/vehicles/warehouses/
 production-lines/tech-nodes 等 9 类基础数据提供统一 CRUD + 分页 + 比赛域隔离

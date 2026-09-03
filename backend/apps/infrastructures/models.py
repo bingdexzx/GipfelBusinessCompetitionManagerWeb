@@ -1,4 +1,4 @@
-"""基建模型：对应原 Prisma Infrastructure。"""
+"""基建模型。"""
 from django.db import models
 
 

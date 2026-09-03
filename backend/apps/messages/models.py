@@ -1,4 +1,4 @@
-"""消息中心模型：对应原 Prisma Message / MessageRecipient。
+"""消息中心模型。
 
 收件人在发布时一次性结算为 MessageRecipient 行（「本比赛全体」与显式选人
 取并集去重），因此收件箱与未读状态以 MessageRecipient 为权威来源，与比赛
@@ -12,7 +12,7 @@ class Message(models.Model):
 
     title = models.CharField(max_length=255)
     content = models.TextField()
-    # Prisma 字段 senderId；按需查用户昵称，不建立反向关系以外的耦合
+    # sender_id：按需查用户昵称，不建立额外反向耦合
     sender = models.ForeignKey(
         "users.User",
         on_delete=models.CASCADE,
@@ -55,7 +55,6 @@ class MessageRecipient(models.Model):
         on_delete=models.CASCADE,
         related_name="recipients",
     )
-    # Prisma 字段 receivedMessages
     user = models.ForeignKey(
         "users.User",
         on_delete=models.CASCADE,

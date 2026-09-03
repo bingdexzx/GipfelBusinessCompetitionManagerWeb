@@ -1,4 +1,4 @@
-"""公司模型：对应原 Prisma Company / CompanyFieldValue。"""
+"""公司模型。"""
 from django.db import models
 
 
@@ -40,7 +40,7 @@ class Company(models.Model):
 
 
 class CompanyFieldValue(models.Model):
-    """公司产业字段值（乐观锁 version）。无 created_at，仅 updated_at，与 Prisma 一致。"""
+    """公司产业字段值（乐观锁 version）。无 created_at，仅 updated_at。"""
 
     company = models.ForeignKey(
         Company,

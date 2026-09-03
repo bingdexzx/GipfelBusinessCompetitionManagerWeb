@@ -990,7 +990,7 @@ export const ENTITY_TYPE_LABEL: Record<string, string> = {
   MAP_NODE: "地图节点",
 };
 
-// 各实体的真实业务字段（key 对应 Prisma 模型字段，供引擎按实体读取属性）。
+// 各实体的真实业务字段（供引擎按实体读取属性）。
 // 编辑器按所选实体类型动态列出其字段并中文展示；value 存真实字段名。
 export const ENTITY_FIELDS: Record<string, { key: string; label: string }[]> = {
   MATERIAL: [

@@ -1,4 +1,4 @@
-"""实时广播辅助：对应原 NestJS RealtimeService.emitResourceChanged。
+"""实时广播辅助。
 
 【关键集成点】python-socketio AsyncServer(async_mode="asgi") 的 emit 必须在 ASGI
 事件循环内执行（await sio.emit）；Django HTTP 视图/信号运行在同步线程中，直接
@@ -353,8 +353,7 @@ def emit_to_users(user_ids, event: str, data) -> None:
 def emit_to_competition(competition_id: int | None, event: str, data) -> None:
     """向某比赛房间（comp-<id>）广播自定义事件。
 
-    对应 NestJS RealtimeService.broadcastToCompetition，用于 resource:changed 之外
-    的业务事件（如 fiscal-year:changed / competition:changed）。competition_id 为空
+    用于 resource:changed 之外的业务事件（如 fiscal-year:changed / competition:changed）。competition_id 为空
     时静默跳过，避免误广播到全局。
     """
     if competition_id is None:

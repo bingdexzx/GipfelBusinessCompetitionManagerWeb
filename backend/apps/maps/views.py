@@ -1,4 +1,4 @@
-"""地图视图：对应原 NestJS MapController / MapNodeTypeController /
+"""地图视图。
 PathTypeController / MapNodeController / MapEdgeController。
 
 - GET /api/maps/full —— 一次性返回完整地图数据

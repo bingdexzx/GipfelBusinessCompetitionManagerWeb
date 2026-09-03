@@ -1,4 +1,4 @@
-"""生产线模型：对应原 Prisma ProductionLine。"""
+"""生产线模型。"""
 from django.db import models
 
 

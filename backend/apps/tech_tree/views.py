@@ -1,4 +1,4 @@
-"""科技树视图：对应原 NestJS TechTreeController（/api/tech-nodes）。
+"""科技树视图。
 
 使用 base_crud 基类 + 覆写删除影响。
 """

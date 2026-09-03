@@ -1,4 +1,4 @@
-"""原料模型：对应原 Prisma Material。"""
+"""原料模型。"""
 from django.db import models
 
 

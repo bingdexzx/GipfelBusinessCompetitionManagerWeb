@@ -1,4 +1,4 @@
-"""认证与健康检查视图：对应原 NestJS Health/Version/AuthController。
+"""认证与健康检查视图。
 
 响应经 apps.common.response.JSONRenderer 自动包装为 {code,message,data}：
 视图返回 Response(data)，其中 data 为 dict/list/None 时渲染器自动包装为

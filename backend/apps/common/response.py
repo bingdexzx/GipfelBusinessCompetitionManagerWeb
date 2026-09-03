@@ -1,4 +1,4 @@
-"""统一响应包装：对应原 NestJS ResponseInterceptor。
+"""统一响应包装。
 
 成功：{ code:0, message:"成功", data }
 错误：{ code:<http或业务码>, message:"中文提示", data:null }

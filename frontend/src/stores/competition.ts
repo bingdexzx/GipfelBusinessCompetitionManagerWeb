@@ -62,7 +62,7 @@ export const useCompetitionStore = defineStore("competition", () => {
 
   // 归属比赛的账号自动锁定并显示所属比赛：登录 / 拉取资料后调用。
   // - ownId 非空（PLAYER/COMPETITION_ADMIN 等归属账号）：拉取该比赛详情并 selectCompetition，
-  //   覆盖 localStorage 中可能残留的其他比赛（这正是此前选错比赛导致 403 的根因）。
+  //   覆盖 localStorage 中可能残留的其他比赛。
   // - ownId 为空（null，超管 / 未分配账号）：保持手动选择，不锁定。
   // 幂等：已锁定到同一比赛时直接返回，避免重复请求 / 重订阅。
   async function applyOwnCompetition(ownId: number | null | undefined) {

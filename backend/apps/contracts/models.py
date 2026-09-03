@@ -1,11 +1,11 @@
-"""合同模型：对应原 Prisma ContractType / Contract / ContractFieldEffect。
+"""合同模型。
 
 - ContractType 为全局模板（无 competitionId），存储合同类型 DSL（partyRoles /
   inputSchema / effects / conditions / graph 均为 JSON 文本）。
 - Contract 为比赛级合同实例，状态机 DRAFT/PENDING_EXEC/EXECUTED/TERMINATED。
 - ContractFieldEffect 为合同落账的字段改写不可变审计记录，供删合同时按
   executedAt 重放复原。company_id / industry_field_id 为纯整型列（无外键，
-  避免级联删除影响），与原 Prisma 一致。
+  避免级联删除影响）。
 """
 from django.db import models
 
@@ -86,7 +86,7 @@ class ContractFieldEffect(models.Model):
     """合同字段落账记录（不可变审计行）。
 
     供合同删除时按 executedAt 顺序重放复原字段值。contract 级联删除；
-    company_id / industry_field_id 为纯整型列（无外键，与原 Prisma 一致）。
+    company_id / industry_field_id 为纯整型列（无外键）。
     """
 
     OP_CHOICES = [("ADD", "ADD"), ("SUB", "SUB"), ("SET", "SET")]

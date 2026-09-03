@@ -1,4 +1,4 @@
-"""合同视图：对应原 NestJS ContractController / ContractService +
+"""合同视图。
 ContractTypeController / ContractTypeService。
 
 权限：
@@ -201,7 +201,7 @@ class ContractCollectionAPIView(APIView):
             items = _enrich_party_companies([_serialize_contract(c) for c in rows])
             return Response(paginated_response(items, total, page, page_size))
 
-        # 有范围限制：需解析 JSON parties 做内存过滤，无法下推到数据库（M13 已知限制）。
+        # 有范围限制：需解析 JSON parties 做内存过滤，无法下推到数据库（已知限制）。
         # 仅对持 contract:audit（无 execute）或纯 contract:view 且有公司范围的账号进入此分支，
         # 其可见合同集本身受公司范围约束，实际体量有限；若要支撑超大规模，需对 parties 内
         # 公司 id 做冗余列（如 contract_party_companies 表）以支持 SQL 级过滤。
@@ -506,8 +506,8 @@ def _serialize_contract(contract: Contract) -> dict:
 def _contract_to_engine_dict(contract: Contract) -> dict:
     """把 Django Contract 模型实例转为引擎所需的 dict。
 
-    引擎期望 contract_type 子字典含 camelCase 键 inputSchema
-    （与原 NestJS Prisma 字段名一致），其余 effects/conditions 键名相同。
+    引擎期望 contract_type 子字典含 camelCase 键 inputSchema，
+    其余 effects/conditions 键名相同。
     """
     ct = contract.contract_type
     return {

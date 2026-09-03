@@ -1,4 +1,4 @@
-"""用户管理视图：对应原 NestJS UsersController（/api/users）。
+"""用户管理视图。
 
 响应经 apps.common.response.JSONRenderer 自动包装为 {code,message,data}，
 视图返回 Response(data) 即可。鉴权依赖 IsAuthenticated + PermissionsPermission，

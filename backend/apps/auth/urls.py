@@ -1,4 +1,4 @@
-"""认证路由：对应原 NestJS AuthController 的 /auth/* 端点。
+"""认证路由。
 
 由 backend.urls 以 path("api/auth/", include("apps.auth.urls")) 引入，
 故本文件路由前缀为 api/auth/。

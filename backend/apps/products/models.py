@@ -1,6 +1,6 @@
-"""产品与配比/科技需求模型：对应原 Prisma Product / ProductPart / ProductTechRequirement。
+"""产品与配比/科技需求模型。
 
-ProductPart / ProductTechRequirement 为复合主键关联表（Prisma @@id），沿用本仓库
+ProductPart / ProductTechRequirement 为复合主键关联表，沿用本仓库
 既定约定：自增 id 作主键 + unique_together 表达复合唯一约束。
 """
 from django.db import models

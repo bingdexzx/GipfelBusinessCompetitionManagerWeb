@@ -1,4 +1,4 @@
-"""股票系统模型：对应原 Prisma Stock / StockFundsAccount / StockHolding / StockOrder / StockCandle。
+"""股票系统模型。
 
 注：companyId / userId / bindFieldId / pbCompanyId / pbFieldId 仅以 IntegerField
 保存外键引用（不建立 FK 关系），避免跨应用级联复杂度——它们只是 int 引用。
@@ -31,7 +31,7 @@ class Stock(models.Model):
     pb_company_id = models.IntegerField(null=True, blank=True)
     pb_field_id = models.IntegerField(null=True, blank=True)
     pb_random = models.FloatField(null=True, blank=True)
-    # 价格：init_price / current_price 改 Decimal，避免撮合后股价漂移。
+    # 价格用 Decimal，避免浮点误差累积。
     init_price = models.DecimalField(max_digits=18, decimal_places=4)
     current_price = models.DecimalField(max_digits=18, decimal_places=4)
     round = models.IntegerField(default=0)

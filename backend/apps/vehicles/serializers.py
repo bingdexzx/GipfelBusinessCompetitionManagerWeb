@@ -1,7 +1,6 @@
 """载具序列化器：camelCase 对齐前端契约，含嵌套 include。
 
-输出形如（对应 Prisma include { fuel: true,
-vehiclePathTypes: { include: pathType } }）：
+输出嵌套结构：
     { id, name, fuelId, fuelConsumptionPerKm, maxCargo, price, carbonEmission,
       competitionId, createdAt, updatedAt,
       fuel: { id, name, pricePerLiter, ... },

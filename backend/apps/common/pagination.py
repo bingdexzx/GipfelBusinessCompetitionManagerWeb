@@ -1,4 +1,4 @@
-"""分页工具：对应原 server/src/common/pagination.ts 的 parsePagination()。
+"""分页工具。
 
 约束：pageSize 上限 200（硬约束，防止 DoS 全表扫描）。
 """

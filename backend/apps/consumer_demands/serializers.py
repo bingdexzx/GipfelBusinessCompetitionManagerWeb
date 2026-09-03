@@ -11,7 +11,7 @@ from apps.common.helpers import assert_competition_exists as _assert_competition
 
 
 def _resolve_product(product_id):
-    """按 productId 解析 Product；缺失则 404（与原 NestJS 一致）。"""
+    """按 productId 解析 Product；缺失则 404。"""
     if product_id is None:
         return None
     from apps.products.models import Product

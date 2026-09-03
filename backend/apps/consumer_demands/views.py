@@ -1,4 +1,4 @@
-"""消费者需求视图：对应原 NestJS ConsumerDemandController / ConsumerDemandService。
+"""消费者需求视图。
 
 权限：读 consumer-demand:view，写 consumer-demand:edit。
 路由由 backend.urls 以 path("api/", include("apps.consumer_demands.urls")) 引入。

@@ -1,4 +1,4 @@
-"""权限目录与 RBAC：对应原 server/src/permissions/catalog.ts。
+"""权限目录与 RBAC。
 
 41 个权限 key，20 个域，动作等级蕴含：
     manage ⊇ execute ⊇ audit ⊇ edit ⊇ view
@@ -17,7 +17,7 @@ DEFAULT_ACTION_RANKS = {
     "audit": 50,
 }
 
-# 合同域自定义等级（D1 确认：manage ⊇ execute ⊇ audit ⊇ view）
+# 合同域自定义等级（manage ⊇ execute ⊇ audit ⊇ view）
 CONTRACT_ACTION_RANKS = {
     "view": 10,
     "audit": 20,
@@ -279,9 +279,8 @@ def has_permission(
         req_action = _action_of(req_key)
         ranks = _domain_action_rank(domain)
         if req_action not in ranks:
-            # fail-closed：required key 的 action 不在目录等级表内（拼错 key /
-            # 目录漂移）时直接拒绝，而非落到 rank 0 被任意 view 满足。
-            # 目录是闭集且装饰处经静态审计全部合法，正常路径不受影响。
+            # fail-closed：required key 的 action 不在目录等级表内（拼错 key）
+            # 时直接拒绝，防止被该域任意合法动作满足。
             return False
         req_rank = ranks[req_action]
         # 用户持有该域任一动作且等级 ≥ 所需即满足
@@ -300,7 +299,6 @@ def has_permission(
 
 
 # ==================== 角色模板与授予上限 ====================
-# 对应原 server/src/permissions/role-templates.ts。
 # 后端权威定义角色默认权限集合与「授予上限」，用于账号权限授予校验。
 
 # 基础视图权限（17 个）
@@ -373,7 +371,7 @@ ROLE_TEMPLATES = {
 
 
 def assert_grant_allowed(actor_role, target_role, permissions):
-    """校验权限授予是否在上限范围内。对应原 assertGrantAllowed。
+    """校验权限授予是否在上限范围内。
 
     返回 (allowed: bool, violations: list[str])。
     """

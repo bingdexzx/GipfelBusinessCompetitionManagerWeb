@@ -2171,7 +2171,7 @@ useResourceChanged("map-nodes", () => {
 useResourceChanged("map-edges", () => {
   loadData();
 });
-// 实时同步：地图节点类型 / 路径类型被增删改后，立即刷新（此前无订阅，地图编辑器不感知这两类变更）
+// 实时同步：地图节点类型 / 路径类型被增删改后，立即刷新
 useResourceChanged("map-node-types", () => {
   loadData();
 });

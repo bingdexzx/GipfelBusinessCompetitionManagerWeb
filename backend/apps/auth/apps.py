@@ -1,7 +1,7 @@
-"""认证应用配置：对应原 NestJS auth.module + AuthController + JwtStrategy。
+"""认证应用配置。
 
 ready() 中连接 post_migrate 信号以在迁移完成后种子写入默认超管，
-避免在表结构尚未就绪时访问数据库（原 NestJS 在 onModuleInit 种子写入）。
+避免在表结构尚未就绪时访问数据库。
 """
 from django.apps import AppConfig
 from django.db.models.signals import post_migrate

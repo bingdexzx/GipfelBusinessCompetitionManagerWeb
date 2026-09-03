@@ -183,8 +183,7 @@ function deleteOldSharedDb(): void {
 export function ensureStorageMigration(): void {
   const migratedSub = migrateOldTopLevelKeys();
 
-  // 升级兼容：把升级前「仅按账号、无 realm」的旧账号键 re-key 到当前 realm 命名空间，
-  // 使此前已登录用户的 token / 比赛选择等无缝保留（新格式键不受影响）。
+  // 升级兼容：旧版「仅按账号、无 realm」的账号键 re-key 到当前 realm 命名空间。
   migrateOldAccountKeys(getServerRealm());
 
   if (migratedSub != null) {

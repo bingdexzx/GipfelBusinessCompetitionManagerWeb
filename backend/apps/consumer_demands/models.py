@@ -1,4 +1,4 @@
-"""消费者需求模型：对应原 Prisma ConsumerDemand。"""
+"""消费者需求模型。"""
 from django.db import models
 
 

@@ -1,10 +1,10 @@
-"""消息中心视图：对应原 NestJS message.controller / message.service。
+"""消息中心视图。
 
 权限：view=message:view（读 / 已读标记），manage=message:manage（发布 / 删除 / 上传图片）。
 路由由 backend.urls 以 path("api/", include("apps.messages.urls")) 引入。
 
 收件箱 / 未读 / 已读以当前用户（userId）为过滤维度，不依赖 competitionId，
-故整体不套用比赛域隔离（对应原 @NoCompetitionScope）。
+故整体不套用比赛域隔离。
 """
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ from .serializers import (
 
 # 消息图片落盘子目录（相对 MEDIA_ROOT，前端经 /uploads/message-images/ 跨源加载）
 _MSG_IMAGE_SUBDIR = "message-images"
-# 允许上传的图片 MIME 与扩展名（对应原 common/image-mime）
+# 允许上传的图片 MIME 与扩展名
 _IMAGE_MIME_EXT = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
@@ -62,7 +62,7 @@ def _detect_image_mime(head: bytes) -> str | None:
         return "image/webp"
     return None
 _MAX_RECIPIENTS = 500
-_SENT_TAKE = 500  # 与原 NestJS sent/inbox 的 take 上限一致
+_SENT_TAKE = 500  # sent/inbox 拉取上限
 # 消息图片单文件上限 10MB（与通用 files/UploadView 一致）
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
@@ -261,8 +261,7 @@ class UploadImageView(APIView):
         file = request.FILES.get("file")
         if not file:
             raise BusinessError("未收到文件", code=400, status_code=400)
-        # 修复 DoS 缺口：此前无大小校验，攻击者可上传 GB 级文件耗尽磁盘。
-        # 用 request.META 的 Content-Length 做早失败；f.size 兜底（multipart 已分块）。
+        # 图片大小校验：Content-Length 早失败，f.size 兜底（multipart 已分块）。
         content_length = request.META.get("CONTENT_LENGTH")
         if content_length and content_length.isdigit() and int(content_length) > _MAX_IMAGE_BYTES:
             raise BusinessError(
@@ -276,8 +275,8 @@ class UploadImageView(APIView):
                 code=400,
                 status_code=400,
             )
-        # 越权/类型混淆修复（M17）：只读文件头 12 字节做魔数校验，
-        # 不信任客户端声明的 content_type；校验通过后再按真实格式落盘。
+        # 只读文件头 12 字节做魔数校验，不信任客户端声明的 content_type；
+        # 校验通过后再按真实格式落盘。
         head = file.read(12)
         if not head:
             raise BusinessError("文件内容为空", code=400, status_code=400)

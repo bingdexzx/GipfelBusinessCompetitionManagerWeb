@@ -1,4 +1,4 @@
-"""作用域校验：对应原 server/src/common/scope.ts。
+"""作用域校验。
 
 仅在请求方提供 competitionId 且数据本身绑定了 competitionId 时校验，两者必须一致。
 """

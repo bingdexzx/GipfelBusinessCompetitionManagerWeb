@@ -1,6 +1,6 @@
-"""零件与配比/科技需求模型：对应原 Prisma Part / PartMaterial / PartTechRequirement。
+"""零件与配比/科技需求模型。
 
-PartMaterial / PartTechRequirement 为复合主键关联表（Prisma @@id）。
+PartMaterial / PartTechRequirement 为复合主键关联表。
 Django 不原生支持复合主键，沿用本仓库 FiscalYear 的既定约定：
 显式自增 id 作主键 + unique_together 表达复合唯一约束。
 """

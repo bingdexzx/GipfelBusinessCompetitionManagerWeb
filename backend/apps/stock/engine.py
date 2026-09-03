@@ -1,4 +1,4 @@
-"""股票撮合 / 定价引擎：对应原 NestJS engine.ts + stock.service.ts 的推进轮次逻辑。
+"""股票撮合 / 定价引擎。
 
 纯函数部分（compute_match / compute_price / build_candle / compute_init_price）
 严格对齐原 engine.ts；advance_round 为 ORM 依赖的推进轮次编排器，对齐
@@ -333,7 +333,7 @@ def resolve_field_value_or_default(
 def resolve_field_value_map(competition_id: int) -> dict[str, float | None]:
     """构建「区域:卡片 -> 实时值」映射，供股票绑定字段实时引用。
 
-    对应原 NestJS resolveFieldValueMap：调用 regionService.getMapOverview。
+    
     """
     field_map: dict[str, float | None] = {}
     if not competition_id:

@@ -68,11 +68,11 @@ export function bindResourceChanged() {
       // 更新最后收到的事件序号
       if (payload.seq && payload.seq > _lastSeq) {
         _lastSeq = payload.seq;
-        // 同步到 socket.ts 的 lastReceivedSeq，消除两套 seq 计数器漂移（见 M5 修复说明）。
+        // 同步到 socket.ts 的 lastReceivedSeq，保持 seq 计数一致。
         updateLastReceivedSeq(payload.seq);
       }
 
-      // 后端广播的 resource 可能是复数（经 Prisma 中间件自动发，如 materials/contracts/stocks）
+      // 后端广播的 resource 可能是复数（如 materials/contracts/stocks）
       // 或单数（各 service 手写，如 region/consumer-demand）。前端本地全量副本键与 memo 键统一用
       // toCollectionKey 归一（material/contract/companyField），故删除与 memo 失效必须用归一后的键；
       // 而组件层 useResourceChanged 订阅传的是复数（materials），故派发给组件层的 window 事件保留
@@ -101,9 +101,7 @@ export function bindResourceChanged() {
     },
   );
 
-  // 顶号事件：后端在 token 版本不匹配时经 socket 广播 auth:required，
-  // 前端此前仅由 HTTP 401 拦截器派发 auth:kicked。此处补上 socket 链路，
-  // 使旧连接被顶号后即时触发登出（不再等待最长 45s 的心跳超时）。
+  // 顶号事件：token 版本不匹配时经 socket 广播 auth:required，即时触发登出。
   onRealtime("auth:required", (payload: { reason?: string }) => {
     if (payload && payload.reason === "token_version_mismatch") {
       window.dispatchEvent(new CustomEvent("auth:kicked"));

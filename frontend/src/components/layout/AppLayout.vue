@@ -15,8 +15,7 @@
       <TopBar :show-menu-toggle="isCompact" @toggle="mobileNavOpen = !mobileNavOpen" />
       <div class="app-content">
         <div class="route-wrap">
-          <!-- 页面级错误边界：单个路由页面渲染异常时仅隔离该页面，
-               侧边栏/顶栏与其它界面保持可用，避免整应用白屏（此前「创建一个数据后所有界面空白」的根因）。 -->
+          <!-- 页面级错误边界：单个路由页面渲染异常时仅隔离该页面，避免整应用白屏。 -->
           <ErrorBoundary :key="route.fullPath">
             <router-view :key="route.fullPath" />
           </ErrorBoundary>

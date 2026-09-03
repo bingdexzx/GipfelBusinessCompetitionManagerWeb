@@ -212,11 +212,7 @@ function _reqKey(method: string, url: string, config?: AxiosRequestConfig): stri
 }
 
 function _cacheable(config?: AxiosRequestConfig): boolean {
-  // 仅当显式 cache === false 时才绕过本地缓存（直接走网络拿实时数据）；
-  // cache 未设置（undefined，默认）或 cache === true 均走缓存。
-  // 注意：此前误写为 `!config?.cache`，导致 cache:false 被反判为「可缓存」，
-  // 使所有 cache:false 的实时请求（如消费者需求列表、删除影响检查）退化成读过期缓存，
-  // 表现为「保存后重新打开看不到最新值」。
+  // 仅当显式 cache === false 时绕过本地缓存；未设置（默认）或 true 均走缓存。
   return config?.cache !== false && !config?.signal;
 }
 

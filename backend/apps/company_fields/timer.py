@@ -1,11 +1,11 @@
-"""财年定时器：对应原 NestJS CompanyFieldsService.applyFiscalYearTimer。
+"""财年定时器。
 
 财年开始(FY_START)/结束(FY_END)时，把本比赛中所有「启用了该触发时机」的产业字段
 自动写为其配置设定值（按字段类型序列化），覆盖该产业类型下的全部公司；随后调用
 计算字段级联重算，并逐公司 emit_resource_changed("company-field", ...) 让前端刷新
-（标准 resource:changed 事件；此前提及的 company-field:changed 房间事件为死链路，已删除）。
+（标准 resource:changed 事件）。
 
-实现要点（与 NestJS 一致）：
+实现要点：
 - 跨产业类型：先捞出 timer_enabled && timer_trigger==trigger 的 IndustryField，按 industry_type_id 分组；
   再取该比赛下对应产业类型的公司批量写入，避免 N+1。
 - 写入值经 _serialize 序列化（与手动编辑一致）；DICTIONARY/LIST 的 timer_value 为 JSON 文本。
@@ -111,7 +111,7 @@ def _resolve_timer_value(
 
 
 def apply_fiscal_year_timer(competition_id: int, trigger: str) -> None:
-    """财年定时器触发入口（对齐 NestJS applyFiscalYearTimer）。
+    """财年定时器触发入口。
 
     :param competition_id: 比赛 id（定时器按比赛收敛，只作用于该比赛下的公司）
     :param trigger: "FY_START" / "FY_END"
@@ -162,7 +162,6 @@ def _run_fiscal_year_timer(competition_id: int, trigger: str) -> None:
                 )
 
     # 广播字段值变更：定时器写入基础字段 + 级联重算计算字段后，通知同比赛前端刷新。
-    # 此前遗漏 emit，导致仪表盘/公司详情/行情等订阅 company-field 的视图停留在旧值。
     if affected_companies:
         from apps.realtime.emit import emit_resource_changed
 

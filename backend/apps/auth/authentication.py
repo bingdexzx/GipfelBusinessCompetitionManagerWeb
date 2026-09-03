@@ -1,4 +1,4 @@
-"""JWT 认证：对应原 NestJS JwtStrategy + AuthGuard。
+"""JWT 认证。
 
 - HS256 签名 + issuer/audience 校验（与原 jwt.module 配置一致）
 - 校验 tokenVersion（顶号下线：payload.tv ≠ user.token_version → 401）
@@ -44,7 +44,7 @@ def _expires_in() -> datetime:
 
 
 def create_jwt(user) -> str:
-    """签发 JWT，payload 与原 NestJS 一致：{sub, username, role, tv, cid}。
+    """签发 JWT，payload：{sub, username, role, tv, cid}。
 
     tv = token_version，用于顶号下线判定；cid = competitionId。
     """

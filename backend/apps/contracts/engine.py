@@ -1,4 +1,4 @@
-"""合同引擎 DSL：对应原 NestJS contract-engine.service.ts + engine/*.ts +
+"""合同引擎 DSL。
 common/engine-ops.ts + common/safe-expression.ts 的 Python 移植。
 
 核心能力：
@@ -74,7 +74,7 @@ COND_KIND_LABEL = {
     "LIST_COMPARE": "列表比较",
 }
 
-# camelCase → snake_case（用于把原 DSL 的 Prisma 字段名映射到 Django 字段名）
+# camelCase → snake_case（DSL 字段名映射到 Django ORM 字段名）
 import re as _re
 
 _CAMEL_RE = _re.compile(r"(?<!^)(?=[A-Z])")
@@ -1028,7 +1028,7 @@ class EvalCtx:
 
 
 # ==================== 聚合计算端点 ====================
-# 以下函数从 Prisma 查询改为 Django ORM 查询；字段名映射 camelCase→snake_case。
+# 以下函数为 Django ORM 实现；字段名映射 camelCase→snake_case。
 
 def _entries(raw: Any) -> list:
     """提取 {name: qty} 字典中数量 > 0 的 (name, qty) 对。"""
@@ -1619,7 +1619,7 @@ class ContractEngine:
                 party = self._resolve_party_company(eff.get("party"), party_map)
                 if not party:
                     if not eff.get("party"):
-                        raise BusinessError("合同「产业字段」效果未指定参与方：请在合同类型编辑器中为该效果节点连接「参与方」节点后再保存", code=400, status_code=400)
+                        raise BusinessError("合同「产业字段」效果未指定参与方，请在合同类型编辑器中连接「参与方」节点", code=400, status_code=400)
                     p = party_map.get(eff.get("party"))
                     if p and (p.get("isHost") or p.get("companyId") is None):
                         raise BusinessError(f"参与方「{eff.get('party')}」为主办方或未分配公司，无法操作产业字段", code=400, status_code=400)

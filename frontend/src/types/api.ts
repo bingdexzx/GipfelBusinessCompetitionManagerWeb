@@ -1,7 +1,7 @@
 // ============================================================
 // API 层类型定义 —— 与 server/prisma/schema.prisma 一一对应
 // 每个模型导出：
-//   Xxx            — 完整实体（Prisma 查询返回形态）
+//   Xxx            — 完整实体
 //   CreateXxxInput — 新建时的输入（去掉 id / createdAt / updatedAt 等自动生成字段）
 //   UpdateXxxInput — 更新时的输入（CreateXxxInput 的 Partial，所有字段可选）
 // ============================================================

@@ -1,7 +1,4 @@
 """中间件集合：安全头 / 操作员上下文 / 登录限流 / CORS 来源校验。
-
-对应原 NestJS main.ts 中的 securityHeaders / OperatorMiddleware / loginRateLimiter
-及 isLocalOrPrivateOrigin。
 """
 from __future__ import annotations
 

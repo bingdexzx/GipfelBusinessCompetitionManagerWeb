@@ -1,4 +1,4 @@
-"""地图模型：对应原 Prisma MapNodeType / PathType / MapNode / MapEdge。
+"""地图模型。
 
 四个模型均为比赛级（competitionId 必填），删除比赛级联删除全部地图数据。
 """

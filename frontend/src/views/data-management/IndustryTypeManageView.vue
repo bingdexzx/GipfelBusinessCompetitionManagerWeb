@@ -1177,7 +1177,7 @@ async function submitField() {
   // 计算字段：公式模式下把 Excel 风格公式序列化为 calcGraph（单 FORMULA 节点）
   if (fieldForm.isCalculated && fieldForm.editorMode === "formula") {
     if (!fieldForm.formula?.trim()) {
-      ElMessage.warning("计算字段必须填写公式（Excel 风格，可用其它字段键作变量）");
+      ElMessage.warning("计算字段必须填写公式");
       return;
     }
     fieldForm.calcGraph = formulaToCalcGraph(fieldForm.formula.trim());
@@ -1217,7 +1217,7 @@ async function submitField() {
         return;
       }
     } catch {
-      ElMessage.warning("产业计算图 JSON 解析失败，请检查后重试");
+      ElMessage.warning("产业计算图 JSON 解析失败");
       return;
     }
   }

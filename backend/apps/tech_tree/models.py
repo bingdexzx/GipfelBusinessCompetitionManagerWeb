@@ -1,4 +1,4 @@
-"""科技树模型：对应原 Prisma TechNode / TechPrerequisite。
+"""科技树模型。
 
 TechPrerequisite 为 TechNode 自关联多对多的显式中间模型（双向）：
 - nodeId → 前置依赖此节点的科技

@@ -1,4 +1,4 @@
-"""实时网关：对应原 NestJS 的 Socket.IO 网关。
+"""实时网关。
 
 - python-socketio AsyncServer，async_mode="asgi"，与 Django HTTP 同源同端口
   （由 backend/asgi.py 按 path 前缀分发 /socket.io/* 到本应用）

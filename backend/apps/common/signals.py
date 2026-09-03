@@ -12,7 +12,7 @@
   用 transaction.on_commit 延迟投递，不在事务中则立即执行。此处无需再各自判断。
 - 处理器仅在 `instance.pk` 为 int 时才广播，避免未落库对象产生无效事件
 - 审计 changes 的构造：created 动作仅保存前值为空；updated 动作由于 Django 不给 diff，
-  广播以 instance 为权威，审计仅记录「有更新」（与原 NestJS Prisma $allOperations 粒度一致）
+  广播以 instance 为权威，审计仅记录「有更新」
 """
 from __future__ import annotations
 

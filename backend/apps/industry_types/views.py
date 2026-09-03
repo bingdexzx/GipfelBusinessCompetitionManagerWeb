@@ -1,4 +1,4 @@
-"""产业类型视图：对应原 NestJS IndustryTypeController / IndustryTypeService。
+"""产业类型视图。
 
 产业类型为全局资源（无 competitionId），故不走比赛域隔离；权限 key：
 - 读（GET）：industryType:view
@@ -151,7 +151,7 @@ def validate_timer_spec(field_type, trigger, value):
 
 
 def validate_field(data: dict, effective_type: str | None = None) -> None:
-    """移植自 NestJS validateField：类型/config/计算图/定时器联合校验。"""
+    """字段联合校验：类型/config/计算图/定时器。"""
     field_type = effective_type or data.get("fieldType") or "NUMBER"
     ft = data.get("fieldType")
     if ft is not None and ft not in FIELD_TYPES:
@@ -418,9 +418,8 @@ class ItemView(APIView):
         if count > 0:
             from apps.companies.models import Company
 
-            # 跨租户泄露修复（L6）：产业类型为全局资源，删除报错原本会列出
-            # 所有比赛的公司名（含其他比赛的），造成租户间信息泄露。
-            # 非超管仅展示当前比赛范围内的公司，超管才可见全量。
+            # 产业类型为全局资源，删除报错中涉及的公司名按权限过滤：
+            # 非超管仅展示当前比赛范围内的公司，超管可见全量。
             is_super = getattr(user, "role", None) == "SUPER_ADMIN"
             own_cid = getattr(user, "competition_id", None)
             qs = (

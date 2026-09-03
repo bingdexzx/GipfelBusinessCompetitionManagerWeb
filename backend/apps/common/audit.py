@@ -1,4 +1,4 @@
-"""审计日志：对应原 common/logging/audit.ts + sanitize.ts + PrismaService $allOperations。
+"""审计日志。
 
 - 写操作审计：通过 Django signals（post_save/post_delete）触发
 - 异常上下文审计：exception_handler 调用 log_exception
@@ -53,7 +53,7 @@ def log_write(
     changes: Any = None,
     competition_id: int | None = None,
 ) -> None:
-    """写操作审计落库。对应原 PrismaService $allOperations 中 kind=write。"""
+    """写操作审计落库。"""
     operator = get_current_operator_safe()
     try:
         from apps.audit.models import AuditLog
@@ -75,7 +75,7 @@ def log_write(
 
 
 def log_exception(request, exc, response) -> None:
-    """异常上下文审计落库。对应原 HttpExceptionFilter。"""
+    """异常上下文审计落库。"""
     try:
         from apps.audit.models import AuditLog
 
