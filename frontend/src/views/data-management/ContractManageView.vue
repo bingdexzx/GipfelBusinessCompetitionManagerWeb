@@ -619,10 +619,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, onUnmounted } from "vue";
+import { ref, reactive, computed, watch, onMounted } from "vue";
 import { useCompetitionStore } from "@/stores/competition";
 import { useCompetitionReload } from "@/composables/useCompetitionReload";
-import { onRealtime, offRealtime } from "@/realtime/socket";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
 import SearchToggle from "@/components/common/SearchToggle.vue";
@@ -1523,13 +1522,6 @@ async function handleDelete(row: any) {
   }
 }
 
-function handleContractChanged(payload: any) {
-  // 强时效：其他前端（含管理员）执行合同后，本页即刻刷新列表
-  if (payload?.competitionId && payload.competitionId === compStore.competitionId) {
-    loadContracts();
-  }
-}
-
 onMounted(() => {
   // 类型 / 公司列表仅用于「新建合同」表单；无对应读权限的账号（如仅 contract:view）
   // 不会进新建流程，故按权限懒加载，避免无谓的 403 弹「权限不足」提示。
@@ -1537,8 +1529,9 @@ onMounted(() => {
   if (authStore.can("company:view")) loadCompanies();
   if (authStore.can("industryType:view")) loadIndustryTypes();
   loadContracts();
-  // 实时同步：监听合同状态变更广播，管理员或其他端操作后本页即刻刷新
-  onRealtime("contract:changed", handleContractChanged);
+  // 实时同步：合同状态变更经 resource:changed 广播（resource="contracts"），
+  // 由下方 useResourceChanged("contracts") 统一刷新本页列表。
+  // （历史上这里监听过的 "contract:changed" socket 事件后端从未发送过，已删除。）
 });
 
 // 选择公司参与方后自动校验：效果字段在所选公司产业中缺失时弹出「该产业不支持该合同」；
@@ -1569,10 +1562,6 @@ useCompetitionReload(
 
 useResourceChanged("contracts", () => {
   loadContracts();
-});
-
-onUnmounted(() => {
-  offRealtime("contract:changed", handleContractChanged);
 });
 </script>
 

@@ -2,7 +2,8 @@
 
 财年开始(FY_START)/结束(FY_END)时，把本比赛中所有「启用了该触发时机」的产业字段
 自动写为其配置设定值（按字段类型序列化），覆盖该产业类型下的全部公司；随后调用
-计算字段级联重算（待 calcGraph 引擎接入）并广播 company-field:changed 让同比赛前端刷新。
+计算字段级联重算，并逐公司 emit_resource_changed("company-field", ...) 让前端刷新
+（标准 resource:changed 事件；此前提及的 company-field:changed 房间事件为死链路，已删除）。
 
 实现要点（与 NestJS 一致）：
 - 跨产业类型：先捞出 timer_enabled && timer_trigger==trigger 的 IndustryField，按 industry_type_id 分组；

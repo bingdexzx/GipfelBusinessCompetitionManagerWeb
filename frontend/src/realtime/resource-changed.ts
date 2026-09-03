@@ -110,27 +110,6 @@ export function bindResourceChanged() {
     }
   });
 
-  // 公司产业字段写入后实时广播（自定义事件，非标准 resource:changed）。
-  // 统一转译为 window 的 resource-changed 事件（resource="company-field"），
-  // 使所有消费组件（含参赛队员的公司详情页）都能在本地全量副本上做增量刷新，
-  // 不再依赖单一组件自行订阅，避免漏刷。
-  onRealtime(
-    "company-field:changed",
-    (payload: { companyId?: number; competitionId?: number }) => {
-      if (!payload || payload.companyId == null) return;
-      // 标记变更：请求侧资源名为 "companyField"（与 collectionKey 对齐），事件侧为 "company-field"，
-      // 二者都标记，确保两类 memo 都能被绕过。
-      bumpResourceEvent("company-field");
-      bumpResourceEvent("companyField");
-      scheduleResourceReload("company-field", {
-        resource: "company-field",
-        id: payload.companyId,
-        action: "updated",
-        competitionId: payload.competitionId ?? null,
-      });
-    },
-  );
-
   // 权限变更事件：定向推送到具体用户
   // 前端订阅后拉取 /auth/me 刷新权限状态
   onRealtime(

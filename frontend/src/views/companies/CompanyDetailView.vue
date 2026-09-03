@@ -122,7 +122,6 @@ import api from "@/api/request";
 import { companyFieldsApi } from "@/api";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 import MobileCards from "@/components/common/MobileCards.vue";
-import { onRealtime, offRealtime } from "@/realtime/socket";
 
 const route = useRoute();
 const router = useRouter();
@@ -255,14 +254,9 @@ function fieldStringDisplay(row: any): string {
   return String(v);
 }
 
-// 合同执行会改写公司产业字段：监听实时广播，自动刷新字段显示，
-// 避免"字段其实已变更但页面仍显示旧值"的错觉。
-function handleContractChanged() {
-  loadFieldValues();
-}
-
-// 公司字段写入（后端 setValues）或断线重连对账后，统一通过 resource-changed 窗口事件刷新。
-// 后端 company-field:changed 已由 resource-changed.ts 转译为 resource="company-field" 的事件。
+// 公司字段写入（后端 setValues）、合同执行 / 删除复原 / 计算字段重算后，
+// 后端统一广播 resource="company-field"（resource-changed.ts 转译为窗口事件），
+// 此处按 companyId 精确匹配后刷新字段显示，避免"字段其实已变更但页面仍显示旧值"。
 function handleResourceEvent(e: any) {
   const d = e?.detail;
   if (!d) return;
@@ -271,11 +265,9 @@ function handleResourceEvent(e: any) {
 
 onMounted(() => {
   load();
-  onRealtime("contract:changed", handleContractChanged);
   window.addEventListener("resource-changed", handleResourceEvent);
 });
 onUnmounted(() => {
-  offRealtime("contract:changed", handleContractChanged);
   window.removeEventListener("resource-changed", handleResourceEvent);
 });
 </script>

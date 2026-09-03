@@ -45,20 +45,14 @@ def _broadcast_fiscal_year(fy: FiscalYear) -> None:
 def _apply_fiscal_year_timer(competition_id: int, trigger: str) -> None:
     """触发财年定时器（对齐 NestJS applyFiscalYearTimer）。
 
-    延迟导入 company_fields.timer 避免模块间循环依赖；并广播受影响公司的字段变更，
-    使同比赛前端（公司详情/区域总览）即刻刷新。无启用定时器字段时该函数静默返回。
+    延迟导入 company_fields.timer 避免模块间循环依赖。无启用定时器字段时静默返回。
+    字段写入后的前端刷新由 timer 内部逐公司 emit_resource_changed("company-field", ...)
+    完成（标准 resource:changed 事件）；历史上这里额外发的 "company-field:changed"
+    房间事件因 payload 缺少 companyId 被前端处理器无条件丢弃，属死链路，已删除。
     """
     from apps.company_fields.timer import apply_fiscal_year_timer as _impl
-    from apps.realtime.emit import emit_to_competition as _emit
 
-    affected = _impl(competition_id, trigger)
-    # 定时器写入会改动本比赛相关公司字段，统一广播让前端刷新（company-field:changed 房间事件）。
-    _emit(
-        competition_id,
-        "company-field:changed",
-        {"competitionId": competition_id, "trigger": trigger},
-    )
-    return affected
+    _impl(competition_id, trigger)
 
 
 def _get_competition(pk, user) -> Competition:
