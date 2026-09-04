@@ -345,12 +345,21 @@ refresh_unit() {
     sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$src" > "$tmp"
     cp -f "$tmp" "/etc/systemd/system/$name"
     # 让 systemd 重新扫描 unit（清掉内存中残留的 masked 状态），再 enable；
-    # enable 失败必须告警：此前 2>/dev/null 吞掉该错误，mask 问题被掩盖到 restart 才暴露。
+    # enable 失败必须告警并输出诊断：LoadState / FragmentPath 直接揭示 masked 的真实来源
+    # （mask 可能存在于 systemd unit 搜索路径的任何一层，不止 /etc 与 /run）。
     systemctl daemon-reload
     if ! systemctl enable "$name" 2>/dev/null; then
-        warn "systemctl enable $name 失败（可能仍处于 masked 状态）——请执行："
-        warn "  sudo systemctl unmask $name && sudo rm -f /etc/systemd/system/$name /run/systemd/system/$name"
-        warn "  再从 $tmp 手动拷贝到 /etc/systemd/system/$name 后 daemon-reload + enable"
+        warn "systemctl enable $name 失败，自动诊断如下："
+        systemctl show -p LoadState,FragmentPath "$name" 2>/dev/null | while IFS= read -r line; do
+            warn "  $line"
+        done
+        while IFS= read -r f; do
+            warn "  $(ls -la "$f" 2>/dev/null | tail -n1)"
+        done < <(find /etc/systemd/system /run/systemd/system /usr/local/lib/systemd/system \
+                      /usr/lib/systemd/system /lib/systemd/system \
+                      -maxdepth 1 -name "$name" 2>/dev/null)
+        warn "修复：删除上列指向 /dev/null 的软链（保留真实 unit 文件），然后："
+        warn "  sudo systemctl daemon-reload && sudo systemctl enable --now $name"
     fi
     ok "已刷新并启用服务单元 $name → /etc/systemd/system/$name"
 }
