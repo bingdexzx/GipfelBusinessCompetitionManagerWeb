@@ -27,7 +27,7 @@
 
 <script setup lang="ts">
 import { useRoute, useRouter } from "vue-router";
-import { onMounted, onBeforeUnmount, watch } from "vue";
+import { watch } from "vue";
 import Sidebar from "./Sidebar.vue";
 import TopBar from "./TopBar.vue";
 import ErrorBoundary from "@/components/common/ErrorBoundary.vue";
@@ -80,69 +80,6 @@ watch(
   { immediate: true },
 );
 
-// 跟踪任意弹窗(overlay)开关，给 body 加 modal-open，用于整片背景（含标题栏）统一虚化。
-// 打开：遮罩节点一插入 DOM（哪怕 opacity 还是 0、正要淡入）就同步加模糊，与窗口同帧起步，不滞后。
-// 关闭：捕获遮罩 opacity 从 1→0 的离场过渡【开始】瞬间，立即移除模糊，
-//       于是点 ×/取消/确定/点空白处——窗口刚开始退出的那一刻，背景就变清晰，
-//       模糊不再跟着退场动画“滞后消失”。
-// closingOverlays 记录“正在关闭”的遮罩：离场中途其 class 还会变动，必须跳过它，
-// 否则会被重新判定为“可见”而把模糊又加回来。
-let overlayObserver: MutationObserver | null = null;
-const closingOverlays = new Set<Element>();
-
-function isOverlayVisible(el: Element): boolean {
-  if (closingOverlays.has(el)) return false; // 正在关闭的遮罩不算“打开中”
-  if (el.getClientRects().length === 0) return false;
-  const cs = getComputedStyle(el as HTMLElement);
-  if (cs.display === "none") return false;
-  return true;
-}
-function syncModalState() {
-  // 清理已脱离文档的残留引用
-  for (const el of closingOverlays) {
-    if (!el.isConnected) closingOverlays.delete(el);
-  }
-  const visible = [...document.querySelectorAll(".el-overlay")].some(isOverlayVisible);
-  document.body.classList.toggle("modal-open", visible);
-}
-// 离场过渡开始：遮罩从 1→0 淡出，此刻计算 opacity 仍为起始值 1。
-// 立即把该遮罩标记为关闭并去掉 modal-open，让模糊在窗口退出那一刻同步消失。
-function onOverlayTransitionStart(e: TransitionEvent) {
-  const el = e.target as HTMLElement | null;
-  if (!el || !el.classList?.contains("el-overlay")) return;
-  if (e.propertyName !== "opacity") return;
-  const op = parseFloat(getComputedStyle(el).opacity);
-  if (op > 0.5 && !closingOverlays.has(el)) {
-    closingOverlays.add(el);
-    syncModalState(); // 立刻移除 modal-open（模糊瞬间消失）
-  }
-}
-function onOverlayTransitionEnd(e: TransitionEvent) {
-  const el = e.target as HTMLElement | null;
-  if (!el || !el.classList?.contains("el-overlay")) return;
-  if (e.propertyName !== "opacity") return;
-  // 离场结束：解除关闭标记，重新校准一次（兜底）
-  closingOverlays.delete(el);
-  syncModalState();
-}
-onMounted(() => {
-  overlayObserver = new MutationObserver(syncModalState);
-  overlayObserver.observe(document.body, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ["class"],
-  });
-  document.addEventListener("transitionstart", onOverlayTransitionStart, true);
-  document.addEventListener("transitionend", onOverlayTransitionEnd, true);
-  syncModalState();
-});
-onBeforeUnmount(() => {
-  overlayObserver?.disconnect();
-  document.removeEventListener("transitionstart", onOverlayTransitionStart, true);
-  document.removeEventListener("transitionend", onOverlayTransitionEnd, true);
-  document.body.classList.remove("modal-open");
-});
 </script>
 
 <style scoped>

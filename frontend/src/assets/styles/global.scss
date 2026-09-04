@@ -199,12 +199,27 @@ body {
   padding: 14px 24px;
 }
 
-// ===================== 弹窗打开时统一虚化整片背景 =====================
+// ===================== 弹窗遮罩：只盖主内容区，不碰侧边栏与顶栏 =====================
+// 遮罩不再做 backdrop blur（此前 blur(4px) 会把整页糊掉，且全视口 40% 黑把顶栏/侧栏压暗，
+// 用户观感为「弹窗一打开整页模糊、标题栏亮暗不对」）。普通对话框的遮罩只覆盖
+// 主内容区（顶栏以下、侧栏以右），侧栏与顶栏保持清晰明亮；全屏弹窗、抽屉与
+// MessageBox 仍全屏遮罩（居中定位与沉浸形态不受影响）。
 .el-overlay {
-  background-color: rgba(15, 23, 42, 0.4);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background-color: rgba(15, 23, 42, 0.35);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   transition: opacity 0.18s var(--ease-out-expo);
+}
+.el-overlay:has(.el-dialog:not(.el-dialog--fullscreen)) {
+  top: var(--topbar-height);
+  left: var(--sidebar-width);
+}
+@media (max-width: 1024px) {
+  // 平板/手机：侧栏为抽屉（默认收起，内容区从左缘开始），遮罩只让出顶栏
+  .el-overlay:has(.el-dialog:not(.el-dialog--fullscreen)) {
+    left: 0;
+    top: var(--topbar-height);
+  }
 }
 // 弹窗进出场：缩放 + 淡入淡出，更高级的质感
 .el-dialog,
@@ -219,13 +234,6 @@ body {
 .el-dialog-fade-leave-to {
   opacity: 0;
   transform: scale(0.97) translateY(-4px);
-}
-.app-layout {
-  transition: filter 0.01s var(--ease-standard);
-}
-body.modal-open .app-layout {
-  filter: blur(4px);
-  transition: filter 0.18s var(--ease-out-expo);
 }
 
 // ===================== Pagination =====================
