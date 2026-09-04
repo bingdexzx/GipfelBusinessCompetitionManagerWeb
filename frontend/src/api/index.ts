@@ -462,10 +462,11 @@ export interface AuditLogQuery {
 }
 
 export const auditApi = {
-  /** 审计日志列表（分页；仅超管。kind: write|error）。 */
+  /** 审计日志列表（分页；仅超管。kind: write|error）。
+   *  normalize:false 保留 {items,total} 分页对象——页面需要 total 展示「共 N 条」。 */
   list: (query: AuditLogQuery = {}) => {
     const params: Record<string, unknown> = { ...query };
     for (const k of Object.keys(params)) if (params[k] == null || params[k] === "") delete params[k];
-    return api.get("/audit-logs", { params, cache: false });
+    return api.get("/audit-logs", { params, cache: false, normalize: false });
   },
 };

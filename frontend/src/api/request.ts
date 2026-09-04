@@ -12,6 +12,9 @@ declare module "axios" {
     cache?: boolean;
     /** 为 true 时请求失败不弹错误提示（后台静默同步 / 校验请求使用）。 */
     silent?: boolean;
+    /** 为 false 时跳过列表响应降维：返回原始 {items,total,...} 分页对象而非裸数组
+     *  （供需要 total/分页字段的调用方使用，如审计日志页）。缺省降维为裸数组。 */
+    normalize?: boolean;
   }
 }
 
@@ -618,10 +621,14 @@ async function cachedGetImpl(url: string, config: AxiosRequestConfig): Promise<u
 }
 
 async function _cachedGet<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<T> {
+  // 列表响应统一出口：缺省降维为裸数组；config.normalize === false 时保留原始
+  // {items,total,...} 分页对象（供需要 total/分页字段的调用方，如审计日志页）。
+  const unwrap = (v: unknown): T =>
+    config?.normalize === false ? (v as T) : (normalizeListResponse(url, v) as T);
   if (!_cacheable(config)) {
     // 显式退出缓存的请求视为用户主动操作，仍正常弹错提示。
     const raw = await (api as any).get(url, config);
-    return normalizeListResponse(url, raw) as T;
+    return unwrap(raw);
   }
   // 走本地全量副本 / 增量同步的 GET 均为「后台数据同步」，失败应静默降级
   // （缓存层已做离线/基线回退），不应向用户弹「权限不足」等提示，
@@ -630,7 +637,7 @@ async function _cachedGet<T = unknown>(url: string, config?: AxiosRequestConfig)
   const key = _reqKey("GET", url, silentConfig);
   const pending = _getInflight.get(key);
   if (pending) {
-    return pending.then((v) => normalizeListResponse(url, v)) as Promise<T>;
+    return pending.then((v) => unwrap(v)) as Promise<T>;
   }
 
   // O3：窗口内且无该资源实时事件 → 直接返回内存副本，不打网络（含后台增量请求）。
@@ -638,7 +645,7 @@ async function _cachedGet<T = unknown>(url: string, config?: AxiosRequestConfig)
   const m = _memo.get(key);
   const lastEvt = _lastEventAt.get(resource) ?? -Infinity;
   if (m && Date.now() - m.time < STALE_WINDOW_MS && lastEvt <= m.time) {
-    return normalizeListResponse(url, m.value) as T;
+    return unwrap(m.value) as Promise<T>;
   }
 
   // F2 修复：记录请求发起时刻（而非完成时刻），确保事件晚于发起时刻时 memo 失效
@@ -648,8 +655,8 @@ async function _cachedGet<T = unknown>(url: string, config?: AxiosRequestConfig)
   const result = await p;
   // 使用 startedAt 而非 Date.now()，消除时序竞态窗口；memo 存原始结构（保留分页 total 等）
   _memo.set(key, { time: startedAt, value: result });
-  // 对外返回：列表统一降维为裸数组，兼容下游 `Array.isArray(res)` 写法
-  return normalizeListResponse(url, result) as T;
+  // 对外返回：列表统一降维为裸数组（normalize=false 时保留分页对象），兼容下游 `Array.isArray(res)` 写法
+  return unwrap(result);
 }
 
 function _mutating(
