@@ -62,6 +62,34 @@ def _resolve_allowed_hosts() -> list:
 
 ALLOWED_HOSTS = _resolve_allowed_hosts()
 
+
+def _resolve_csrf_trusted_origins() -> list:
+    """Django 4+ CSRF Origin 校验白名单（scheme://host[:port] 显式格式）。
+
+    POST 请求带 Origin 头时必须命中本列表，否则 403（Origin checking failed）。
+    实证场景：本地经前端 :5173 按钮跳转 /admin 后提交登录表单，浏览器携带的
+    Origin 为 http://127.0.0.1:5173，未在白名单即被拒（403 禁止登录）。
+    生产：DJANGO_CSRF_TRUSTED_ORIGINS（逗号分隔，如 https://your-domain.com）
+    追加；并按 ALLOWED_HOSTS 的非回环主机自动派生 http/https origin。
+    """
+    origins = [
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+    ]
+    for h in ALLOWED_HOSTS:
+        if h in ("127.0.0.1", "localhost", "::1"):
+            continue
+        origins += [f"http://{h}", f"https://{h}"]
+    extra = os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").strip()
+    if extra:
+        origins += [o.strip() for o in extra.split(",") if o.strip()]
+    return origins
+
+
+CSRF_TRUSTED_ORIGINS = _resolve_csrf_trusted_origins()
+
 PORT = int(os.environ.get("PORT", "8000"))
 
 # 日志查看器端口（与主后端共用同一 .env；默认 8120，经 /api/version 下发给前端「日志查看器」跳转按钮）
