@@ -105,9 +105,13 @@ class ProductListView(_ProductBase, CrudListView):
 
 class ProductCreateView(_ProductBase, CrudCreateView):
     def post(self, request):
+        from apps.common.guards import create_competition_id
+
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        # 租户隔离：非超管强制归属自身比赛，忽略 body 传入的 competitionId（防跨比赛写入）
+        data["competitionId"] = create_competition_id(request.user, data)
         _name_conflict(data["competitionId"], data["name"])
         with transaction.atomic():
             instance = Product.objects.create(

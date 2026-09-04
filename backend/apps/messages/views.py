@@ -355,11 +355,16 @@ class CollectionView(APIView):
         recipient_id_list = list(recipient_ids)
 
         with transaction.atomic():
+            # 归属修正：非超管忽略 dto.competitionId，消息归属强制为发布者所属比赛
+            # （收件人范围已由 _selectable_user_ids 限定同比赛，此处保证归属元数据一致）
+            owner_competition_id = (
+                dto_competition_id if actor.role == "SUPER_ADMIN" else actor.competition_id
+            )
             message = Message.objects.create(
                 title=data["title"],
                 content=data["content"],
                 sender_id=actor.id,
-                competition_id=dto_competition_id or actor.competition_id,
+                competition_id=owner_competition_id,
                 targets_all=bool(data.get("targetsAll")),
                 target_user_ids=json.dumps(target_user_ids),
                 images=json.dumps(images),
