@@ -105,7 +105,12 @@ api.interceptors.response.use(
         ?.Authorization;
       const reqToken = typeof reqAuth === "string" ? reqAuth.replace(/^Bearer\s+/i, "") : "";
       const curToken = getAccountItem("token") || "";
-      if (reqToken && curToken && reqToken !== curToken) {
+      // 本地已无登录态（此前已被踢出/已登出）：残留页面的请求 401 静默丢弃，
+      // 不重复弹错（避免「身份认证信息未提供」连环提示）、不重复跳转登录页
+      if (!curToken) {
+        return Promise.reject(error);
+      }
+      if (reqToken && reqToken !== curToken) {
         return Promise.reject(error);
       }
       const isLoginRequest = error.config?.url?.includes("/auth/login");
