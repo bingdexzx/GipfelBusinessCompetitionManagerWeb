@@ -89,8 +89,13 @@ DATABASES = {
     }
 }
 
-# 日志目录：默认指向主服务写入的 backend/logs（与主服务 LOG_DIR 默认一致）
-LOG_DIR = Path(os.environ.get("LOG_DIR", str(MAIN_DIR / "logs")))
+# 日志目录：默认指向主服务写入的 backend/logs（与主服务 LOG_DIR 默认一致）。
+# .env 里的相对路径（如 ./logs）按主服务目录（backend/）锚定——主服务的 cwd 是
+# backend/，而 LogViewer 进程 cwd 是 backend/logviewer/，直接 Path("./logs") 会
+# 解析到 backend/logviewer/logs（不存在），导致日志列表永远为空。
+_log_dir_raw = (os.environ.get("LOG_DIR", "") or "").strip() or str(MAIN_DIR / "logs")
+_log_dir_path = Path(_log_dir_raw)
+LOG_DIR = _log_dir_path if _log_dir_path.is_absolute() else (MAIN_DIR / _log_dir_path).resolve()
 LOG_FILE_NAME = os.environ.get("LOG_FILE_NAME", "gipfel.log")
 
 # 关闭这些内置 app 的迁移追踪，避免「未应用迁移」警告，直接复用主服务已建好的表
