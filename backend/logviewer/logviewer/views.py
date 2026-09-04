@@ -30,12 +30,14 @@ def _superuser_or_401(request):
 
 
 def _frontend_url(request) -> str:
-    """前端主站地址：优先 .env 的 LOG_VIEWER_FRONTEND_URL；缺省按请求 Host 推导。
+    """前端主站地址：优先 .env 的 LOGVIEWER_FRONTEND_URL；缺省按请求 Host 推导。
 
     日志查看器挂在 log.<域名>（域名部署）或 :8120（纯 IP 部署），
     前端主站在 <域名>（:80/:443）或 :80，故剥掉 log. 前缀或 :8120 端口即得主站。
+    本地开发（回环地址）前端在 vite dev 的 :5173，剥掉 :8120 后需补该端口，
+    否则弹回 127.0.0.1:80 会出现白屏。
     """
-    cfg = (getattr(settings, "LOG_VIEWER_FRONTEND_URL", "") or "").strip()
+    cfg = (getattr(settings, "LOGVIEWER_FRONTEND_URL", "") or "").strip()
     if cfg:
         return cfg
     scheme = "https" if request.is_secure() else "http"
@@ -44,6 +46,8 @@ def _frontend_url(request) -> str:
         host = host.rsplit(":", 1)[0]
     if host.startswith("log."):
         host = host[len("log."):]
+    if host in ("127.0.0.1", "localhost") and scheme == "http":
+        return f"{scheme}://{host}:5173/"
     return f"{scheme}://{host}/"
 
 
