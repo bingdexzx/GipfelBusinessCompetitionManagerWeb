@@ -60,9 +60,19 @@ export const useAuthStore = defineStore("auth", () => {
   /** 后端强制改密：标记当前账号是否仍需修改初始密码 */
   const needsPasswordChange = computed(() => !!user.value?.mustChangePassword);
 
-  /** 自助改密：用于首次登录强制改密流程；成功后清除标记。 */
+  /** 自助改密：用于首次登录强制改密流程。
+   *  后端改密成功后会递增 token_version，吊销包括当前会话在内的所有旧 token（安全设计）；
+   *  若不重新登录，后续请求将携带已失效的旧 token，被 401 拦截器误判为
+   *  「账号已在其他设备登录」并踢回登录页。因此改密成功后立即用新密码
+   *  重新登录换取新 token，用户无感续接会话。 */
   async function changePassword(oldPassword: string, newPassword: string) {
     await authApi.changePassword({ oldPassword, newPassword });
+    const username = user.value?.username;
+    if (username) {
+      // 重新登录（后端会再次递增 token_version 并签发新 token，旧 token 全部作废，
+      // 效果等价于改密吊销 + 本设备续登，其他设备仍被正确踢下线）。
+      await login(username, newPassword);
+    }
     if (user.value) user.value.mustChangePassword = false;
   }
 
