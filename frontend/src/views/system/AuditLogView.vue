@@ -233,6 +233,22 @@ onMounted(load);
 .audit-log {
   padding: 16px;
 }
+.mm-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.mm-title {
+  font-size: 20px;
+  font-weight: 500;
+  color: #1f1f1f;
+  margin: 0;
+}
+.mm-actions {
+  display: flex;
+  gap: 8px;
+}
 .block-card {
   margin-top: 12px;
 }

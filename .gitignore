@@ -28,6 +28,8 @@ backend/staticfiles/
 node_modules/
 frontend/dist/
 dist/
+# 本地验证用临时构建目录（vite build --outDir .build-tmp）
+frontend/.build-tmp/
 # 生产构建产物（deploy-linux.sh / update-from-github.sh 复制到仓库根的 frontend-dist/）
 frontend-dist/
 .vite/
