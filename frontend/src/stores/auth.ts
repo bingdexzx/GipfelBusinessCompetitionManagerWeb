@@ -4,6 +4,7 @@ import api, { authApi } from "@/api";
 import { getAccountItem, setAccountItem, removeAccountItem, setActiveUser } from "@/utils/accountStorage";
 import { logger } from "@/utils/logger";
 import { disconnectRealtime } from "@/realtime/socket";
+import { hasPermission } from "@/permissions/catalog";
 
 export interface UserInfo {
   id: number;
@@ -26,67 +27,19 @@ export interface UserInfo {
   competitionId?: number | null;
 }
 
-/** 权限目录元数据（从后端获取） */
-export interface PermissionCatalog {
-  domains: unknown[];
-  groups: unknown[];
-  actionRank: Record<string, number>;
-  roleTemplates: Record<string, unknown>;
-  superAdminOnlyPermissions: string[];
-  allKeys: string[];
-  labels: Record<string, string>;
-}
-
 export const useAuthStore = defineStore("auth", () => {
   const token = ref<string>(getAccountItem("token") || "");
   const user = ref<UserInfo | null>(null);
-  const permissionCatalog = ref<PermissionCatalog | null>(null);
 
   const isLoggedIn = computed(() => !!token.value);
   const isSuperAdmin = computed(() => user.value?.role === "SUPER_ADMIN");
 
-  /** 权限判断：SUPER_ADMIN 隐式拥有全部权限；其余按各自 permissions 列表校验。
-   *  使用后端 actionRank 目录实现通用等级蕴含（与后端 hasPermission 一致）：
-   *  同域内，持有 rank >= 所需 rank 的能力即视为满足。 */
+  /** 权限判断：直接使用前端镜像目录 @/permissions/catalog 的 hasPermission，
+   *  与后端 hasPermission 同构（同域等级蕴含 + fail-closed），无需网络请求。
+   *  原实现登录后从 /permissions/catalog 拉目录，但该端点后端从未实现，
+   *  404 被静默吞掉后长期走旧版回退逻辑——view/edit 之外的蕴含全部失效。 */
   function can(perm: string): boolean {
-    if (user.value?.role === "SUPER_ADMIN") return true;
-    const owned = user.value?.permissions ?? [];
-    if (owned.includes(perm)) return true;
-
-    const colon = perm.lastIndexOf(":");
-    if (colon === -1) return false;
-    const domain = perm.slice(0, colon);
-    const action = perm.slice(colon + 1);
-
-    // 使用 catalog actionRank 进行通用等级蕴含比较
-    const catalog = permissionCatalog.value;
-    if (catalog?.actionRank) {
-      const requiredRank = catalog.actionRank[action];
-      if (requiredRank != null) {
-        // 检查用户是否持有同域内 rank >= required 的任意能力
-        return owned.some((p) => {
-          const lastColon = p.lastIndexOf(":");
-          if (lastColon <= 0) return false;
-          const pDomain = p.slice(0, lastColon);
-          if (pDomain !== domain) return false;
-          const pAction = p.slice(lastColon + 1);
-          const pRank = catalog.actionRank[pAction];
-          return pRank != null && pRank >= requiredRank;
-        });
-      }
-    }
-
-    // 回退：catalog 尚未加载时的旧逻辑
-    if (action === "view") {
-      return owned.some((p) => {
-        const lastColon = p.lastIndexOf(":");
-        return lastColon > 0 && p.slice(0, lastColon) === domain;
-      });
-    } else if (action === "edit") {
-      return owned.includes(`${domain}:manage`);
-    }
-
-    return false;
+    return hasPermission(user.value?.role, user.value?.permissions ?? [], perm);
   }
 
   /** 拥有给定权限中的任意一个即返回 true（含同域蕴含） */
@@ -133,23 +86,9 @@ export const useAuthStore = defineStore("auth", () => {
     try {
       user.value = await authApi.getProfile();
       startHeartbeat();
-      // 获取权限目录（登录后拉取一次）
-      await fetchPermissionCatalog();
     } catch (e) {
       logger.error("Failed to fetch profile:", e);
       logout();
-    }
-  }
-
-  /** 获取权限目录（从后端 /api/permissions/catalog） */
-  async function fetchPermissionCatalog() {
-    if (permissionCatalog.value) return; // 已缓存
-    try {
-      const res = await api.get("/permissions/catalog", { silent: true });
-      permissionCatalog.value = res as PermissionCatalog;
-    } catch (e) {
-      logger.error("Failed to fetch permission catalog:", e);
-      // 静默失败，不影响登录
     }
   }
 
@@ -189,7 +128,6 @@ export const useAuthStore = defineStore("auth", () => {
     stopHeartbeat();
     token.value = "";
     user.value = null;
-    permissionCatalog.value = null; // 清空权限目录缓存
     // 断开实时 WebSocket 通道：被顶号 / 登录过期后旧 socket 若不断开，会以失效 token 无限重连，
     // 产生大量 401 噪声且实时事件在登录态恢复前可能错乱（见 request.ts 拦截器 401 处理）。
     disconnectRealtime();
@@ -235,7 +173,6 @@ export const useAuthStore = defineStore("auth", () => {
   return {
     token,
     user,
-    permissionCatalog,
     isLoggedIn,
     isSuperAdmin,
     needsPasswordChange,
@@ -245,7 +182,6 @@ export const useAuthStore = defineStore("auth", () => {
     changePassword,
     login,
     fetchProfile,
-    fetchPermissionCatalog,
     refreshProfile,
     logout,
     startHeartbeat,
