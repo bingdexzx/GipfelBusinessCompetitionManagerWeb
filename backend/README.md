@@ -61,6 +61,9 @@ curl -s -X POST http://127.0.0.1:8000/api/auth/change-password \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"oldPassword":"admin23","newPassword":"Admin@2026"}'
+# 改密成功后旧 TOKEN 已失效（token_version 递增吊销所有旧 token）：
+# 须用新密码重新登录换发新 token 才能继续调用受保护接口。
+# 前端已内置该流程（改密后自动重登，用户无感）；脚本/API 调用方需自行重登。
 ```
 
 ## 环境变量
@@ -70,6 +73,8 @@ curl -s -X POST http://127.0.0.1:8000/api/auth/change-password \
 | `JWT_SECRET` | — | ✅ | HS256 签名密钥；空值进程直接退出（fail-fast） |
 | `DJANGO_SECRET_KEY` | 未设置 → 回退 `JWT_SECRET` | | Django 自身 SECRET_KEY（session/CSRF 签名），生产建议配置独立值与 JWT 密钥分离；更换后现有 session/CSRF cookie 失效（用户需重新登录），择机轮换 |
 | `TRUSTED_PROXIES` | 仅回环（127.0.0.1 / ::1） | | 可信代理 IP（逗号分隔）：仅当请求来自该集合时才信任其 `X-Real-IP`（取客户端真实 IP，用于登录限速等按 IP 防护）；标准 nginx 反代部署无需设置 |
+| `DJANGO_ALLOWED_HOSTS` | `127.0.0.1,localhost,::1` | | Django Host 头白名单（逗号分隔）。**公网部署必填**：缺失时对一切非回环 Host 的请求返回原生 400 Bad Request（登录/健康检查全部失败，前端表现为「请求参数错误」）。deploy-linux.sh / update-from-github.sh 会自动写入域名或公网 IP（幂等） |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | `""` | | Django CSRF Origin 白名单（逗号分隔，`scheme://host[:port]` 显式格式）。`/admin` 登录表单等带 Origin 的 POST 必须命中，否则 403；deploy 脚本传 `--domain` 时自动写入，纯 IP 部署经 nginx 反代通常无需配置 |
 | `DEBUG` | `false` | | `true` 启用 Django debug-toolbar（需额外安装）与详细错误页 |
 | `PORT` | `8000` | | 后端监听端口（单一真源）：`python manage.py rundaphne` 按其绑定 daphne，并经 `/api/version` 下发给前端「系统设置 → 后端管理」区块的红色「后端管理界面」与黄色「日志查看器」跳转按钮 |
 | `LOG_LEVEL` | `INFO` | | `DEBUG/INFO/WARNING/ERROR/CRITICAL` |

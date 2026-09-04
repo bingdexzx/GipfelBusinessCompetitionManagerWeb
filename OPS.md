@@ -174,9 +174,22 @@ npm run typecheck    # 类型检查（CI 必跑）
 
 `LoginRateLimitMiddleware` **只拦截 `POST /api/auth/login`**：同一 IP + 用户名在 5 分钟窗口内累计失败 10 次即锁定 15 分钟并返回 429。锁定状态存**进程内存**，重启后端即清空。阈值由 `apps/common/middleware.py` 常量 `_FAIL_WINDOW` / `_FAIL_THRESHOLD` / `_LOCK_DURATION` 控制，非环境变量。
 
+### Q7b. 纯 IP 部署登录/健康检查返回 400（「请求参数错误」）
+
+- **现象**：浏览器访问 `http://<IP>/api/...` 得到 Django 原生 400 Bad Request HTML 页面，前端统一提示「请求参数错误」；`curl http://127.0.0.1:8000/api/health`（回环）却正常。
+- **根因（曾真实发生）**：`backend/.env` 的 `DJANGO_ALLOWED_HOSTS` 不含公网 IP——Django 的 Host 头白名单没放行 `http://<IP>` 请求，对一切非回环 Host 一律返回 400。
+- **自动修复**：`deploy-linux.sh` / `update-from-github.sh` 均会在部署/升级时自动把域名或公网 IP 幂等追加进 `DJANGO_ALLOWED_HOSTS`（优先级 `--domain > --public-ip > 自动探测`；受限网络探测不到时显式传 `--public-ip <IP>`）。手动补救：
+  ```bash
+  # /opt/gipfel/backend/.env 追加公网 IP 后重启
+  echo 'DJANGO_ALLOWED_HOSTS=<公网IP>,localhost,127.0.0.1' | sudo tee -a /opt/gipfel/backend/.env
+  sudo systemctl restart gipfel
+  ```
+- **区分**：若是 401/429/403 走对应 Q7/安全章节；**400 + HTML** 几乎必然是 ALLOWED_HOSTS。
+
 ## 10. 安全与合规速览
 
 - **JWT**：HS256，`JWT_SECRET` 必填（未配置进程 fail-fast 拒绝启动），默认 24h，`tokenVersion` 顶号立即失效。Django 自身 `SECRET_KEY` 支持经 `DJANGO_SECRET_KEY` 独立配置（未配置回退 `JWT_SECRET`；更换会使 session/CSRF cookie 失效，择机轮换）。
+- **改密吊销会话**：改密成功后端递增 `token_version` 吊销**所有**旧 token（含当前会话，防止旧凭据残留）；前端随后自动用新密码重新登录换发新 token，本设备会话无感续接，其他设备被正确踢下线。若看到「账号已在其他设备登录」误报，说明前端版本过旧（未带自动重登逻辑），更新前端即可。
 - **RBAC**：41 个权限键、20 个权限域；5 级动作等级蕴含（`view<edit<manage<execute<audit`，合同域自定义）。`can(action, resource)` 前后端一致。
 - **比赛隔离**：读查询按 `competition_id` 自动域过滤（`apply_competition_scope`）；写操作 `create_competition_id` 强制归属（非超管忽略请求体 competitionId）；`CompetitionScopePermission` 挂载 DRF 全局默认兜底。
 - **客户端 IP 信任链**：`client_ip()` 仅对可信代理（默认回环，`TRUSTED_PROXIES` 可扩展）信任 `X-Real-IP`，直连后端无法伪造该头绕过登录限速。
@@ -214,9 +227,15 @@ sudo bash scripts/update-from-github.sh --install-dir /opt/gipfel --with-nginx
 # 情况二：按本文档流程（clone 到独立目录 /opt/GipfelBusinessCompetitionManagerWeb，再用 deploy-linux.sh rsync 到 /opt/gipfel）→ 模式 B
 cd /opt/GipfelBusinessCompetitionManagerWeb
 sudo bash scripts/update-from-github.sh --source-dir /opt/GipfelBusinessCompetitionManagerWeb --install-dir /opt/gipfel --with-nginx
+
+# 纯 IP（无域名）部署：省略 --domain 即可，脚本自动自愈 LOG_VIEWER_PUBLIC_URL 与
+# DJANGO_ALLOWED_HOSTS（幂等追加公网 IP）；受限网络探测不到公网 IP 时显式指定：
+sudo bash scripts/update-from-github.sh \
+  --source-dir /opt/GipfelBusinessCompetitionManagerWeb \
+  --install-dir /opt/gipfel --with-nginx --public-ip 43.142.77.225
 ```
 
-> 脚本自动：① 拉取最新代码 ② 备份 `db.sqlite3`+`uploads`+`.env` 到 `_backup/<时间戳>` ③ 更新代码（排除数据文件）④ `pip install`+`migrate`+`collectstatic` ⑤ `npm ci`+`npm run build`→`frontend-dist/` ⑥ chown 归属 gipfel、`.env` 权限 600 ⑦ restart `gipfel`(+`gipfel-logviewer`) ⑧ [--with-nginx] 刷新 vhost 并 reload。完整细节见 [`deploy/README.md`](deploy/README.md) 的「更新部署」一节。
+> 脚本自动：① 拉取最新代码 ② 备份 `db.sqlite3`+`uploads`+`.env` 到 `_backup/<时间戳>` ③ 更新代码（排除数据文件）④ `pip install`+`migrate`+`collectstatic` ⑤ `npm ci`+`npm run build`→`frontend-dist/` ⑥ chown 归属 gipfel、`.env` 权限 600 ⑦ 纯 IP 自愈（`LOG_VIEWER_PUBLIC_URL` + `DJANGO_ALLOWED_HOSTS`）⑧ 刷新 systemd 单元并 restart `gipfel`(+`gipfel-logviewer`) ⑨ [--with-nginx] 刷新 vhost 并 reload。完整细节见 [`deploy/README.md`](deploy/README.md) 的「更新部署」一节。
 
 <details>
 <summary>手动升级步骤（不依赖脚本时，需自行处理备份 / 静态 / 权限，否则易踩坑）</summary>

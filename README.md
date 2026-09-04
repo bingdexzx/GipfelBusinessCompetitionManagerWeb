@@ -94,10 +94,12 @@ GipfelBusinessCompetitionManagerWeb/
 ├── scripts/
 │   ├── bootstrap-dev.bat            Windows 开发环境首次初始化
 │   ├── start-dev.bat                Windows 开发启动（Django + Vite + 日志查看器 并行）
-│   └── deploy-linux.sh              Linux 一键部署（daphne + systemd + nginx + 前端静态）
+│   ├── deploy-linux.sh              Linux 一键部署（daphne + systemd + nginx + 前端静态）
+│   └── update-from-github.sh        Linux 增量升级（拉取最新 + 备份 + 迁移 + 构建 + 重启，保留数据）
 │
 ├── deploy/
-│   ├── gipfel.service               systemd unit 模板
+│   ├── gipfel.service               systemd unit 模板（主后端）
+│   ├── logviewer.service            systemd unit 模板（日志查看器）
 │   └── nginx-gipfel.conf            nginx 虚拟主机模板
 │
 ├── Vue-Django迁移设计.md             技术迁移方案 / API 契约 / 阶段进度
@@ -131,16 +133,26 @@ GipfelBusinessCompetitionManagerWeb/
 ```bash
 # 在目标服务器上执行，须有 sudo 权限
 cd GipfelBusinessCompetitionManagerWeb
+
+# 有域名：
 sudo bash scripts/deploy-linux.sh \
   --domain comp.example.com \
   --install-dir /opt/gipfel \
   --with-nginx
 
+# 纯 IP（无域名）：省略 --domain；受限网络探测不到公网 IP 时显式传 --public-ip
+sudo bash scripts/deploy-linux.sh \
+  --install-dir /opt/gipfel \
+  --with-nginx \
+  --public-ip 43.142.77.225
+
 # 完成后：
 #   systemctl status gipfel      # 后端 daphne
 #   systemctl status nginx       # 反向代理 + 前端静态
-#   https://comp.example.com     # 访问
+#   http://<IP>/                 # 纯 IP 访问（或 https://comp.example.com）
 ```
+
+> **日常升级**用 [update-from-github.sh](scripts/update-from-github.sh)：自动「拉取最新 + 备份 + 迁移 + 前端构建 + 重启」，保留数据；纯 IP 部署同样支持（自动自愈 `LOG_VIEWER_PUBLIC_URL` 与 `DJANGO_ALLOWED_HOSTS`）。详见 [deploy/README.md「更新部署」](deploy/README.md) 与 [OPS.md 第 11 节](OPS.md)。
 
 脚本自动完成：
 1. 系统依赖安装（python3-venv、python3-dev、nodejs、npm、nginx、openssl）
@@ -168,7 +180,7 @@ scripts\start-dev.bat
 
 ## 6. 安全与合规
 
-- **JWT**：HS256，`JWT_SECRET`（必填，未配置进程 fail-fast 拒绝启动），默认 24h，`tokenVersion` 顶号立即失效；Django 自身 `SECRET_KEY` 支持经 `DJANGO_SECRET_KEY` 独立配置（未配置回退 `JWT_SECRET`，生产建议分离）
+- **JWT**：HS256，`JWT_SECRET`（必填，未配置进程 fail-fast 拒绝启动），默认 24h，`tokenVersion` 顶号立即失效（改密同样递增吊销所有旧 token，前端自动重登续接）；Django 自身 `SECRET_KEY` 支持经 `DJANGO_SECRET_KEY` 独立配置（未配置回退 `JWT_SECRET`，生产建议分离）
 - **RBAC**：41 个权限键、20 个权限域；5 级动作等级蕴含（`view(10) < edit(20) < manage(30) < execute(40) < audit(50)`），合同域自定义为 `view(10) < audit(20) < execute(30) < manage(40)`；`can(action, resource)` 前后端一致
 - **比赛隔离**：读查询自动按 `competition_id` 域过滤（`apply_competition_scope`）；写操作由 `create_competition_id` 强制归属（非超管忽略请求体的 competitionId，杜绝跨比赛写入）；`CompetitionScopePermission` 挂载在 DRF 全局默认权限做兜底（非超管写操作必须有比赛上下文）
 - **客户端 IP 信任链**：`client_ip()` 仅当请求来自可信代理（默认回环，可经 `TRUSTED_PROXIES` 扩展）才信任 `X-Real-IP`，绕过 nginx 直连后端无法伪造 IP 使登录限速失效
@@ -191,7 +203,7 @@ scripts\start-dev.bat
 
 > 同一套凭据也会在 `migrate` 时一并创建 Django 后台（`/admin`）超级管理员（见下方「Django 管理后台」一节）。
 
-**强制改密**：首次登录成功后返回的 JWT 仍能通过鉴权，但调用受 `must_change_password` 守卫的接口（如 `/auth/me`、全部业务接口）会返回 **401 `initial_password_must_be_changed`**，前端立即跳转到改密页。改密成功后 JWT 不变，`must_change_password` 置为 False，正常使用。
+**强制改密**：首次登录成功后返回的 JWT 仍能通过鉴权，但调用受 `must_change_password` 守卫的接口（如 `/auth/me`、全部业务接口）会返回 **401 `initial_password_must_be_changed`**，前端立即跳转到改密页。改密成功后 `must_change_password` 置为 False，同时**递增 `token_version` 吊销所有旧 token**（安全设计，防旧凭据残留）；前端随即自动用新密码重新登录换发新 token，本设备会话无感续接，其他设备被正确踢下线。
 
 ### 新建比赛管理员
 

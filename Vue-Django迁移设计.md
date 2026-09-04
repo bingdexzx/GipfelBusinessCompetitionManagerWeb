@@ -200,6 +200,7 @@ Django (ASGI) ── asgi.py
 - 使用 `djangorestframework-simplejwt`，但**自定义 Token 类**以注入 `tv`(tokenVersion)/`cid`(competitionId) 并绑定 issuer/audience。
 - 自定义 `JWTAuthentication`：校验 issuer/audience + `tokenVersion` 比对（不一致 401「账号已在其他设备登录」）+ `mustChangePassword` 拦截。
 - 登录成功 `tokenVersion += 1`，签发新 token。
+- 改密成功同样 `tokenVersion += 1` 吊销所有旧 token（含当前会话，防旧凭据残留）；前端改密后自动用新密码重新登录换发新 token，本设备会话无感续接。
 - bcrypt 哈希与原 `bcryptjs` 兼容（`$2a$`/`$2b$` 前缀，cost 12）。
 
 ### 5.2 守卫链（Django 中间件/DRF permission 顺序）
