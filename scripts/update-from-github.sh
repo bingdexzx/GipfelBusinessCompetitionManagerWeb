@@ -122,11 +122,22 @@ _probe_public_ip() {
 }
 
 # ---------------- 确定代码来源并拉取最新 ----------------
+# 网络容错：git pull 失败（服务器访问 GitHub 抖动，GnuTLS -110 等）时降级为
+# 「使用本地现有代码继续更新」而非中止——masked 自愈、服务恢复等不依赖新代码，
+# 但会明确 WARN 提示当前代码可能不是最新，网络恢复后重跑。
+_pull_failed_hint() {
+    warn "git pull 失败（多为服务器访问 GitHub 的网络抖动/被墙）。已降级为使用本地现有代码继续更新。"
+    warn "注意：现有代码可能不是最新！可稍后重试，或配置镜像后重跑："
+    warn "  git config --global url.\"https://ghproxy.net/https://github.com/\".insteadOf \"https://github.com/\""
+    warn "镜像可用性随时间变化，也可尝试 ghfast.top / gh-proxy.com / mirror.ghproxy.com 等前缀。"
+}
 if [[ -d "$INSTALL_DIR/.git" ]]; then
     # 模式 A：部署目录本身是 clone → 原地 pull
     log "部署目录 $INSTALL_DIR 为 git 仓库，原地拉取最新"
     cd "$INSTALL_DIR"
-    git pull --ff-only
+    if ! git pull --ff-only; then
+        _pull_failed_hint
+    fi
     # 自更新：若本脚本自身被本次 pull 更新，用新版本重新执行，
     #   避免用旧脚本逻辑处理新代码。环境变量哨兵防止无限 re-exec；
     #   git pull --ff-only 幂等，重跑无副作用。仅当脚本位于 INSTALL_DIR 内才 re-exec。
@@ -138,7 +149,9 @@ if [[ -d "$INSTALL_DIR/.git" ]]; then
 elif [[ -n "$SOURCE_DIR" && -d "$SOURCE_DIR/.git" ]]; then
     # 模式 B：从本地 source checkout pull 后 rsync 到 INSTALL_DIR（同 deploy-linux.sh 模型）
     log "从本地源码目录 $SOURCE_DIR 拉取最新并同步到 $INSTALL_DIR"
-    git -C "$SOURCE_DIR" pull --ff-only
+    if ! git -C "$SOURCE_DIR" pull --ff-only; then
+        _pull_failed_hint
+    fi
     mkdir -p "$INSTALL_DIR"
     # 排除数据/构建产物/缓存，确保线上 db/uploads/.env 不被覆盖（同 deploy-linux.sh）
     rsync -a --delete --exclude .venv --exclude __pycache__ --exclude '*.pyc' \

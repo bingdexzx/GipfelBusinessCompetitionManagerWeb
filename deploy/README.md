@@ -30,12 +30,13 @@ sudo bash scripts/deploy-linux.sh --install-dir /opt/gipfel --with-nginx
 
 > **网络前提**：部署过程中服务器需能出网到 **apt 源 / PyPI（`pip install`）/ npm 源（`npm ci`）**。仅 GitHub 不通、但 apt/npm/PyPI 可达时，可用下方镜像绕过；若全部都不通，走「服务器完全连不上 GitHub」的 tar 包方案（前端 dist 也可在能联网的机器预构建后整体传入）。
 
-> **GitHub 直连超时（`curl 28` / 443 连不上）？** 国内或受限网络常见，两种绕过方式：
-> - 用镜像前缀直接 clone：
->   `git clone https://ghproxy.com/https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git`
-> - 或让本机后续所有 git 操作自动走代理（之后普通 `git clone` / `git pull` 即可）：
->   `git config --global url."https://ghproxy.com/https://github.com/".insteadOf "https://github.com/"`
-> - 其他可用镜像：`https://mirror.ghproxy.com/`、`https://kgithub.com/`、`https://gitclone.com/github.com/`（可用性各异，挑能连的）。
+> **GitHub 直连超时（`curl 28` / GnuTLS -110 / 443 连不上）？** 国内或受限网络常见，几种绕过方式：
+> - **重试**：GnuTLS -110 常为瞬时抖动，直接重跑 `git pull` 一两次即可成功；
+> - **一次性镜像 pull**（不改全局配置）：
+>   `git pull https://ghproxy.net/https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git master`
+> - 或让本机后续所有 git 操作自动走镜像（之后普通 `git clone` / `git pull` 即可，update-from-github.sh 的 pull 同样受益）：
+>   `git config --global url."https://ghproxy.net/https://github.com/".insteadOf "https://github.com/"`
+> - 镜像前缀可用性随时间变化，可依次尝试：`https://ghproxy.net/`、`https://ghfast.top/`、`https://gh-proxy.com/`、`https://mirror.ghproxy.com/`、`https://gitclone.com/github.com/`（挑能连的）。
 
 > **镜像也不稳、想直接用 GitHub 地址拉取？** 可在服务器上安装 FastGitHub（本地代理加速/恢复 GitHub 连接），之后所有 git/curl 命令自动走 `127.0.0.1:38457` 即可正常访问 GitHub：
 > ```bash
