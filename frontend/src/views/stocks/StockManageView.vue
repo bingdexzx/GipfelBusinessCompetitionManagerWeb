@@ -14,7 +14,8 @@
           <span class="card-title">股票（{{ stocks.length }}）</span>
           <div class="card-actions">
             <el-button type="primary" :icon="Plus" @click="openStockDialog()">新增股票</el-button>
-            <el-button type="warning" :icon="VideoPlay" @click="openAdvanceDialog">推进一轮</el-button>
+            <el-button type="warning" :icon="VideoPlay" @click="autoAdvance">推进一轮</el-button>
+            <el-button plain type="warning" :icon="Setting" @click="openAdvanceDialog">自定义参数推进</el-button>
           </div>
         </div>
       </template>
@@ -341,12 +342,12 @@
       </template>
     </el-dialog>
 
-    <!-- 做市商配置对话框 -->
-    <el-dialog append-to-body v-model="mmDialogVisible" title="推进轮次 — AI 做市商配置" width="520px">
+    <!-- 自定义参数推进对话框（高级路径；默认「推进一轮」按钮全自动、无需填参） -->
+    <el-dialog append-to-body v-model="mmDialogVisible" title="自定义参数推进（可选 · 通常无需使用）" width="520px">
       <el-alert
         type="info"
         :closable="false"
-        title="AI 做市商将在每轮撮合前自动挂单，为市场提供流动性（买卖盘深度）。"
+        title="顶部「推进一轮」按钮已可全自动推进。本弹窗仅在需要临时微调做市商/引擎参数时使用；留用默认值即等同自动推进。"
         style="margin-bottom: 16px;"
       />
       <el-form :model="mmConfig" label-width="120px" size="small">
@@ -417,7 +418,7 @@
       </el-form>
       <template #footer>
         <el-button @click="mmDialogVisible = false">取消</el-button>
-        <el-button type="warning" :icon="VideoPlay" @click="confirmAdvance">确认推进</el-button>
+        <el-button type="warning" :icon="VideoPlay" @click="confirmAdvance">按此配置推进</el-button>
       </template>
     </el-dialog>
 
@@ -474,7 +475,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";
-import { Plus, Refresh, VideoPlay } from "@element-plus/icons-vue";
+import { Plus, Refresh, Setting, VideoPlay } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { stockApi, companiesApi, regionsApi, companyFieldsApi } from "@/api";
 import { useCompetitionStore } from "@/stores/competition";
@@ -982,6 +983,37 @@ function openAdvanceDialog() {
   mmDialogVisible.value = true;
 }
 
+// 推进结果统一处理：成功提示 + 定价诊断面板 + 刷新行情/账户
+async function applyAdvanceResult(res: { advanced: number; marketMakerOrders: number; results: any[] }) {
+  const mmInfo = res.marketMakerOrders > 0 ? `，做市商挂单 ${res.marketMakerOrders} 笔` : "";
+  ElMessage.success(`已推进，处理 ${res.advanced} 只股票${mmInfo}`);
+  advanceResults.value = Array.isArray(res.results) ? res.results : [];
+  if (advanceResults.value.length) diagVisible.value = true;
+  await reloadStocks();
+  await reloadAccounts(); // 字段联动账户余额随交易更新，需刷新现金显示
+}
+
+// 一键自动推进（默认路径）：做市商订单与深度由引擎按比赛配置/股本全自动生成，
+// 引擎参数取比赛 stockConfig（未配置时用默认值），全程无需手动输入任何参数。
+async function autoAdvance() {
+  try {
+    await ElMessageBox.confirm(
+      "将按系统自动配置推进一轮：AI 做市商自动生成买卖盘（深度按股本计算），引擎参数取比赛默认配置，无需手动填写。确定推进？",
+      "推进轮次（自动）",
+      { confirmButtonText: "自动推进", cancelButtonText: "取消", type: "warning" },
+    );
+  } catch {
+    return; // 用户取消
+  }
+  try {
+    const res = await stockApi.advanceRound(compStore.competitionId!, {});
+    await applyAdvanceResult(res);
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出，避免重复 toast
+  }
+}
+
+// 自定义参数推进（高级路径）：手动微调做市商与引擎参数后推进
 async function confirmAdvance() {
   mmDialogVisible.value = false;
   try {
@@ -989,12 +1021,7 @@ async function confirmAdvance() {
       marketMaker: mmConfig.value,
       stockConfig: stockConfigForm.value,
     });
-    const mmInfo = res.marketMakerOrders > 0 ? `，做市商挂单 ${res.marketMakerOrders} 笔` : "";
-    ElMessage.success(`已推进，处理 ${res.advanced} 只股票${mmInfo}`);
-    advanceResults.value = Array.isArray(res.results) ? res.results : [];
-    if (advanceResults.value.length) diagVisible.value = true;
-    await reloadStocks();
-    await reloadAccounts(); // 字段联动账户余额随交易更新，需刷新现金显示
+    await applyAdvanceResult(res);
   } catch {
     // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   }
