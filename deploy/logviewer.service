@@ -46,7 +46,9 @@ ProtectControlGroups=true
 RestrictRealtime=true
 RestrictSUIDSGID=true
 LockPersonality=true
-RestrictAddressFamilies=AF_INET AF_INET6
+# 与 gipfel.service 保持一致：AF_UNIX 必须保留，防止未来增加 Unix socket 监听时
+# 被 RestrictAddressFamilies 以 EAFNOSUPPORT（Errno 97）拒绝导致服务无法启动。
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 CapabilityBoundingSet=
 ReadWritePaths=__INSTALL_DIR__/backend/uploads __INSTALL_DIR__/backend/logs __INSTALL_DIR__/backend/db.sqlite3 /run/gipfel /var/log/gipfel
 
