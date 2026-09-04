@@ -36,7 +36,10 @@ BACKEND_GATE_MAX_AGE = int(os.environ.get("BACKEND_GATE_MAX_AGE", "120"))
 
 
 # ==================== 通用配置 ====================
-SECRET_KEY = JWT_SECRET  # Django 自身 SECRET_KEY 复用 JWT_SECRET（生产应独立，迁移期简化）
+# Django 自身 SECRET_KEY：优先读 DJANGO_SECRET_KEY（生产建议配置独立值，与 JWT 密钥分离，
+# 缩小单密钥泄露的影响面）；未配置时回退 JWT_SECRET（迁移期兼容，行为与旧版一致）。
+# 注意：更换 SECRET_KEY 会使现有 session / CSRF cookie 失效（用户需重新登录），换钥需择机进行。
+SECRET_KEY = (os.environ.get("DJANGO_SECRET_KEY") or "").strip() or JWT_SECRET
 
 DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
 
@@ -275,6 +278,11 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
+        # 比赛域全局兜底：非超管的写操作必须有比赛上下文（body 的 competitionId
+        # 或自身归属比赛）。显式设置 permission_classes 的视图不受影响；
+        # 粗校验无副作用——各视图的 create_competition_id / apply_competition_scope
+        # 仍负责精确的归属强制与 queryset 过滤（见 apps/common/guards.py）。
+        "apps.common.guards.CompetitionScopePermission",
     ),
     "DEFAULT_PAGINATION_CLASS": None,  # 自定义分页（parsePagination 等价）
     "PAGE_SIZE": 50,

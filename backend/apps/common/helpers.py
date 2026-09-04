@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import os
+
 from django.db import models
 from rest_framework import serializers
 
@@ -102,17 +104,36 @@ def assert_competition_exists(cid: int) -> None:
         raise serializers.ValidationError({"competitionId": f"比赛 {cid} 不存在"})
 
 
-def client_ip(request) -> str:
-    """取客户端 IP：优先 nginx 注入的 X-Real-IP（取自 $remote_addr，不可伪造）。
+def _trusted_proxy_addrs() -> set[str]:
+    """可信代理地址集合：默认仅回环（标准 nginx 反代部署形态）。
 
-    不信任 X-Forwarded-For 首段（攻击者可伪造）。
+    可通过环境变量 TRUSTED_PROXIES 追加（逗号分隔精确 IP），例如
+    TRUSTED_PROXIES=10.0.0.5,192.168.1.10。仅当请求的 REMOTE_ADDR 命中
+    该集合时才信任 X-Real-IP，防止绕过 nginx 直连后端时伪造该头。
+    """
+    addrs: set[str] = {"127.0.0.1", "::1"}
+    raw = os.environ.get("TRUSTED_PROXIES", "")
+    if raw:
+        addrs |= {a.strip() for a in raw.split(",") if a.strip()}
+    return addrs
+
+
+def client_ip(request) -> str:
+    """取客户端 IP：仅当请求来自可信代理（默认回环，即经 nginx 反代）时才信任
+    其注入的 X-Real-IP（nginx 取自 $remote_addr，不可伪造）。
+
+    绕过 nginx 直连后端（如 --bind 0.0.0.0 内网联调）时，REMOTE_ADDR 不在
+    可信集合内，直接回退 REMOTE_ADDR —— 防止伪造 X-Real-IP 使登录限速等
+    按 IP 的防护失效。始终不信任 X-Forwarded-For 首段（攻击者可伪造）。
     """
     if request is None:
         return "unknown"
-    real_ip = request.headers.get("X-Real-IP") or request.META.get("HTTP_X_REAL_IP")
-    if real_ip:
-        return real_ip.strip().split(",")[0].strip()
-    return request.META.get("REMOTE_ADDR", "unknown")
+    remote = request.META.get("REMOTE_ADDR", "unknown")
+    if remote in _trusted_proxy_addrs():
+        real_ip = request.headers.get("X-Real-IP") or request.META.get("HTTP_X_REAL_IP")
+        if real_ip:
+            return real_ip.strip().split(",")[0].strip()
+    return remote
 
 
 def to_camel(name: str) -> str:
