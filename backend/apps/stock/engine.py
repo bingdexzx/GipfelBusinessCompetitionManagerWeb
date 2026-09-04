@@ -11,7 +11,8 @@ stock.service.ts 的 advanceRound / advanceOneStock / generateMarketMakerOrders�
   趋势偏置 drift=happinessImpact*(幸福度-50)/50 + carbonImpact*clamp((均值-碳排)/均值,-1,1)；
   理论价=上轮收盘×(1+pressure*maxMovePct+drift*maxMovePct)；
   成交价参与定价 final=限幅(tradePriceWeight*tradePrice+(1-weight)*理论价, 上轮×(1±limitPct))；
-  未成交(单边无对手盘)→平盘，价格不动。
+  未成交(单边无对手盘)→平盘：价格不动，但轮次照常推进（round 全局同步）并生成平盘 K 线，
+  保证 K 线序列无空洞（与 StockCandle「每轮每股票一根」的模型约束一致）。
 - K线：开盘=上轮收盘；收盘=最终价；盘高/盘低叠加确定性盘中波动（上下影线）。
 """
 from __future__ import annotations
@@ -802,6 +803,50 @@ def generate_market_maker_orders(
     return len(orders), need_intervene
 
 
+# ==================== 平盘推进（辅助） ====================
+def _advance_round_flat(stock, competition_id: int, limit_pct: float) -> tuple[int, dict]:
+    """平盘推进：价格不动、轮次 +1、生成平盘 K 线、作废旧轮订单。
+
+    用于「无任何订单」或「撮合不成交」两种情形（平盘轮），保证各股票
+    round 全局同步、K 线序列无空洞（与 StockCandle「每轮每股票一根」的
+    模型约束一致）。订单语义与成交路径统一：委托仅在本轮有效，轮次结束
+    未成交即作废（平盘轮价格未动，旧单的 ±10% 限价本就仍然有效，作废
+    只是让生命周期规则不再依赖「本轮是否成交」这一偶然因素）。
+
+    返回 (新轮次, 平盘 K 线 dict)。调用方须处于 transaction.atomic() 内。
+    """
+    from .models import Stock, StockCandle, StockOrder
+
+    new_round = stock.round + 1
+    candle = build_candle(
+        stock.current_price, stock.current_price, new_round, None, limit_pct
+    )
+    StockCandle.objects.create(
+        stock_id=stock.id,
+        competition_id=competition_id,
+        open=candle["open"],
+        high=candle["high"],
+        low=candle["low"],
+        close=candle["close"],
+        change_pct=candle["changePct"],
+        round=candle["round"],
+    )
+    Stock.objects.filter(pk=stock.id).update(
+        current_price=stock.current_price, round=new_round
+    )
+    cancelled = StockOrder.objects.filter(
+        stock_id=stock.id,
+        competition_id=competition_id,
+        status="PENDING",
+        round__lt=new_round,
+    ).update(status="CANCELLED")
+    if cancelled:
+        from apps.realtime.emit import emit_resource_changed
+
+        emit_resource_changed("stock-orders", None, competition_id, "bulk")
+    return new_round, candle
+
+
 # ==================== 单只股票推进 ====================
 def advance_one_stock(
     stock,
@@ -814,7 +859,7 @@ def advance_one_stock(
 ) -> dict | None:
     """推进单只股票一轮：撮合、定价、写持仓/现金/订单状态、生成 K 线。
 
-    返回结果 dict（skipped=True 表示跳过）或 None。
+    返回结果 dict（skipped=True 表示平盘轮：无成交，价格不动但 round 照常推进）或 None。
     """
     from .models import Stock, StockCandle, StockFundsAccount, StockHolding, StockOrder
 
@@ -834,13 +879,27 @@ def advance_one_stock(
                 round=stock.round,
             ).order_by("created_at")
         )
-        # 无任何订单 → 不推进
+        # 无任何订单（做市商关闭且无玩家委托）→ 平盘推进：价格不动但 round 照常 +1，
+        # 避免该股票 round 长期冻结、与其他股票失去同步（round 全局同步语义）。
         if not orders:
+            new_round, candle = _advance_round_flat(
+                stock, competition_id, stock_config["limitPct"]
+            )
             return {
                 "stockId": stock.id,
                 "code": stock.code,
-                "round": stock.round,
+                "round": new_round,
                 "skipped": True,
+                "matched": False,
+                "finalPrice": stock.current_price,
+                "pressure": 0.0,
+                "drift": 0.0,
+                "theoretical": float(stock.current_price),
+                "buyQty": 0,
+                "sellQty": 0,
+                "buyAmount": 0,
+                "sellAmount": 0,
+                "candle": candle,
             }
 
         # 撮合
@@ -876,14 +935,17 @@ def advance_one_stock(
         # 把 final 转 Decimal 用于后续 Decimal 化路径（candle 入库、K 线保存等）
         price["final"] = Decimal(str(price["final"]))
 
-        # 撮合不成交 → 平盘，价格不动、不生成 K 线
+        # 撮合不成交 → 平盘：价格不动，但轮次照常推进（round 全局同步），
+        # 生成平盘 K 线保证 K 线序列无空洞；旧轮未成交订单随轮次作废（与成交路径同规则）。
         if not match["matched"]:
+            new_round, candle = _advance_round_flat(stock, competition_id, limit_pct)
             return {
                 "stockId": stock.id,
                 "code": stock.code,
-                "round": stock.round,
+                "round": new_round,
                 "skipped": True,
                 "matched": False,
+                "finalPrice": stock.current_price,
                 "pressure": price["pressure"],
                 "drift": price["drift"],
                 "theoretical": price["theoretical"],
@@ -891,6 +953,7 @@ def advance_one_stock(
                 "sellQty": match["totalSellQty"],
                 "buyAmount": match["totalBuyAmount"],
                 "sellAmount": match["totalSellAmount"],
+                "candle": candle,
             }
 
         # 账户现金 / 持仓运行时快照（统一 Decimal，规避 float 累计误差）

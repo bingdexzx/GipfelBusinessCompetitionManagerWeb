@@ -423,7 +423,7 @@
         <el-table-column prop="code" label="代码" width="92" />
         <el-table-column label="状态" width="78">
           <template #default="{ row }">
-            <el-tag v-if="row.skipped" type="info" size="small">跳过</el-tag>
+            <el-tag v-if="row.skipped" type="info" size="small">平盘</el-tag>
             <el-tag v-else type="success" size="small">已推进</el-tag>
           </template>
         </el-table-column>
@@ -452,7 +452,7 @@
       <div v-else class="dlg-cards">
         <div v-for="row in advanceResults" :key="row.code" class="dlg-card">
           <div class="dlg-row"><span>代码</span><b>{{ row.code }}</b></div>
-          <div class="dlg-row"><span>状态</span><b :class="row.skipped ? 'dlg-muted' : 'dlg-ok'">{{ row.skipped ? '跳过' : '已推进' }}</b></div>
+          <div class="dlg-row"><span>状态</span><b :class="row.skipped ? 'dlg-muted' : 'dlg-ok'">{{ row.skipped ? '平盘' : '已推进' }}</b></div>
           <div class="dlg-row"><span>成交</span><b>{{ row.matched ? '是' : '否' }}</b></div>
           <div class="dlg-row"><span>净买压力</span><b>{{ fmtNum(row.pressure) }}</b></div>
           <div class="dlg-row"><span>趋势偏置</span><b>{{ fmtNum(row.drift) }}</b></div>
