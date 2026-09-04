@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Gipfel 商赛系统 · 整体架构",
+    "locale": "zh-CN",
+    "quality_profile": "standard",
+    "views": [
+      {
+        "id": "request",
+        "label": "请求主链路",
+        "focus": ["browser", "nginx", "daphne", "api", "sqlite"],
+        "note": "浏览器经反向代理把 /api、/static、/uploads、/admin 打到 daphne，业务层经 ORM 读写 SQLite/PostgreSQL。"
+      },
+      {
+        "id": "realtime",
+        "label": "实时广播",
+        "focus": ["api", "socketio", "frontend"],
+        "note": "写操作经 Socket.IO 按 comp-{id} / user-{id} 房间实时推送，前端 socket.io-client 订阅刷新。"
+      },
+      {
+        "id": "ops",
+        "label": "审计与日志观测",
+        "focus": ["api", "audit", "logviewer", "logs"],
+        "note": "写操作与异常统一落 AuditLog；运维侧经一次性令牌网关进入日志查看器，读取 LOG_DIR 展示。"
+      }
+    ]
+  },
+  "components": [
+    { "id": "browser", "type": "external", "label": "浏览器", "sublabel": "用户端", "pos": [120, 90], "size": [150, 60] },
+    { "id": "frontend", "type": "frontend", "label": "前端 SPA", "sublabel": "Vue3 · TS · Element Plus", "pos": [120, 300], "size": [210, 72], "tag": "5173 / 80" },
+    { "id": "nginx", "type": "cloud", "label": "反向代理 / 开发代理", "sublabel": "nginx :80 / vite :5173", "pos": [420, 170], "size": [160, 72] },
+    { "id": "daphne", "type": "backend", "label": "Django daphne", "sublabel": "ASGI 服务器 :8000", "pos": [660, 80], "size": [160, 64] },
+    { "id": "auth", "type": "security", "label": "鉴权 · RBAC", "sublabel": "SimpleJWT · 41 权限键 / 3 角色", "pos": [560, 290], "size": [160, 64], "tag": "SUPER/ADMIN/USER" },
+    { "id": "api", "type": "backend", "label": "业务 API", "sublabel": "DRF · 25 apps · 统一 CRUD 基类", "pos": [790, 290], "size": [160, 64] },
+    { "id": "socketio", "type": "messagebus", "label": "Socket.IO 实时", "sublabel": "rooms: comp-{id} / user-{id}", "pos": [1000, 80], "size": [160, 64] },
+    { "id": "audit", "type": "backend", "label": "审计日志", "sublabel": "AuditLog 写操作/异常", "pos": [790, 450], "size": [160, 64] },
+    { "id": "sqlite", "type": "database", "label": "SQLite", "sublabel": "默认 db.sqlite3", "pos": [1120, 260], "size": [160, 64] },
+    { "id": "postgres", "type": "database", "label": "PostgreSQL", "sublabel": "生产库 DATABASE_URL", "pos": [1300, 360], "size": [160, 64], "tag": "可选" },
+    { "id": "uploads", "type": "database", "label": "uploads/", "sublabel": "文件存储 UPLOAD_DIR", "pos": [1300, 470], "size": [160, 64] },
+    { "id": "logs", "type": "database", "label": "logs/", "sublabel": "运行日志 LOG_DIR", "pos": [1120, 570], "size": [160, 64] },
+    { "id": "datagenerator", "type": "external", "label": "GipfelDataGenerator", "sublabel": "导出 ZIP + SHA256 特征数字", "pos": [1360, 80], "size": [170, 72] },
+    { "id": "logviewer", "type": "backend", "label": "日志查看器", "sublabel": "独立 Django :8121→nginx :8120", "pos": [1370, 570], "size": [170, 72], "tag": "一次性令牌" }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "前端应用", "wraps": ["frontend"] },
+    { "kind": "region", "label": "接入层", "wraps": ["nginx"] },
+    { "kind": "region", "label": "主后端服务 (Django daphne :8000)", "wraps": ["daphne", "auth", "api", "socketio", "audit"] },
+    { "kind": "region", "label": "数据层", "wraps": ["sqlite", "postgres", "uploads", "logs"] },
+    { "kind": "region", "label": "运维观测", "wraps": ["logviewer"] },
+    { "kind": "region", "label": "外部系统", "wraps": ["datagenerator"] }
+  ],
+  "connections": [
+    { "id": "b-nginx", "from": "browser", "to": "nginx", "label": "HTTPS :80", "variant": "emphasis" },
+    { "id": "fe-nginx", "from": "frontend", "to": "nginx", "label": "开发代理 / 静态", "variant": "dashed" },
+    { "id": "nginx-daphne", "from": "nginx", "to": "daphne", "label": "proxy_pass", "variant": "emphasis" },
+    { "id": "daphne-api", "from": "daphne", "to": "api", "label": "dispatch HTTP", "fromSide": "bottom", "toSide": "top" },
+    { "id": "daphne-io", "from": "daphne", "to": "socketio", "label": "dispatch WS" },
+    { "id": "auth-api", "from": "auth", "to": "api", "label": "JWT 校验", "variant": "security" },
+    { "id": "api-audit", "from": "api", "to": "audit", "label": "写审计", "labelAt": [850, 408] },
+    { "id": "api-io", "from": "api", "to": "socketio", "label": "实时广播" },
+    { "id": "api-sqlite", "from": "api", "to": "sqlite", "label": "ORM 读/写" },
+    { "id": "api-pg", "from": "api", "to": "postgres", "label": "生产库(可选)", "variant": "dashed" },
+    { "id": "api-uploads", "from": "api", "to": "uploads", "label": "文件存储" },
+    { "id": "api-lv", "from": "api", "to": "logviewer", "label": "签发一次性令牌", "variant": "security", "fromSide": "right", "toSide": "bottom", "via": [[1000, 322], [1000, 675], [1455, 675]], "labelAt": [1020, 480] },
+    { "id": "nginx-lv", "from": "nginx", "to": "logviewer", "label": "反代 :8120", "variant": "dashed", "via": [[500, 650], [1455, 650]], "fromSide": "bottom", "toSide": "bottom" },
+    { "id": "lv-logs", "from": "logviewer", "to": "logs", "label": "读 LOG_DIR", "fromSide": "left", "toSide": "right", "labelAt": [1300, 566] },
+    { "id": "dg-api", "from": "datagenerator", "to": "api", "label": "导入 ZIP + SHA256 校验", "variant": "security", "fromSide": "bottom", "toSide": "top", "via": [[1445, 200], [870, 200]] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "前端 · 接入", "items": [
+      "Vue3 + TS + Element Plus 单页应用",
+      "Pinia + Vite + Electron 客户端",
+      "三角色守卫；必填项红色 *"
+    ] },
+    { "dot": "emerald", "title": "主后端 · 实时", "items": [
+      "Django5 + daphne · DRF 25 apps",
+      "SimpleJWT + RBAC · 41 权限键",
+      "Socket.IO 按房间实时广播"
+    ] },
+    { "dot": "violet", "title": "数据 · 安全 · 运维", "items": [
+      "SQLite / PostgreSQL 可切换",
+      "uploads+logs；日志查看器 :8120",
+      "ZIP+SHA256 特征数字导入校验"
+    ] }
+  ]
+}
