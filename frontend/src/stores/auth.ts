@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 import api, { authApi } from "@/api";
+import { setSessionRefreshing } from "@/api/request";
 import { getAccountItem, setAccountItem, removeAccountItem, setActiveUser } from "@/utils/accountStorage";
 import { logger } from "@/utils/logger";
 import { disconnectRealtime } from "@/realtime/socket";
@@ -64,14 +65,23 @@ export const useAuthStore = defineStore("auth", () => {
    *  后端改密成功后会递增 token_version，吊销包括当前会话在内的所有旧 token（安全设计）；
    *  若不重新登录，后续请求将携带已失效的旧 token，被 401 拦截器误判为
    *  「账号已在其他设备登录」并踢回登录页。因此改密成功后立即用新密码
-   *  重新登录换取新 token，用户无感续接会话。 */
+   *  重新登录换取新 token，用户无感续接会话。
+   *  同时在改密→重登窗口期：停掉心跳、屏蔽 401 拦截器的踢出逻辑——
+   *  旧会话后台请求（心跳/缓存同步）的迟到 401 不得清掉刚换发的新 token。 */
   async function changePassword(oldPassword: string, newPassword: string) {
-    await authApi.changePassword({ oldPassword, newPassword });
-    const username = user.value?.username;
-    if (username) {
-      // 重新登录（后端会再次递增 token_version 并签发新 token，旧 token 全部作废，
-      // 效果等价于改密吊销 + 本设备续登，其他设备仍被正确踢下线）。
-      await login(username, newPassword);
+    stopHeartbeat();
+    setSessionRefreshing(true);
+    try {
+      await authApi.changePassword({ oldPassword, newPassword });
+      const username = user.value?.username;
+      if (username) {
+        // 重新登录（后端会再次递增 token_version 并签发新 token，旧 token 全部作废，
+        // 效果等价于改密吊销 + 本设备续登，其他设备仍被正确踢下线）。
+        // login 内部会以新 token 重新启动心跳。
+        await login(username, newPassword);
+      }
+    } finally {
+      setSessionRefreshing(false);
     }
     if (user.value) user.value.mustChangePassword = false;
   }

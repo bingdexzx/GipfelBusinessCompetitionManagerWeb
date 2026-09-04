@@ -66,6 +66,19 @@ export function getErrorMessage(error: unknown): string {
   return "网络错误，请检查网络连接或服务器是否启动";
 }
 
+// ---------- 会话刷新屏蔽（改密自动重登期间抑制 401 踢出）----------
+// 改密成功会吊销当前 token，前端随即自动重登换发新 token；窗口期内旧会话的后台请求
+// （心跳 / 缓存增量同步等）会返回 401。这些是「旧会话的迟到 401」，若按常规 401 处理
+// 会把刚换发的新 token 一并清掉、跳登录页并误弹「账号已在其他设备登录」。
+// 改密流程用 setSessionRefreshing(true/false) 包裹，拦截器在此期间静默丢弃 401。
+let _sessionRefreshing = false;
+export function setSessionRefreshing(v: boolean): void {
+  _sessionRefreshing = v;
+}
+export function isSessionRefreshing(): boolean {
+  return _sessionRefreshing;
+}
+
 api.interceptors.response.use(
   (response) => {
     const res = response.data;
@@ -81,6 +94,20 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
     if (error.response?.status === 401) {
+      // 会话刷新窗口（改密自动重登中）：旧会话的 401 一律静默丢弃，不踢出、不弹提示
+      if (isSessionRefreshing()) {
+        return Promise.reject(error);
+      }
+      // 迟到 401 判定：触发 401 的请求所携带的 token 已不是当前登录态的 token
+      // （改密/顶号后已换发新 token），说明这是旧会话的过期响应——静默忽略，
+      // 不清新 token、不跳登录页、不弹「账号已在其他设备登录」。
+      const reqAuth = (error.config?.headers as Record<string, unknown> | undefined)
+        ?.Authorization;
+      const reqToken = typeof reqAuth === "string" ? reqAuth.replace(/^Bearer\s+/i, "") : "";
+      const curToken = getAccountItem("token") || "";
+      if (reqToken && curToken && reqToken !== curToken) {
+        return Promise.reject(error);
+      }
       const isLoginRequest = error.config?.url?.includes("/auth/login");
       if (isLoginRequest) {
         ElMessage.error(getErrorMessage(error));
