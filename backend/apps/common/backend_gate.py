@@ -22,13 +22,36 @@ from __future__ import annotations
 from django.conf import settings
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.http import HttpResponseRedirect
+import os
 import time
 from django.utils.deprecation import MiddlewareMixin
 
 # 会话标记键：通过网关后置位，后续 /admin/* 请求凭此放行（含 Django 后台自身的登录/登出/改密等子请求）
 BACKEND_GATE_SESSION_KEY = "bk_gate"
-# 直连（无令牌/无效令牌/过期标记）时重定向回前端 SPA 根路径
-BACKEND_GATE_REDIRECT_TO = "/"
+
+
+def _resolve_gate_redirect_to() -> str:
+    """弹回目标（前端 SPA 根路径）。
+
+    生产：nginx 在主域名下服务 SPA，弹回 https://域名/ 即前端首页。
+    本地开发：主后端 8000 的 / 是 404（前端跑在 vite :5173），弹回 / 会让
+    浏览器落在 404 空白页（用户看到「样式不加载/什么都看不到」），
+    故指向 vite dev 地址。
+
+    生产判定：DJANGO_ALLOWED_HOSTS 配置了「非回环」主机才算部署到公网；
+    .env 本地默认值（127.0.0.1/localhost/::1）不算。
+    """
+    extra = os.environ.get("DJANGO_ALLOWED_HOSTS", "").strip()
+    for host in (h.strip() for h in extra.split(",")):
+        if not host:
+            continue
+        bare = host.removeprefix(".").lower()
+        if bare not in ("127.0.0.1", "localhost", "::1", "[::1]"):
+            return f"https://{host}/"
+    return "http://127.0.0.1:5173/"
+
+
+BACKEND_GATE_REDIRECT_TO = _resolve_gate_redirect_to()
 # 令牌作用路径前缀（仅管理后台入口受控）
 BACKEND_GATE_PREFIX = "/admin/"
 # 令牌签名盐（与主后端 LOGVIEWER_SECRET_KEY 共用同一 .env 共享密钥，盐区分以隔离日志查看器令牌）
