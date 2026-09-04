@@ -84,6 +84,14 @@ ok()    { printf "\033[32m[OK]\033[0m   %s\n" "$*"; }
 warn()  { printf "\033[33m[WARN]\033[0m %s\n" "$*"; }
 err()   { printf "\033[31m[ERROR]\033[0m %s\n" "$*"; exit 1; }
 
+# 输入清洗：移除会破坏 sed 替换 / 正则 / nginx 配置注入的元字符（& \ /），与 deploy-linux.sh 一致。
+DOMAIN="${DOMAIN//[&\\/]/}"
+PUBLIC_IP="${PUBLIC_IP//[&\\/]/}"
+if [[ -n "$DOMAIN" && ! "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+    warn "DOMAIN 含非法字符（仅允许字母/数字/.-），已忽略 nginx 配置重写"
+    DOMAIN=""
+fi
+
 # 规范化用户/探测得到的地址：去 http(s):// 前缀、去路径/端口后缀；IPv6 保留方括号。
 # 用法：normalize_ip "$RAW"  （结果经 stdout 返回）
 normalize_ip() {
@@ -215,6 +223,7 @@ ok "文件归属已切换为 gipfel，.env 权限收紧为 600"
 #   - 显式 --public-ip：无论当前有无/对错，都以它为准写入（覆盖内网 IP 或缺失该行）
 #   - 否则：仅当当前值指向内网/私网 IP 才纠正；已是公网 IP/域名/缺失行则不动
 # 公网 IP 探测失败则移除该行，改由后端按请求 Host 推导（nginx 透传 $host=公网 IP）。
+LV_PUBLIC_IP=""   # 预初始化：set -u 下后续 ALLOWED_HOSTS 自愈块可能在其未赋值时引用
 if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
     LV_CUR="$(grep -E '^LOG_VIEWER_PUBLIC_URL=' "$INSTALL_DIR/backend/.env" | tail -n1 | sed -E 's#^LOG_VIEWER_PUBLIC_URL=https?://##; s#[/:].*##')"
     LV_NEED_FIX=0
@@ -244,7 +253,8 @@ if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
             warn "已按 --public-ip 写入 LOG_VIEWER_PUBLIC_URL=${LV_PUBLIC_IP}（原值：${LV_CUR:-无}）。"
         else
             # 多服务兜底探测公网 IP（任一可达即可）；均失败则回退「移除该行，交给后端按 Host 推导」
-            LV_PUBLIC_IP="$(_probe_public_ip)"
+            # 注意必须 || true：set -e 下 _probe_public_ip 全部失败返回 1 会直接终止脚本
+            LV_PUBLIC_IP="$(_probe_public_ip)" || true
             if [[ -n "$LV_PUBLIC_IP" && "$LV_PUBLIC_IP" != "$LV_CUR" ]]; then
                 LV_PUBLIC_IP="$(normalize_ip "$LV_PUBLIC_IP")"
                 if [[ "$LV_PUBLIC_IP" == *:* && "$LV_PUBLIC_IP" != \[* ]]; then
@@ -259,6 +269,44 @@ if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
             fi
         fi
     fi
+fi
+
+# 自愈：DJANGO_ALLOWED_HOSTS 必须包含公网访问入口（域名或公网 IP）。
+#   缺失时 Django 对一切非回环 Host 的请求返回原生 400 Bad Request（登录/健康检查
+#   全部失败，前端表现为「请求参数错误」）。纯 IP 部署（无 --domain）在更新脚本中
+#   之前完全没有此自愈，升级后仍会 400。幂等：白名单里已有该条目则不重复追加。
+#   优先顺序：--domain > --public-ip > 自动探测公网 IP。
+if [[ -f "$INSTALL_DIR/backend/.env" ]]; then
+    AH_ENTRY=""
+    if [[ -n "$DOMAIN" ]]; then
+        AH_ENTRY="$DOMAIN"
+    else
+        if [[ -z "$LV_PUBLIC_IP" && -n "$PUBLIC_IP" ]]; then
+            LV_PUBLIC_IP="$(normalize_ip "$PUBLIC_IP")"
+        fi
+        if [[ -z "$LV_PUBLIC_IP" ]]; then
+            LV_PUBLIC_IP="$(_probe_public_ip)" || true
+            [[ -n "$LV_PUBLIC_IP" ]] && LV_PUBLIC_IP="$(normalize_ip "$LV_PUBLIC_IP")"
+        fi
+        AH_ENTRY="$LV_PUBLIC_IP"
+    fi
+    if [[ -n "$AH_ENTRY" ]]; then
+        if grep -q '^DJANGO_ALLOWED_HOSTS=' "$INSTALL_DIR/backend/.env"; then
+            if ! grep -E "^DJANGO_ALLOWED_HOSTS=" "$INSTALL_DIR/backend/.env" | grep -qE "(^|,)${AH_ENTRY}(,|$)"; then
+                sed -i "s|^DJANGO_ALLOWED_HOSTS=.*|&,${AH_ENTRY}|" "$INSTALL_DIR/backend/.env"
+                ok "DJANGO_ALLOWED_HOSTS 已追加公网入口：${AH_ENTRY}"
+            fi
+        else
+            echo "DJANGO_ALLOWED_HOSTS=${AH_ENTRY},localhost,127.0.0.1" >> "$INSTALL_DIR/backend/.env"
+            ok "DJANGO_ALLOWED_HOSTS 已写入：${AH_ENTRY},localhost,127.0.0.1"
+        fi
+    else
+        warn "未能确定公网入口（域名/公网 IP 均为空），DJANGO_ALLOWED_HOSTS 未修改；若经公网访问出现 400，请手动在 backend/.env 加入 DJANGO_ALLOWED_HOSTS=<公网IP>,localhost"
+    fi
+    # sed -i 会以 root 重建 .env（属主变为 root），恢复运行用户归属与 600 权限，
+    # 否则 systemd 以 gipfel 启动时读不到 .env（LOG_VIEWER_PUBLIC_URL 自愈块同理）。
+    chown gipfel:gipfel "$INSTALL_DIR/backend/.env" 2>/dev/null || true
+    chmod 600 "$INSTALL_DIR/backend/.env" 2>/dev/null || true
 fi
 
 # ---------------- 5. 刷新并重启 systemd 服务 ----------------
@@ -387,8 +435,19 @@ echo "  备份位置：    $BACKUP_DIR"
 echo "  后端状态：    systemctl status gipfel"
 echo "  日志查看器：  systemctl status gipfel-logviewer"
 echo "  健康检查：    curl -sS http://127.0.0.1:8000/api/health"
-if [[ $WITH_NGINX -eq 1 ]]; then
-echo "  网站：        ${DOMAIN:-http://$(hostname -I | awk '{print $1}')}"
+# 网站地址提示：有域名显示域名；纯 IP 部署显示公网 IP（优先 --public-ip，其次探测），
+# 不再用 hostname -I 首地址（通常为内网 IP，对用户访问无意义）。
+if [[ -n "$DOMAIN" ]]; then
+    echo "  网站：        http://${DOMAIN}/"
+else
+    if [[ -z "$PUBLIC_IP" ]]; then
+        PUBLIC_IP="$(_probe_public_ip)" || true
+    fi
+    if [[ -n "$PUBLIC_IP" ]]; then
+        echo "  网站：        http://${PUBLIC_IP}/"
+    else
+        echo "  网站：        http://<公网IP>/（未能自动探测公网 IP，请用云控制台查询后访问）"
+    fi
 fi
 echo "  日志：        journalctl -u gipfel -f   /   tail -F $INSTALL_DIR/backend/logs/app.log"
 
