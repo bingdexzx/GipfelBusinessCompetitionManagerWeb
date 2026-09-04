@@ -217,6 +217,13 @@ const router = createRouter({
           meta: { title: "系统设置", requiresSuperAdmin: true },
         },
         {
+          path: "audit-logs",
+          name: "AuditLogs",
+          component: () => import("@/views/system/AuditLogView.vue"),
+          // 审计日志仅超管可查看（后端 GET /audit-logs 要求 account:manage，前端同步收紧为超管）。
+          meta: { title: "审计日志", requiresSuperAdmin: true },
+        },
+        {
           path: "companies",
           name: "Companies",
           component: () => import("@/views/companies/CompanyListView.vue"),

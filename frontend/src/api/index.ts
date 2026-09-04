@@ -450,3 +450,22 @@ export const stockApi = {
     } = {},
   ) => api.post("/stocks/advance-round", dto, { params: { competitionId } }),
 };
+
+// ===================== 审计日志 =====================
+export interface AuditLogQuery {
+  kind?: string;
+  model?: string;
+  operatorId?: number;
+  competitionId?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+export const auditApi = {
+  /** 审计日志列表（分页；仅超管。kind: write|error）。 */
+  list: (query: AuditLogQuery = {}) => {
+    const params: Record<string, unknown> = { ...query };
+    for (const k of Object.keys(params)) if (params[k] == null || params[k] === "") delete params[k];
+    return api.get("/audit-logs", { params, cache: false });
+  },
+};
