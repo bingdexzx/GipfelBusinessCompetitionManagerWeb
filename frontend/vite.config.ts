@@ -47,6 +47,13 @@ export default defineConfig({
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
       },
+      // Django 静态资源（Django admin 样式/脚本等）：/admin 页面引用 /static/...，
+      // 若不代理，Vite 会按 SPA 兜底返回 index.html（200 但 Content-Type 是 HTML），
+      // 浏览器拿到「伪 CSS」拒绝应用 → 管理后台无样式。生产由 nginx 同域映射 /static。
+      "/static": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+      },
     },
   },
   build: {
