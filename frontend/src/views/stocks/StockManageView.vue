@@ -410,6 +410,10 @@
           <el-input-number v-model="stockConfigForm.mmDepthPct" :min="0" :max="0.05" :step="0.0005" :precision="4" style="width: 100%" />
           <div class="form-hint">单档深度占总股本比例（默认 0.001，深度随股本动态化 S3）</div>
         </el-form-item>
+        <el-form-item label="做市商反向偏置">
+          <el-input-number v-model="stockConfigForm.mmSkewPct" :min="0" :max="0.1" :step="0.005" :precision="3" style="width: 100%" />
+          <div class="form-hint">上轮涨/跌时做市商挂单整体反向平移幅度（默认 0.02 = 2%），逢高派发/逢低承接防连板并增加双向波动；封板次轮自动加倍（S11）</div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="mmDialogVisible = false">取消</el-button>
@@ -961,6 +965,7 @@ const stockConfigForm = ref({
   carbonSaturateRatio: 2,
   mmDepthPct: 0.001,
   mmSpreadPct: 0.02,
+  mmSkewPct: 0.02,
   interventionMode: "regression" as "regression" | "expand-limit",
   regressionPct: 0.02,
   tradePriceWeight: 0.7,

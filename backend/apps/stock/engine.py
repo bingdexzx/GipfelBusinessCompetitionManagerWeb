@@ -14,6 +14,11 @@ stock.service.ts 的 advanceRound / advanceOneStock / generateMarketMakerOrders�
   未成交(单边无对手盘)→平盘：价格不动，但轮次照常推进（round 全局同步）并生成平盘 K 线，
   保证 K 线序列无空洞（与 StockCandle「每轮每股票一根」的模型约束一致）。
 - K线：开盘=上轮收盘；收盘=最终价；盘高/盘低叠加确定性盘中波动（上下影线）。
+- 做市商（S11 增强）：波动自适应价差（波动越大价差越宽，封顶 2 倍）+
+  反向动量偏置（涨 → 报价下移逢高派发，跌 → 上移逢低承接；封板次轮加倍）
+  + 分级回归锚干预（连续封板 ≥2 轮，量随连续轮数放大）。
+- 防连板硬约束（S10）：上一轮封板时本轮同侧限幅收紧到 94%（9.4% < 9.9%
+  封板线），连续涨停/跌停在数学上不可能；定价与 K 线上下界同步生效。
 """
 from __future__ import annotations
 
@@ -174,8 +179,12 @@ def compute_price(factors: dict, config: dict) -> dict:
         factors["lastClose"], pressure, drift, config["maxMovePct"]
     )
 
-    upper = factors["lastClose"] * (1 + config["limitPct"])
-    lower = factors["lastClose"] * (1 - config["limitPct"])
+    # 非对称限幅（防连板 S10）：upperLimitPct / lowerLimitPct 可分别覆盖涨/跌侧
+    # 限幅；未设置时回落到对称的 limitPct。
+    upper_pct = config.get("upperLimitPct", config["limitPct"])
+    lower_pct = config.get("lowerLimitPct", config["limitPct"])
+    upper = factors["lastClose"] * (1 + upper_pct)
+    lower = factors["lastClose"] * (1 - lower_pct)
 
     trade_price = factors.get("tradePrice")
     if factors["matched"] and trade_price is not None and math.isfinite(trade_price):
@@ -203,14 +212,19 @@ def build_candle(
     round_: int,
     theoretical: float | None = None,
     limit_pct: float = 0.1,
+    upper_pct: float | None = None,
+    lower_pct: float | None = None,
 ) -> dict:
     """构建 K 线数据。
 
     内部保持 float 运算（影线是图形指标，精度足够），
     仅在最后用 round2 截断到 0.01。
+    upper_pct / lower_pct：非对称限幅（防连板 S10），缺省回落 limit_pct。
     """
-    upper = float(round2(Decimal(str(open_)) * (Decimal("1") + Decimal(str(limit_pct)))))
-    lower = float(round2(Decimal(str(open_)) * (Decimal("1") - Decimal(str(limit_pct)))))
+    up_pct = upper_pct if upper_pct is not None else limit_pct
+    dn_pct = lower_pct if lower_pct is not None else limit_pct
+    upper = float(round2(Decimal(str(open_)) * (Decimal("1") + Decimal(str(up_pct)))))
+    lower = float(round2(Decimal(str(open_)) * (Decimal("1") - Decimal(str(dn_pct)))))
     range_ = upper - lower
 
     # body_high/low 可能是 Decimal（来自 ORM/price["final"]），统一转 float 后再计算
@@ -280,11 +294,20 @@ DEFAULT_STOCK_CONFIG: dict = {
     "mmMinQty": 1000,
     "mmMaxQty": 100000,
     "mmSpreadPct": 0.02,
+    "mmSkewPct": 0.02,
     "interventionMode": "regression",
     "regressionPct": 0.02,
     "tradePriceWeight": 0.7,
     "carbonSaturateRatio": 2,
 }
+
+# 防连板因子：上一轮已封板时，本轮同侧限幅收紧到 94%。
+# 默认 10% × 0.94 = 9.4% < 9.9%（封板判定线），连续封板在数学上不可能。
+_ANTI_STREAK_FACTOR = 0.94
+# 防连板绝对上限：与封板判定线（advance_round 中 |change_pct| ≥ 9.9 判板）挂钩。
+# 对 limitPct > 10.5% 的高限幅配置，仅按 94% 收缩仍可能 ≥ 9.9%（如 15%×0.94=14.1%），
+# 故同侧限幅取 min(limitPct×0.94, 9.4%)，保证任意配置下连板都不可能。
+_ANTI_STREAK_CAP_PCT = 0.094
 
 
 def resolve_stock_config(input_: dict | None) -> dict:
@@ -656,8 +679,20 @@ def generate_market_maker_orders(
     mm_override: dict | None = None,
     consecutive_up: int = 0,
     consecutive_down: int = 0,
+    last_change: float = 0.0,
 ) -> tuple[int, bool]:
     """AI 做市商：为指定股票自动生成买卖挂单，提供流动性。
+
+    报价算法（S11 增强：防连板 + 提升双向波动）：
+    1. 波动自适应价差：近期波动越大（|上轮涨跌| 越接近 10%），买卖档位价差
+       越宽（最高 2 倍），单边行情中报价不过度贴价，避免被动助涨助跌。
+    2. 反向动量偏置（均值回归报价）：上轮涨 → 全部挂单整体下移 skew
+       （逢高派发，抑制追高）；上轮跌 → 整体上移（逢低承接，抑制杀跌）。
+       封板次轮（consecutive_up/down ≥ 1）偏置自动加倍。
+       效果：价格在波动中来回摆动而非单边趋势 → 更具双向波动性，且从
+       报价源头削弱连续封板的动量。
+    3. 分级干预：连续封板 ≥ 2 轮时按原回归锚挂大单对冲，干预量随连续
+       封板轮数放大（3 × min(连续轮数, 3) 倍基础量）。
 
     返回 (生成订单数, 是否干预)。
     """
@@ -669,6 +704,7 @@ def generate_market_maker_orders(
 
     spread_pct = ((mm_override or {}).get("spreadPct", stock_config["mmSpreadPct"] * 100)) / 100
     levels = (mm_override or {}).get("levels", 3)
+    skew_pct = stock_config.get("mmSkewPct", 0.02)
     override_base = (mm_override or {}).get("baseQuantity")
     if override_base is not None:
         base_quantity = override_base
@@ -685,6 +721,16 @@ def generate_market_maker_orders(
     if base_price <= 0:
         return 0, False
 
+    # 1) 波动自适应价差：|上轮涨跌| 越大价差越宽（封顶 2 倍）
+    vol_scale = 1 + min(1.0, abs(last_change) / 10.0)
+    spread_eff = spread_pct * vol_scale
+
+    # 2) 反向动量偏置：涨 → 报价下移（-skew），跌 → 上移（+skew）；
+    #    封板次轮偏置加倍（此时 consecutive_up/down ≥ 1 且尚未到 ≥2 的干预线）。
+    skew = clamp(last_change / 10.0, -1.0, 1.0) * skew_pct
+    if consecutive_up >= 1 or consecutive_down >= 1:
+        skew *= 2
+
     # 查找或创建做市商资金账户
     mm_account, _ = StockFundsAccount.objects.get_or_create(
         competition_id=competition_id,
@@ -700,12 +746,12 @@ def generate_market_maker_orders(
         funds_account_id=mm_account.id,
     ).update(status="CANCELLED")
 
-    # 回归锚干预（连续封板 ≥ 2 轮）
+    # 回归锚干预（连续封板 ≥ 2 轮）：挂大单对冲，量随连续轮数放大
+    consec = max(consecutive_up, consecutive_down)
     need_intervene = (
-        stock_config["interventionMode"] == "regression"
-        and (consecutive_up >= 2 or consecutive_down >= 2)
+        stock_config["interventionMode"] == "regression" and consec >= 2
     )
-    intervention_qty = base_quantity * 3 if need_intervene else 0
+    intervention_qty = base_quantity * 3 * min(consec, 3) if need_intervene else 0
 
     # 计算总卖量，确保持仓足够
     total_sell_qty = sum(base_quantity * i for i in range(1, levels + 1))
@@ -762,13 +808,15 @@ def generate_market_maker_orders(
             competition_id=competition_id,
         ))
 
+    # 报价中心：按反向动量偏置整体平移（涨 → 下移，跌 → 上移）
+    quote_center = round2(Decimal(str(base_price)) * (Decimal("1") - Decimal(str(skew))))
+
     for i in range(1, levels + 1):
-        offset = Decimal(str(spread_pct * i))
-        base_d = Decimal(str(base_price))
-        sell_price = round2(base_d * (Decimal("1") + offset))
+        offset = Decimal(str(spread_eff * i))
+        sell_price = round2(quote_center * (Decimal("1") + offset))
         sell_qty = base_quantity * i
         sell_amount = round2(sell_price * Decimal(str(sell_qty)))
-        buy_price = round2(base_d * (Decimal("1") - offset))
+        buy_price = round2(quote_center * (Decimal("1") - offset))
         if buy_price > 0:
             buy_qty_raw = (Decimal(str(sell_amount)) / Decimal(str(buy_price)))
             buy_qty = (buy_qty_raw * Decimal("1000000")).quantize(Decimal("1"), rounding=ROUND_HALF_UP) / Decimal("1000000")
@@ -856,9 +904,11 @@ def advance_one_stock(
     consecutive_up: int = 0,
     consecutive_down: int = 0,
     mm_config: dict | None = None,
+    last_change: float = 0.0,
 ) -> dict | None:
     """推进单只股票一轮：撮合、定价、写持仓/现金/订单状态、生成 K 线。
 
+    last_change：上一根 K 线的涨跌%（做市商反向偏置与波动自适应价差输入）。
     返回结果 dict（skipped=True 表示平盘轮：无成交，价格不动但 round 照常推进）或 None。
     """
     from .models import Stock, StockCandle, StockFundsAccount, StockHolding, StockOrder
@@ -866,7 +916,8 @@ def advance_one_stock(
     with transaction.atomic():
         # 做市商挂单（建仓/扣款/挂单与撮合同一事务）
         mm_count, mm_intervened = generate_market_maker_orders(
-            stock, competition_id, stock_config, mm_config, consecutive_up, consecutive_down
+            stock, competition_id, stock_config, mm_config,
+            consecutive_up, consecutive_down, last_change,
         )
 
         # 读取本事务内刚生成的 PENDING 订单（仅当前轮 round=stock.round，
@@ -908,6 +959,8 @@ def advance_one_stock(
         )
 
         # expand-limit 模式：连续封板 ≥ 2 轮时临时放宽限幅
+        # （注意：下方防连板硬约束会把同侧限幅收紧到 9.4%，连续封板不再可能，
+        #   该模式实际只在「干预模式=扩板」且刻意配置更高封板判定时才有差异，保留兼容）
         limit_pct = stock_config["limitPct"]
         if stock_config["interventionMode"] == "expand-limit":
             consec = max(consecutive_up, consecutive_down)
@@ -915,6 +968,19 @@ def advance_one_stock(
                 limit_pct = min(0.2, stock_config["limitPct"] * (1 + 0.5 * (consec - 1)))
         cfg = dict(stock_config)
         cfg["limitPct"] = limit_pct
+
+        # 防连板硬约束（S10）：上一轮已封板（|涨跌| ≥ 9.9%）时，本轮同侧限幅
+        # 收紧（94% 且不超过 9.4%）—— 单轮最大变动 < 9.9% 封板判定线，
+        # 无论玩家如何挂单、无论 limitPct 配置多大，连续封板在数学上不可能
+        # （对两侧分别生效）。
+        upper_pct = limit_pct
+        lower_pct = limit_pct
+        if consecutive_up >= 1:
+            upper_pct = min(limit_pct * _ANTI_STREAK_FACTOR, _ANTI_STREAK_CAP_PCT)
+        if consecutive_down >= 1:
+            lower_pct = min(limit_pct * _ANTI_STREAK_FACTOR, _ANTI_STREAK_CAP_PCT)
+        cfg["upperLimitPct"] = upper_pct
+        cfg["lowerLimitPct"] = lower_pct
 
         # 把所有数值入口转 float（compute_* 内部按 float 接口运行；
         # price["final"] 再转 Decimal 用于后续 Decimal 化路径）
@@ -1058,7 +1124,10 @@ def advance_one_stock(
             if sell_rem[sell.id] <= EPS:
                 si += 1
 
-        candle = build_candle(stock.current_price, price["final"], stock.round + 1, price["theoretical"], cfg["limitPct"])
+        candle = build_candle(
+            stock.current_price, price["final"], stock.round + 1,
+            price["theoretical"], cfg["limitPct"], upper_pct, lower_pct,
+        )
         new_round = stock.round + 1
 
         # 现金（绑定字段的账户更新字段值，否则更新账户余额）
@@ -1273,7 +1342,8 @@ def advance_round(
                         else:
                             break
                     r = advance_one_stock(
-                        stock, competition_id, field_map, cfg, up, down, mm_config
+                        stock, competition_id, field_map, cfg, up, down, mm_config,
+                        float(recent[0].change_pct) if recent else 0.0,
                     )
                     if r:
                         results.append(r)
