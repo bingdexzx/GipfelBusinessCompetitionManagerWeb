@@ -144,6 +144,16 @@ if errorlevel 1 (
 )
 echo [OK]    Python deps installed
 
+REM ---------- 3.5 LOGVIEWER_SECRET_KEY ----------
+REM LogViewer fails fast without it; generate a strong random key into backend\.env
+REM when empty (idempotent -- existing values are kept).
+echo [INFO]  Ensuring LOGVIEWER_SECRET_KEY in backend\.env ...
+"%PY%" "%~dp0gen_logviewer_key.py"
+if errorlevel 1 (
+  echo [ERROR] failed to ensure LOGVIEWER_SECRET_KEY
+  goto :fail
+)
+
 REM ---------- 4. migrate ----------
 echo [INFO]  Django check + migrate -- first migrate seeds admin/admin23 ...
 "%PY%" manage.py check --fail-level ERROR

@@ -18,6 +18,14 @@ MAIN_DIR = BASE_DIR.parent
 # SECRET_KEY：日志查看器会话使用签名 cookie（signed_cookies），密钥一旦泄露即可伪造
 # 管理员会话。故缺失/为空时直接拒绝启动（fail-fast），由部署脚本生成强随机
 # LOGVIEWER_SECRET_KEY（与主后端共享同一值）。不再内置任何可用弱默认值（修复 C1 会话可伪造）。
+# 本地开发：与主后端同源读 backend/.env（dotenv 默认不覆盖已存在的环境变量，
+# 生产通过 systemd 注入的值仍优先）。
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(MAIN_DIR / ".env")
+except ImportError:
+    pass
 _LOGVIEWER_SECRET_KEY = (os.environ.get("LOGVIEWER_SECRET_KEY") or "").strip()
 if not _LOGVIEWER_SECRET_KEY:
     raise RuntimeError(
