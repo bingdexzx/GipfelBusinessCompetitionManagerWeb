@@ -316,20 +316,28 @@ fi
 refresh_unit() {
     local src="$1" name="$2"
     [[ -f "$src" ]] || { warn "找不到服务单元模板 $src，跳过刷新 $name"; return; }
-    # masked 自愈：unit 被 mask 时 /etc/systemd/system/$name 是指向 /dev/null 的软链。
-    # cp -f 会【跟随】该软链把 unit 内容写进 /dev/null 而非替换软链，masked 状态永远无法
-    # 被覆盖修复，且后续 enable/restart 报 "Unit ... is masked"。必须先删除软链解除 mask。
-    if [[ -L "/etc/systemd/system/$name" && "$(readlink -f "/etc/systemd/system/$name")" == "/dev/null" ]]; then
-        warn "检测到 $name 处于 masked 状态（unit 是指向 /dev/null 的软链），已自动解除"
-        systemctl unmask "$name" 2>/dev/null || true
+    # masked 自愈：mask 有两种落点，且 cp -f 会跟随 /dev/null 软链把内容写进 /dev/null，
+    # 故必须先解除再写入——
+    #   永久：/etc/systemd/system/$name → /dev/null
+    #   运行时：/run/systemd/system/$name → /dev/null（/run 优先级高于 /etc，
+    #           即使 /etc 写入真实 unit，运行时 mask 仍会遮蔽 → enable/restart 报 masked）
+    # systemctl unmask 本身会同时清理 /etc 与 /run 两处，必须无条件执行：
+    # 仅凭「/etc 下存在 /dev/null 软链」检测会漏掉运行时 mask（曾真实发生）。
+    if [[ -L "/etc/systemd/system/$name" || -L "/run/systemd/system/$name" ]]; then
+        warn "检测到 $name 存在 mask 软链，执行 unmask 解除"
     fi
-    rm -f "/etc/systemd/system/$name"   # 无论目标是软链还是旧文件，一律先删再写，确保真实落地
+    systemctl unmask "$name" 2>/dev/null || true
+    rm -f "/etc/systemd/system/$name" "/run/systemd/system/$name"
     local tmp="$INSTALL_DIR/deploy/$(basename "$src")"
     sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$src" > "$tmp"
     cp -f "$tmp" "/etc/systemd/system/$name"
-    # enable 失败（如仍被 mask）必须告警：此前 2>/dev/null 把该错误吞掉，mask 问题被掩盖到 restart 才暴露
+    # 让 systemd 重新扫描 unit（清掉内存中残留的 masked 状态），再 enable；
+    # enable 失败必须告警：此前 2>/dev/null 吞掉该错误，mask 问题被掩盖到 restart 才暴露。
+    systemctl daemon-reload
     if ! systemctl enable "$name" 2>/dev/null; then
-        warn "systemctl enable $name 失败（可能仍处于 masked 状态）——请执行：sudo systemctl unmask $name 后重跑本脚本"
+        warn "systemctl enable $name 失败（可能仍处于 masked 状态）——请执行："
+        warn "  sudo systemctl unmask $name && sudo rm -f /etc/systemd/system/$name /run/systemd/system/$name"
+        warn "  再从 $tmp 手动拷贝到 /etc/systemd/system/$name 后 daemon-reload + enable"
     fi
     ok "已刷新并启用服务单元 $name → /etc/systemd/system/$name"
 }

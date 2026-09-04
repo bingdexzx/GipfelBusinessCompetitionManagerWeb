@@ -390,14 +390,16 @@ ok "文件归属已切换为 gipfel（运行时可写 db/uploads/logs），.env 
 
 # ---------------- 6. systemd unit ----------------
 log "写入 systemd 服务 gipfel.service / gipfel-logviewer.service"
-# masked 自愈：unit 被 mask 时目标是 /dev/null 软链，cp -f 会跟随软链把内容写进 /dev/null
-# 而非替换软链，服务永远无法启动（restart 报 "Unit ... is masked"）。写入前先解除并删除。
+# masked 自愈：mask 有两种落点——永久（/etc/systemd/system/<unit> → /dev/null）与
+# 运行时（/run/systemd/system/<unit> → /dev/null，且 /run 优先级高于 /etc，会遮蔽 /etc 的真实 unit）。
+# cp -f 会跟随 /dev/null 软链把内容写进 /dev/null 而非替换软链，故必须先无条件 unmask
+# （systemctl unmask 同时清理两处）并删除两处软链，再写入真实 unit。
 for _svc in gipfel.service gipfel-logviewer.service; do
-    if [[ -L "/etc/systemd/system/$_svc" && "$(readlink -f "/etc/systemd/system/$_svc")" == "/dev/null" ]]; then
-        warn "检测到 $_svc 处于 masked 状态（unit 是指向 /dev/null 的软链），已自动解除"
-        systemctl unmask "$_svc" 2>/dev/null || true
-        rm -f "/etc/systemd/system/$_svc"
+    if [[ -L "/etc/systemd/system/$_svc" || -L "/run/systemd/system/$_svc" ]]; then
+        warn "检测到 $_svc 存在 mask 软链，执行 unmask 解除"
     fi
+    systemctl unmask "$_svc" 2>/dev/null || true
+    rm -f "/etc/systemd/system/$_svc" "/run/systemd/system/$_svc"
 done
 UNIT_FILE="$INSTALL_DIR/deploy/gipfel.service"
 sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$PROJECT_ROOT/deploy/gipfel.service" > "$UNIT_FILE"
