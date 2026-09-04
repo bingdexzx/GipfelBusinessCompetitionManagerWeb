@@ -42,9 +42,10 @@ python manage.py rundaphne --bind 0.0.0.0
 
 ```bash
 curl http://127.0.0.1:8000/api/health
-# 期望: {"ok":true,"service":"gipfel-backend","status":"healthy",...}
+# 期望: {"code":0,"message":"成功","data":{"status":"ok"}}
 curl http://127.0.0.1:8000/api/version
-# 期望: {"version":"...", "environment":"development"}
+# 期望: {"code":0,"message":"成功","data":{"version":"...","port":8000,
+#        "log_viewer_port":8120,"log_viewer_url":"http://127.0.0.1:8120/"}}
 ```
 
 ## 登录并改密
@@ -67,6 +68,8 @@ curl -s -X POST http://127.0.0.1:8000/api/auth/change-password \
 | 变量 | 默认 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `JWT_SECRET` | — | ✅ | HS256 签名密钥；空值进程直接退出（fail-fast） |
+| `DJANGO_SECRET_KEY` | 未设置 → 回退 `JWT_SECRET` | | Django 自身 SECRET_KEY（session/CSRF 签名），生产建议配置独立值与 JWT 密钥分离；更换后现有 session/CSRF cookie 失效（用户需重新登录），择机轮换 |
+| `TRUSTED_PROXIES` | 仅回环（127.0.0.1 / ::1） | | 可信代理 IP（逗号分隔）：仅当请求来自该集合时才信任其 `X-Real-IP`（取客户端真实 IP，用于登录限速等按 IP 防护）；标准 nginx 反代部署无需设置 |
 | `DEBUG` | `false` | | `true` 启用 Django debug-toolbar（需额外安装）与详细错误页 |
 | `PORT` | `8000` | | 后端监听端口（单一真源）：`python manage.py rundaphne` 按其绑定 daphne，并经 `/api/version` 下发给前端「系统设置 → 后端管理」区块的红色「后端管理界面」与黄色「日志查看器」跳转按钮 |
 | `LOG_LEVEL` | `INFO` | | `DEBUG/INFO/WARNING/ERROR/CRITICAL` |
@@ -80,6 +83,10 @@ curl -s -X POST http://127.0.0.1:8000/api/auth/change-password \
 | `JWT_AUDIENCE` | `gipfel-competition-client` | | JWT aud |
 | `JWT_EXPIRES_IN` | `24h` | | 支持 `Nh/Nm/Ns/Nd` |
 | `DATABASE_URL` | 未设置 → SQLite `./db.sqlite3` | | `postgres://user:pw@host/dbname` |
+| `LOG_VIEWER_PORT` | `8120` | | 日志查看器服务端口（`start-dev.bat` 与日志查看器启动脚本读取） |
+| `LOGVIEWER_SECRET_KEY` | 未设置 → 回退 `JWT_SECRET` | | 日志查看器 / `/admin` 防直连一次性令牌的签名密钥；主后端签发、日志查看器校验，两者必须读到同一值；生产建议配置独立强随机值 |
+| `LOG_VIEWER_PUBLIC_URL` | 未设置 → 按请求 Host 推导 | | 日志查看器公网地址（`/api/version` 下发的 `log_viewer_url` 用），如 `https://log.example.com/` |
+| `BACKEND_GATE_MAX_AGE` | `120` | | `/admin` 防直连一次性令牌有效期（秒） |
 
 ## 应用注册顺序（依赖链）
 
@@ -128,6 +135,17 @@ files → common
 ```
 
 分页列表的 `data` 还带 `pagination` 字段。
+
+## 股票引擎要点（apps/stock/engine.py）
+
+回合制**集合竞价**模型：每轮收集订单 → 统一撮合 → 轮末未成交订单作废。
+
+- **撮合**：成交判定 = 最高买价 ≥ 最低卖价；信号价 = 最优两档中点；结算为完整的价格-时间优先逐对撮合，成交价夹入 `[卖价, 买价]` 不违反任何一方限价；买方受现金约束、卖方受持仓约束，金额守恒；全链路 Decimal。
+- **定价**：`final = 限幅(tradePriceWeight × 成交价 + (1-w) × 理论价, 上轮收盘 × (1±limitPct))`；理论价 = 上轮收盘 × (1 + 净买压力×maxMovePct + 幸福度/碳排趋势偏置×maxMovePct)。
+- **平盘推进**：无成交（或无任何订单）时价格不动，但 round 照常 +1 并生成平盘 K 线——各股票 round 全局同步、K 线序列无空洞。
+- **防连板硬约束（S10）**：上一轮封板（|涨跌| ≥ 9.9%）时本轮同侧限幅收紧为 `min(limitPct×0.94, 9.4%)`——无论玩家如何挂单、无论 limitPct 配置多大，连续涨停/跌停在数学上不可能；定价与 K 线上下界同步生效。
+- **做市商（S11）**：每轮撮合前自动生成买卖挂单提供流动性（深度按总股本 × `mmDepthPct` 自动计算，钳制在 `mmMinQty`~`mmMaxQty`）；报价含**反向动量偏置**（`mmSkewPct`，上轮涨 → 挂单整体下移逢高派发、跌 → 上移逢低承接，封板次轮加倍）、**波动自适应价差**（|上轮涨跌| 越大价差越宽，封顶 2 倍）、**分级回归锚干预**（连续封板 ≥2 轮挂大单对冲，量随连续轮数放大）。
+- **推进入口**：管理端「推进一轮」按钮为全自动（无需填参，做市商与引擎参数取比赛 `stockConfig` 或默认值）；「自定义参数推进」弹窗可临时覆盖。
 
 ## 数据库迁移
 

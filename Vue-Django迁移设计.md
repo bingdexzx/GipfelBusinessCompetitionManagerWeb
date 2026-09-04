@@ -34,6 +34,11 @@
 9. **乐观锁不变**：`CompanyFieldValue.version` 写时 `where:{id,version}` + 自增，冲突 409。
 10. **合同引擎可撤销不变**：`ContractFieldEffect` 叶子记录 + 删除合同时按 `executedAt` 重放增量精确撤销。
 11. **股票引擎不变**：撮合 + 定价公式（限幅 ±10%、PE 联动/随机、碳排/幸福度字段绑定）、K 线生成、推进轮次。
+    > **后续演进注记（2026-09-04，迁移完成后）**：股票引擎在迁移基线上已增强，与 NestJS 原版行为不再完全一致——
+    > ① 平盘推进：无成交轮次价格不动但 round 照常 +1 并生成平盘 K 线（round 全局同步，K 线无空洞）；
+    > ② 防连板硬约束（S10）：上一轮封板时本轮同侧限幅收紧为 `min(limitPct×0.94, 9.4%)`，连续涨跌停在数学上不可能；
+    > ③ 做市商增强（S11）：反向动量偏置（mmSkewPct）+ 波动自适应价差 + 分级回归锚干预；
+    > ④ 全链路 Decimal 精算与逐对价格-时间优先结算。详见 `backend/README.md`「股票引擎要点」与 `backend/apps/stock/engine.py` 模块文档。
 12. **产业计算引擎不变**：`IndustryField.calcGraph`（GGraph）写入时级联重算；财年定时器 FY_START/FY_END。
 13. **安全头/限流/CORS 不变**：CSP `default-src 'none'`、XFO DENY、XCTO nosniff、Referrer no-referrer、CORP（/uploads cross-origin 其余 same-origin）；登录限流 10 次/5 分钟锁 15 分钟；CORS 本地/私网反射+凭据，公网须白名单。
 14. **审计日志不变**：写操作 + 异常上下文落 `AuditLog`，含 operatorId/ip/requestId/changes 脱敏。

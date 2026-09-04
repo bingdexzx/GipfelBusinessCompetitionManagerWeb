@@ -69,7 +69,7 @@ GipfelBusinessCompetitionManagerWeb/
 │   │   ├── companies/company_fields 公司字段（乐观锁 + 级联重算）
 │   │   ├── industry_types/          产业类型 + 计算图字段
 │   │   ├── contracts/               合同 + 引擎 engine.py
-│   │   ├── stock/                   股票引擎（推进轮次 bulk 广播）
+│   │   ├── stock/                   股票引擎（集合竞价撮合 + AI 做市商 + 防连板）
 │   │   ├── messages/                消息中心
 │   │   └── files/                   上传
 │   ├── logviewer/                   独立日志查看器站点（默认 :8120，见下）
@@ -118,8 +118,8 @@ GipfelBusinessCompetitionManagerWeb/
 
 依赖亮点（详见 `requirements.txt` 与 `package.json`）：
 
-- 后端（`backend/requirements.txt`）：`Django 5.0.6`、`djangorestframework 3.15`、`djangorestframework-simplejwt 5.3`（JWT，内含 PyJWT）、`daphne 4.1`（ASGI）、`python-socketio 5.11`、`bcrypt`、`django-cors-headers`、`Pillow 12`、`simpleeval`、`python-dotenv`
-- 前端（`frontend/package.json`）：`Vue 3.4`、`Vue Router 4.4`、`Pinia 4.0`、`Element Plus 2.7`、`Vite 5.3`、`axios 1.7`、`echarts 6.1`、`socket.io-client 4.7`、`konva 10.3` + `vue-konva 3.4`（地图画布）、`pinyin-pro 3.29`、`typescript 5.4`、`vue-tsc 2.0`
+- 后端（`backend/requirements.txt`）：`Django 5.0.14`、`djangorestframework 3.15`、`djangorestframework-simplejwt 5.3`（JWT，内含 PyJWT）、`daphne 4.1`（ASGI）、`python-socketio 5.11`、`bcrypt`、`django-cors-headers`、`Pillow 12`、`python-dotenv`（合同引擎的表达式求值为自研受限求值器 `apps/contracts/engine.py: safe_evaluate`，不依赖 eval/simpleeval 等第三方执行库）
+- 前端（`frontend/package.json`）：`Vue 3.4`、`Vue Router 4.4`、`Pinia 4.0`、`Element Plus 2.7`、`Vite 5.3`、`axios 1.20`、`echarts 6.1`、`socket.io-client 4.7`、`konva 10.3` + `vue-konva 3.4`（地图画布）、`pinyin-pro 3.29`、`typescript 5.4`、`vue-tsc 2.0`
 - 状态持久化由各 store 手写 `localStorage` 完成，**未使用** `pinia-plugin-persistedstate`
 
 ---
@@ -168,9 +168,10 @@ scripts\start-dev.bat
 
 ## 6. 安全与合规
 
-- **JWT**：HS256，`JWT_SECRET`（必填，未配置进程 fail-fast 拒绝启动），默认 24h，`tokenVersion` 顶号立即失效
+- **JWT**：HS256，`JWT_SECRET`（必填，未配置进程 fail-fast 拒绝启动），默认 24h，`tokenVersion` 顶号立即失效；Django 自身 `SECRET_KEY` 支持经 `DJANGO_SECRET_KEY` 独立配置（未配置回退 `JWT_SECRET`，生产建议分离）
 - **RBAC**：41 个权限键、20 个权限域；5 级动作等级蕴含（`view(10) < edit(20) < manage(30) < execute(40) < audit(50)`），合同域自定义为 `view(10) < audit(20) < execute(30) < manage(40)`；`can(action, resource)` 前后端一致
-- **比赛隔离**：所有业务查询自动按 `competition_id` 域过滤（`apply_competition_scope`）
+- **比赛隔离**：读查询自动按 `competition_id` 域过滤（`apply_competition_scope`）；写操作由 `create_competition_id` 强制归属（非超管忽略请求体的 competitionId，杜绝跨比赛写入）；`CompetitionScopePermission` 挂载在 DRF 全局默认权限做兜底（非超管写操作必须有比赛上下文）
+- **客户端 IP 信任链**：`client_ip()` 仅当请求来自可信代理（默认回环，可经 `TRUSTED_PROXIES` 扩展）才信任 `X-Real-IP`，绕过 nginx 直连后端无法伪造 IP 使登录限速失效
 - **CORS**：未配置 `CORS_ORIGIN` 时仅本地/私网反射并带凭据；公网必须显式白名单
 - **安全头**：自定义中间件写入 CSP、X-Frame-Options=DENY、X-Content-Type-Options=nosniff、Strict-Transport-Security、Referrer-Policy
 - **登录限流**：`LoginRateLimitMiddleware` **只拦截** `POST /api/auth/login`——同一 IP + 用户名在 5 分钟窗口内累计失败 10 次即锁定 15 分钟并返回 429。阈值是 `apps/common/middleware.py` 里的常量（`_FAIL_WINDOW` / `_FAIL_THRESHOLD` / `_LOCK_DURATION`），非环境变量；锁定状态存进程内存，**重启后端即清空**。项目目前**没有**全局 HTTP 限流中间件

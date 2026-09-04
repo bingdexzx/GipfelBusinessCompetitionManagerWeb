@@ -58,8 +58,8 @@ scripts\start-dev.bat         :: 并行拉起 Django(:8000) + Vite(:5173) + 日�
 ## 5. 健康检查
 
 ```bash
-curl -sS http://127.0.0.1:8000/api/health     # 期望 {"ok":true,"service":"gipfel-backend",...}
-curl -sS http://127.0.0.1:8000/api/version    # 期望含 log_viewer_url 字段（日志查看器公网地址）
+curl -sS http://127.0.0.1:8000/api/health     # 期望 {"code":0,"message":"成功","data":{"status":"ok"}}
+curl -sS http://127.0.0.1:8000/api/version    # 期望 data 内含 version / port / log_viewer_url 字段（日志查看器公网地址）
 curl -sS http://127.0.0.1:8120/api/health     # 日志查看器健康检查
 curl -sS -o /dev/null -w "%{http_code}" http://127.0.0.1:8120/   # 直连应为 403（防直连网关）
 curl -sS -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/admin/   # 直连应为 302（防直连网关，Location 指向 /）
@@ -176,9 +176,10 @@ npm run typecheck    # 类型检查（CI 必跑）
 
 ## 10. 安全与合规速览
 
-- **JWT**：HS256，`JWT_SECRET` 必填（未配置进程 fail-fast 拒绝启动），默认 24h，`tokenVersion` 顶号立即失效。
+- **JWT**：HS256，`JWT_SECRET` 必填（未配置进程 fail-fast 拒绝启动），默认 24h，`tokenVersion` 顶号立即失效。Django 自身 `SECRET_KEY` 支持经 `DJANGO_SECRET_KEY` 独立配置（未配置回退 `JWT_SECRET`；更换会使 session/CSRF cookie 失效，择机轮换）。
 - **RBAC**：41 个权限键、20 个权限域；5 级动作等级蕴含（`view<edit<manage<execute<audit`，合同域自定义）。`can(action, resource)` 前后端一致。
-- **比赛隔离**：业务查询按 `competition_id` 自动域过滤。
+- **比赛隔离**：读查询按 `competition_id` 自动域过滤（`apply_competition_scope`）；写操作 `create_competition_id` 强制归属（非超管忽略请求体 competitionId）；`CompetitionScopePermission` 挂载 DRF 全局默认兜底。
+- **客户端 IP 信任链**：`client_ip()` 仅对可信代理（默认回环，`TRUSTED_PROXIES` 可扩展）信任 `X-Real-IP`，直连后端无法伪造该头绕过登录限速。
 - **CORS**：未配置 `CORS_ORIGIN` 时仅本地/私网反射并带凭据；公网必须显式白名单。
 - **登录限流**：见 Q7。
 - **日志查看器防直连**：公网整站代理（nginx 监听公网 `:8120` → 反代内网 `127.0.0.1:8121`，日志查看器 daphne 仅绑内网 8121）；有域名经 nginx 子域 `log.<DOMAIN>`（端口 80），无域名纯 IP 经 nginx `:8120` 端口（`server_name _`）。`index` 视图校验主后端签发的一次性签名令牌（`LOGVIEWER_SECRET_KEY` 共享密钥，默认 120s 有效），缺失/无效/过期即 403，实现「仅按钮点击可跳转、直连网址无法跳转」。进入后仍需后台超级管理员登录。
