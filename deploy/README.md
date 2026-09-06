@@ -41,11 +41,11 @@ sudo bash scripts/deploy-linux.sh --install-dir /opt/gipfel --with-nginx
 > **镜像也不稳、想直接用 GitHub 地址拉取？** 可在服务器上安装 FastGitHub（本地代理加速/恢复 GitHub 连接），之后所有 git/curl 命令自动走 `127.0.0.1:38457` 即可正常访问 GitHub：
 > ```bash
 > # 1) 下载 FastGitHub（从 Gitee Release，适合 GitHub 连不上的环境）
- wget -c -O /opt/fastgithub_linux-x64.zip \
+sudo wget -c -O /opt/fastgithub_linux-x64.zip \
    https://gitee.com/chcrazy/FastGitHub/releases/download/latest/fastgithub_linux-x64.zip
 > 
 > # 2) 解压
- unzip -d /opt /opt/fastgithub_linux-x64.zip
+sudo unzip -d /opt /opt/fastgithub_linux-x64.zip
  rm /opt/fastgithub_linux-x64.zip
 >
  sudo apt-get install -y libicu-dev
