@@ -252,8 +252,8 @@ let companiesLoaded = false;
  * - SUPER_ADMIN：空（隐式全权限）。
  * - COMPETITION_ADMIN（管理员）：数据管理查看 + 创建/执行/审核合同（contract:execute 为比赛级执行，不受公司范围限制）+ 查看公司字段 + 股票低级管理+查看 + 区域总览 + 消息；
  *   四个范围（审核/字段查看/合同查看/股票）均 = 所选公司；因持有 contract:execute，合同执行与列表可见性不受 companyScopes 限制。
- * - PLAYER（选手）：数据管理查看 + 消息 + 区域总览；可查看所选公司的合同与全量字段；行情中交易（自身账户）。
- *   四个范围均 = 所选公司（股票范围在仅持 stock:view 时为惰性，不影响权限）。
+ * - PLAYER（选手）：数据管理查看 + 消息 + 区域总览；可查看所选公司的合同与全量字段；行情中用自己公司的账户买卖（下单/撤单仅需 stock:view）。
+ *   四个范围均 = 所选公司；股票范围（stockCompanyScopes）决定行情页可见/可操作的资金账户。
  */
 function derivePermissions(
   role: string,
@@ -332,9 +332,9 @@ const companyScopePlaceholder = computed(() =>
 );
 const companyScopeHint = computed(() => {
   if (form.role === "COMPETITION_ADMIN") {
-    return "权限自动派生：数据管理全部查看、创建/审核（参与方之一为所选公司）合同、查看所选公司全量字段、所选公司的股票低级管理与行情、区域总览与消息。";
+    return "权限自动派生：数据管理全部查看、创建/审核（参与方之一为所选公司）合同、查看所选公司全量字段、资金账户管理（创建/编辑）与行情、区域总览与消息。";
   }
-  return "权限自动派生：数据管理全部查看、区域总览与消息；可查看所选公司的合同与全量字段，并在行情中交易自己的资金账户。";
+  return "权限自动派生：数据管理全部查看、区域总览与消息；可查看所选公司的合同与全量字段，并在行情中用所选公司的资金账户买卖。";
 });
 
 function roleTag(role: string) {

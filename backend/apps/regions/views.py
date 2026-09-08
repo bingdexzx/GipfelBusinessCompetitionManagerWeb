@@ -342,7 +342,7 @@ class SaveByNameView(APIView):
         name = unquote(name)
         competition_id = _effective_competition_id(request)
         if competition_id is None:
-            raise BusinessError("缺少比赛上下文", code=400, status_code=400)
+            raise BusinessError("缺少比赛上下文，请先选择比赛", code=400, status_code=400)
         cleaned = _validate_cards(request.data.get("cards", []))
         region, _ = Region.objects.get_or_create(
             competition_id=competition_id,

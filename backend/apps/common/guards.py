@@ -123,7 +123,7 @@ class CompetitionScopePermission(permissions.BasePermission):
         if request.method in ("POST", "PUT", "PATCH", "DELETE"):
             cid = request.data.get("competitionId") if request.data else None
             if cid is None and getattr(user, "competition_id", None) is None:
-                raise PermissionDenied("缺少比赛上下文")
+                raise PermissionDenied("缺少比赛上下文，请先选择比赛")
         return True
 
 
@@ -137,7 +137,7 @@ def create_competition_id(user, data: dict | None = None):
     if getattr(user, "role", None) == "SUPER_ADMIN":
         cid = data.get("competitionId")
         if not cid:
-            raise PermissionDenied("缺少比赛上下文")
+            raise PermissionDenied("缺少比赛上下文，请先选择比赛")
         return cid
     cid = getattr(user, "competition_id", None)
     if not cid:

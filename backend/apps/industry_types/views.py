@@ -66,7 +66,7 @@ def validate_calc_graph(raw):
     edges = g["edges"]
     outputs = [n for n in nodes if n and n.get("type") == "output"]
     if len(outputs) == 0:
-        raise BusinessError("产业计算图必须包含恰好一个「输出」节点")
+        raise BusinessError("产业计算图缺少「输出」节点")
     if len(outputs) > 1:
         raise BusinessError("产业计算图只能包含一个「输出」节点")
     for n in nodes:

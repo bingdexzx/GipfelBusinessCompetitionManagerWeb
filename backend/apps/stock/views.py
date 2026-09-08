@@ -505,7 +505,7 @@ class AccountCollectionView(APIView):
         else:
             cid = getattr(request.user, "competition_id", None)
         if not cid:
-            raise BusinessError("缺少比赛上下文", code=400, status_code=400)
+            raise BusinessError("缺少比赛上下文，请先选择比赛", code=400, status_code=400)
         name = (request.data.get("name") or "").strip()
         if not name:
             raise BusinessError("账户名不能为空", code=400, status_code=400)
@@ -958,7 +958,7 @@ class AdvanceRoundView(APIView):
         else:
             cid = getattr(request.user, "competition_id", None)
         if cid is None:
-            raise BusinessError("缺少比赛上下文", code=400, status_code=400)
+            raise BusinessError("缺少比赛上下文，请先选择比赛", code=400, status_code=400)
 
         serializer = AdvanceRoundSerializer(data=request.data or {})
         serializer.is_valid(raise_exception=True)
