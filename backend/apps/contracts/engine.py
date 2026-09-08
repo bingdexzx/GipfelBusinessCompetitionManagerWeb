@@ -890,10 +890,21 @@ class _FormulaParser:
 
 
 def safe_evaluate(expr: str, scope: dict | None = None) -> Any:
-    """安全求值受限数学表达式（不使用 eval）。"""
+    """安全求值受限数学表达式（不使用 eval）。
+
+    Excel 风格兼容：允许公式以 "=" / "＝" 开头（如 "=a/b"）——用户在计算图
+    公式里按 Excel 习惯书写时，此前词法器会报「不支持的字符: "="」导致
+    计算字段重算失败。此处剥离一个前导等号后求值；开头的 "==" 属于
+    缺少左操作数的非法表达式，保持报错以便用户改正。
+    """
     if expr is None or expr == "":
         return 0
-    tokens = _Tokenizer(expr).tokenize()
+    s = str(expr).strip()
+    if s[:1] in ("=", "＝"):
+        s = s[1:].strip()
+    if s == "":
+        return 0
+    tokens = _Tokenizer(s).tokenize()
     return _FormulaParser(tokens, scope or {}).parse()
 
 
