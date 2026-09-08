@@ -13,7 +13,7 @@ class Stock(models.Model):
     code = models.CharField(max_length=64)
     name = models.CharField(max_length=255)
     # 基础信息（万股 / 万元）—— 股本/净利润/价格必须精确，
-    # 浮点累计误差会让玩家账户与账面余额对不上。max_digits=30 容纳亿级；
+    # 浮点累计误差会让玩家账户与账面余额对不上。max_digits=60 容纳亿级；
     # decimal_places=4 给撮合误差留余量（价格场景仅 2 位生效）。
     total_shares = models.DecimalField(max_digits=60, decimal_places=4)
     init_net_profit = models.DecimalField(max_digits=60, decimal_places=4)
