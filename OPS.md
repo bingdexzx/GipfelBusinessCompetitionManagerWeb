@@ -191,7 +191,13 @@ npm run typecheck    # 类型检查（CI 必跑）
 - **现象**：浏览器打开「系统设置 → 日志查看器」按钮跳转后的页面，得到 Django 原生 400 Bad Request HTML；或日志查看器自身 `Invalid HTTP_HOST header: '<公网IP:8120>': You may need to add '<domain>' to ALLOWED_HOSTS` 错误。主后端 `/api/...` 同时正常返回。
 - **根因**：日志查看器是**独立 Django 服务**（`backend/logviewer/`，绑 127.0.0.1:8121，nginx 8120 反代），拥有**自己**的 `ALLOWED_HOSTS`，与主后端的 `DJANGO_ALLOWED_HOSTS` **不共享**。`LOGVIEWER_ALLOWED_HOSTS` 默认只含回环 + `LOG_VIEWER_PUBLIC_URL` 推导出的 host；若公网 IP 探测失败或未写该项，公网访问一律 400。
 - **自动修复**：`deploy-linux.sh` / `update-from-github.sh` 在纯 IP 部署场景会自动探测公网 IP 写入 `LOG_VIEWER_PUBLIC_URL`（同时由其 hostname 推导日志查看器自身的 ALLOWED_HOSTS）；`update-from-github.sh` 自愈已具备「内网 IP / 缺失行 / 与当前公网 IP 不一致」三类纠正。
-- **手动补救**（受限网络 / 探测失败）：
+- **三来源兜底（任一生效即可）**：当前版本日志查看器 ALLOWED_HOSTS 自动从下列来源取并集去重——
+  1. 回环地址（127.0.0.1 / localhost / ::1）
+  2. `LOG_VIEWER_PUBLIC_URL` 推导的 hostname（去端口、IPv6 去方括号）
+  3. `DJANGO_ALLOWED_HOSTS`（与主后端共用 .env，deploy 总是把公网 IP/域名写进去；`host:port` 与 `[IPv6]:port` 会被剥端口/方括号）
+  4. `LOGVIEWER_ALLOWED_HOSTS`（手动追加）
+  即便 `LOG_VIEWER_PUBLIC_URL` 因受限网络探测失败被 deploy 自愈删掉，只要 `DJANGO_ALLOWED_HOSTS` 已被写入公网 IP，日志查看器仍能正确放行。
+- **手动补救**（极端情况：三来源都缺失）：
   ```bash
   # /opt/gipfel/backend/.env 写入/纠正公网地址（注意 hostname 部分必须与访问 Host 头一致）
   sudo sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://<公网IP>:8120/|" /opt/gipfel/backend/.env
