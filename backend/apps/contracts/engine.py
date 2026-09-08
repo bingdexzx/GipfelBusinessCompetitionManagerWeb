@@ -1458,23 +1458,38 @@ def compute_route_distance(node_ids, competition_id, ctx_cache=None):
 
 
 def compute_route_path_types(node_ids, competition_id):
+    """路程路径类型：沿相邻节点间的**最短路径**逐段收集经过边的路径类型（按经过顺序去重）。
+
+    此前实现取「任一端点命中节点列表」的全部边——节点间存在不在最短路上的
+    旁支边时会拿到多余路径类型，与 compute_route_distance 的 Dijkstra 口径
+    不一致。改为沿最短路径实际经过的边收集。
+    """
     if not node_ids:
         return []
     _require_competition(competition_id, "路程路径类型")
     from apps.maps.models import MapEdge
 
-    edges = MapEdge.objects.filter(
-        competition_id=competition_id
-    ).filter(
-        models_q_from_to(node_ids)
-    ).select_related("path_type").values("path_type__name")
+    adj: dict[int, list[tuple[int, float, str]]] = {}
+    for e in MapEdge.objects.filter(competition_id=competition_id).values(
+        "from_node_id", "to_node_id", "distance", "path_type__name"
+    ):
+        d = to_number(e["distance"])
+        name = e.get("path_type__name") or ""
+        adj.setdefault(e["from_node_id"], []).append((e["to_node_id"], d, name))
+        adj.setdefault(e["to_node_id"], []).append((e["from_node_id"], d, name))
+
     seen = set()
     out = []
-    for e in edges:
-        n = e["path_type__name"]
-        if n and n not in seen:
-            seen.add(n)
-            out.append(n)
+    for i in range(len(node_ids) - 1):
+        _, path = _dijkstra_path(adj, node_ids[i], node_ids[i + 1])
+        if not path:
+            # 无可达路径：距离校验（ROUTE_DISTANCE）会报错，这里跳过该段
+            continue
+        for a, b in zip(path, path[1:]):
+            name = next((n for t, _, n in adj.get(a, []) if t == b and n), "")
+            if name and name not in seen:
+                seen.add(name)
+                out.append(name)
     return out
 
 
@@ -1503,6 +1518,40 @@ def _dijkstra(adj: dict, start: int, goal: int) -> float:
                 dist[to] = nd
                 heapq.heappush(pq, (nd, to))
     return math.inf
+
+
+def _dijkstra_path(adj: dict, start: int, goal: int) -> tuple[float, list[int]]:
+    """Dijkstra 最短路径（带前驱回溯）：返回 (距离, 节点路径)。不可达返回 (inf, [])。
+
+    adj 的值元组为 (邻居, 权重[, 任意附加数据...])——前两元素参与计算，余项忽略，
+    兼容路程路径类型的 (to, dist, path_type_name) 三元组邻接。
+    """
+    if start == goal:
+        return 0, [start]
+    dist = {start: 0}
+    prev: dict[int, int] = {}
+    visited = set()
+    pq = [(0, start)]
+    while pq:
+        d, u = heapq.heappop(pq)
+        if u == goal:
+            break
+        if u in visited:
+            continue
+        visited.add(u)
+        for to, w, *_ in adj.get(u, []):
+            nd = d + w
+            if nd < dist.get(to, math.inf):
+                dist[to] = nd
+                prev[to] = u
+                heapq.heappush(pq, (nd, to))
+    if goal not in dist or math.isinf(dist[goal]):
+        return math.inf, []
+    path = [goal]
+    while path[-1] != start:
+        path.append(prev[path[-1]])
+    path.reverse()
+    return dist[goal], path
 
 
 # ==================== 产业字段现值（FIELD）读取 ====================
@@ -1783,7 +1832,13 @@ class ContractEngine:
                 current = self._read_current_field_value(party["companyId"], field["id"])
                 config = parse_field_config(field.get("config"))
                 applied = apply_field_effect(current, field["field_type"], config, eff["op"], new_value)
-                self._write_field_value(party["companyId"], field["id"], applied["store"])
+                self._write_field_value(
+                    party["companyId"], field["id"], applied["store"],
+                    # 冲突重试时基于最新值重放增量，避免覆盖并发写入（丢更新）
+                    recompute=lambda fresh: apply_field_effect(
+                        fresh, field["field_type"], config, eff["op"], new_value
+                    )["store"],
+                )
                 log.append({
                     "kind": "FIELD",
                     "companyId": party["companyId"],
@@ -2143,13 +2198,17 @@ class ContractEngine:
         cfv = CompanyFieldValue.objects.filter(company_id=company_id, industry_field_id=industry_field_id).values("value").first()
         return cfv["value"] if cfv else None
 
-    def _write_field_value(self, company_id, industry_field_id, store_value):
+    def _write_field_value(self, company_id, industry_field_id, store_value, recompute=None):
         """写 CompanyFieldValue（乐观锁语义，与 stock.engine.write_field_value_in_tx 一致）。
 
         合同落账/复原与手动编辑（company_fields._write_field_value）指向同一行数据。
         若此处不走版本校验：一是会静默覆盖并发的手动编辑；二是 version 不递增，前端
         持有的旧 version 仍然「有效」，下一次手动提交会再次覆盖合同写入，形成双向
         静默覆盖。故统一按 version 条件更新并自增，冲突时重读最新值重试一次。
+
+        recompute(fresh_store_value) -> store_value：增量型写入（ADD/SUB）必须传——
+        冲突重试时基于重读到的最新值**重放增量**；否则会沿用旧快照算出的绝对值
+        覆盖并发写入方的增量（丢更新）。绝对覆写型（复原/重放）不传。
         """
         CompanyFieldValue = _load_company_models()[1]
         fv = CompanyFieldValue.objects.filter(
@@ -2173,6 +2232,8 @@ class ContractEngine:
         ).first()
         if fv is None:
             return None
+        if recompute is not None:
+            store_value = recompute(fv.value)
         updated = CompanyFieldValue.objects.filter(pk=fv.pk, version=fv.version).update(
             value=store_value, version=fv.version + 1
         )

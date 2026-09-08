@@ -130,6 +130,30 @@ class ItemAPIView(APIView):
         except (TypeError, ValueError):
             competition_id = None
         assert_same_competition(company.competition_id, competition_id)
+        # 引用保护：公司被合同参与方 / 股票资金账户 / 股票 PE 联动引用时禁止删除
+        # （这些引用是纯整型列/JSON，无外键级联，强删会留下孤儿数据并使合同执行/复原失败）
+        import json as _json
+
+        from apps.contracts.models import Contract
+        from apps.stock.models import Stock, StockFundsAccount
+
+        cid = company.pk
+        contract_refs = 0
+        for c in Contract.objects.filter(competition_id=company.competition_id).only("parties"):
+            try:
+                parties = _json.loads(c.parties or "[]")
+            except (ValueError, TypeError):
+                continue
+            if any(isinstance(p, dict) and p.get("companyId") == cid for p in parties):
+                contract_refs += 1
+        if contract_refs:
+            raise BusinessError(f"该公司仍是 {contract_refs} 份合同的参与方，请先删除相关合同")
+        account_refs = StockFundsAccount.objects.filter(company_id=cid).count()
+        if account_refs:
+            raise BusinessError(f"该公司名下仍有 {account_refs} 个资金账户，请先删除相关账户")
+        stock_refs = Stock.objects.filter(pb_company_id=cid).count()
+        if stock_refs:
+            raise BusinessError(f"仍有 {stock_refs} 只股票的 PE 联动绑定该公司，请先解除绑定")
         company.delete()
         return Response({"ok": True})
 
