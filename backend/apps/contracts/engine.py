@@ -1913,7 +1913,7 @@ class ContractEngine:
             field_map[f"{r['company_id']}:{r['industry_field_id']}"] = (r["company_id"], r["industry_field_id"])
 
         affected_field_ids = list({v[1] for v in field_map.values()})
-        all_fields = {f["id"]: f for f in IndustryField.objects.filter(id__in=affected_field_ids).values("id", "field_type", "config")}
+        all_fields = {f["id"]: f for f in IndustryField.objects.filter(id__in=affected_field_ids).values("id", "field_type", "config", "default_value")}
         affected_pairs = list(field_map.values())
 
         # 其余已执行合同对该字段的增量（按 executed_at, id 顺序）
@@ -1950,6 +1950,12 @@ class ContractEngine:
             )
             all_for_field.sort(key=lambda x: (x["ex"] if x["ex"] else 0, x["row"]["id"]))
             value = parse_json_value(all_for_field[0]["row"]["before_raw"])
+            if value is None or (isinstance(value, str) and not value.strip()):
+                # 字段从未有过存值（最早写入者的 before 为空）：复原到字段默认值
+                # 而非 0/null——与计算字段/合同落账的默认值语义一致
+                dv = (all_fields.get(fid) or {}).get("default_value")
+                if dv not in (None, ""):
+                    value = parse_json_value(dv)
 
             # 按序重放其余已执行合同的增量
             for r in rem:

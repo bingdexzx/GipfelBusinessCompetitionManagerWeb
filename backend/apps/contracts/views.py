@@ -455,8 +455,31 @@ class ContractStatusAPIView(APIView):
         if status != "TERMINATED":
             raise BusinessError("不允许的状态值", code=400, status_code=400)
 
-        contract.status = status
-        contract.save(update_fields=["status", "updated_at"])
+        # 终止即复原：已落账的合同（存在字段效果记录）终止时回滚其字段效果，
+        # 并清空效果记录（防后续删除合同时二次回滚）。未落账合同仅改状态。
+        effect_count = ContractFieldEffect.objects.filter(contract_id=contract.id).count()
+        with transaction.atomic():
+            if effect_count > 0:
+                engine_dict = _contract_to_engine_dict(contract)
+                _engine.revert_contract(engine_dict)
+                contract.status = status
+                contract.save(update_fields=["status", "updated_at"])
+                ContractFieldEffect.objects.filter(contract_id=contract.id).delete()
+            else:
+                contract.status = status
+                contract.save(update_fields=["status", "updated_at"])
+
+        # 复原基础字段后级联重算计算字段
+        parties = parse_json_array(contract.parties)
+        affected = [
+            p for p in parties
+            if isinstance(p, dict) and not p.get("isHost") and isinstance(p.get("companyId"), int)
+        ]
+        for p in affected:
+            _recompute_calc_fields_safe(p["companyId"])
+            emit_resource_changed(
+                "company-field", p["companyId"], contract.competition_id, "updated"
+            )
         return Response(_serialize_contract(contract))
 
 

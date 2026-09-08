@@ -100,8 +100,15 @@ def _timer_raw_value(field: IndustryField) -> object:
 
 
 def _stored_to_raw(field: IndustryField, value: str | None) -> object:
-    """已存储字段值字符串 → 原始值（反向于 _serialize），用于 field:<key> 引用源读取。"""
+    """已存储字段值字符串 → 原始值（反向于 _serialize），用于 field:<key> 引用源读取。
+
+    字段从未写入时回退字段默认值（与计算字段 calc._field_raw_with_default
+    语义一致），无默认值再按类型给空值（NUMBER→0 / STRING→"" / 其余见下）。
+    """
     if value is None:
+        dv = field.default_value
+        if dv is not None and str(dv).strip() != "":
+            return _stored_to_raw(field, str(dv))
         return 0 if field.field_type == "NUMBER" else "" if field.field_type == "STRING" else False
     ft = field.field_type
     if ft == "NUMBER":
