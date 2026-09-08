@@ -320,12 +320,34 @@ def resolve_stock_config(input_: dict | None) -> dict:
 
 
 # ==================== 字段值解析（ORM 依赖） ====================
+def _parse_exact_number(text) -> "int | Decimal | None":
+    """数字字符串 → 精确数值：整数字符串 → int（任意精度），小数 → Decimal。
+
+    大数安全：绝不 float 化——double 在 2^53 以上丢精度，且 JSON 出站会变成
+    2e+30 科学计数形态，前端正则不识别导致「大数不展示」。
+    解析失败返回 None（与旧 float 路径的 isfinite 拦截语义一致）。
+    """
+    s = str(text).strip() if text is not None else ""
+    if not s:
+        return None
+    try:
+        return int(s)
+    except ValueError:
+        pass
+    try:
+        d = Decimal(s)
+    except InvalidOperation:
+        return None
+    return d if d.is_finite() else None
+
+
 def resolve_field_value_or_default(
     company_id: int, industry_field_id: int
-) -> float | None:
+) -> "int | Decimal | None":
     """读取公司产业字段的当前值；无记录时回退字段 defaultValue。
 
-    返回 number | None（无法解析则 None）。
+    返回 int | Decimal | None（精确值，不 float 化；解析失败 None）。
+    调用方注意：与 float 混算会 TypeError——撮合/求和侧统一 Decimal(str(v))。
     """
     from apps.companies.models import CompanyFieldValue
     from apps.industry_types.models import IndustryField
@@ -334,23 +356,17 @@ def resolve_field_value_or_default(
         company_id=company_id, industry_field_id=industry_field_id
     ).first()
     if fv is not None and fv.value is not None:
-        try:
-            n = float(fv.value)
-            if math.isfinite(n):
-                return n
-        except (ValueError, TypeError):
-            pass
+        n = _parse_exact_number(fv.value)
+        if n is not None:
+            return n
     try:
         field = IndustryField.objects.get(pk=industry_field_id)
     except IndustryField.DoesNotExist:
         return None
     if field.default_value is not None:
-        try:
-            n = float(field.default_value)
-            if math.isfinite(n):
-                return n
-        except (ValueError, TypeError):
-            pass
+        n = _parse_exact_number(field.default_value)
+        if n is not None:
+            return n
     return None
 
 

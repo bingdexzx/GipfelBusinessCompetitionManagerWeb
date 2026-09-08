@@ -93,6 +93,21 @@ def _get_stock_scoped(pk, request) -> Stock:
     return stock
 
 
+def _round2(v):
+    """保留两位小数（大数安全）：int 原样（整数无小数位），其余统一 Decimal 域
+    quantize（context 60 位，避免大数 quantize 触发默认 28 位精度 InvalidOperation）。
+    替代 round(x*100)/100——该写法对 int 会退化为 float 真除，大数丢精度且出站变
+    科学计数法，前端 formatMoney 正则不识别导致「大数不展示」。
+    """
+    if isinstance(v, int):
+        return v
+    from decimal import Decimal, localcontext
+
+    with localcontext() as ctx:
+        ctx.prec = 60
+        return Decimal(str(v)).quantize(Decimal("0.01"))
+
+
 
 def _resolve_field_value_or_default(company_id: int, industry_field_id: int):
     from .engine import resolve_field_value_or_default
@@ -447,12 +462,12 @@ class AccountOverviewView(APIView):
                 v = _resolve_field_value_or_default(acc.company_id, acc.bind_field_id)
                 if v is not None:
                     eff_cash = v
-            eff_cash = round(eff_cash * 100) / 100
+            eff_cash = _round2(eff_cash)
             hs = holdings_by_account.get(acc.id, [])
-            holdings_market_value = round(sum(h["marketValue"] for h in hs) * 100) / 100
-            cost_basis = round(sum(h["costBasis"] for h in hs) * 100) / 100
-            total_assets = round((eff_cash + holdings_market_value) * 100) / 100
-            total_profit = round((holdings_market_value - cost_basis) * 100) / 100
+            holdings_market_value = _round2(sum(h["marketValue"] for h in hs))
+            cost_basis = _round2(sum(h["costBasis"] for h in hs))
+            total_assets = _round2(eff_cash + holdings_market_value)
+            total_profit = _round2(holdings_market_value - cost_basis)
             total_profit_pct = round((total_profit / cost_basis) * 10000) / 100 if cost_basis > 0 else 0
             result.append({
                 "id": acc.id,
