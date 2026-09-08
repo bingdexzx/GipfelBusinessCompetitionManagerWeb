@@ -1111,6 +1111,75 @@ function nodeById(graph: GGraph, id?: string): GNode | undefined {
   return graph.nodes.find((n) => n.id === id);
 }
 
+// 输入项节点 → INPUT ValueSpec：聚合口径由「连线的源端口(handle)」决定。
+// 适用于两种连线形态：输入节点 → value 节点的 key 端口（经 resolveValueSpec），
+// 以及输入节点 → 效果/运算/条件节点端口直连（经 resolveValueSource）——
+// 此前直连路径不识别源端口，聚合端点（如「每种种类的仓库总存储量」）被当作
+// 原始清单透传，下游拿到 {仓库名称: 数量} 而非 {仓库种类: 总储量}。
+function buildInputSpec(graph: GGraph, edge?: GEdge): any {
+  const inputNode = nodeById(graph, edge?.source);
+  const spec: any = { type: "INPUT", key: inputNode?.data.key || "" };
+  const h = edge?.sourceHandle;
+  if (!h) return spec;
+  // 原料清单输入源连自「碳排放合计」端口时，标记为 CARBON 聚合端点。
+  if (h === "carbon") spec.aggregate = "CARBON";
+  // 节点列表输入源连自「路程」端口时，标记为 ROUTE_DISTANCE 聚合端点。
+  else if (h === "distance") spec.aggregate = "ROUTE_DISTANCE";
+  // 节点列表输入源连自「存在的路径类型」端口时，标记为 ROUTE_PATH_TYPES 聚合端点。
+  else if (h === "pathTypes") spec.aggregate = "ROUTE_PATH_TYPES";
+  // 零件清单输入源连自「所需原料」端口时，标记为 PART_MATERIALS 聚合端点。
+  else if (h === "materials") spec.aggregate = "PART_MATERIALS";
+  // 产品清单输入源连自「需要的零件」端口时，标记为 PRODUCT_PARTS 聚合端点。
+  else if (h === "parts") spec.aggregate = "PRODUCT_PARTS";
+  // 零件清单/产品清单输入源连自「所需的科技节点」端口时，按输入项类型标记聚合端点。
+  else if (h === "techNodes") {
+    if (inputNode?.data.type === "productList") spec.aggregate = "PRODUCT_TECH_NODES";
+    else spec.aggregate = "PART_TECH_NODES";
+  } else if (h === "price") {
+    // 原料清单输入源连自「原料总价格」端口时，标记为 PRICE 聚合端点；
+    // 若输入节点连有参与方，把其角色写入 spec.party，运行期据此按所在地筛选地点价。
+    spec.aggregate = "PRICE";
+    const partyEdge = findEdge(graph, inputNode?.id || "", "party");
+    const partyNode = nodeById(graph, partyEdge?.source);
+    if (partyNode && partyNode.type === "party") spec.party = partyNode.data.role;
+  }
+  // 原料/零件/产品/燃料清单输入源连自「总数量」端口时，标记为对应 *_TOTAL_QTY 聚合端点。
+  else if (h === "materialQty") spec.aggregate = "MATERIAL_TOTAL_QTY";
+  else if (h === "partQty") spec.aggregate = "PART_TOTAL_QTY";
+  else if (h === "productQty") spec.aggregate = "PRODUCT_TOTAL_QTY";
+  else if (h === "fuelQty") spec.aggregate = "FUEL_TOTAL_QTY";
+  // 燃料清单输入源连自「燃料总价格」端口时，标记为 FUEL_TOTAL_PRICE 聚合端点。
+  else if (h === "fuelPrice") spec.aggregate = "FUEL_TOTAL_PRICE";
+  // 载具清单输入源连自各聚合端口时，标记为对应 VEHICLE_* 聚合端点。
+  else if (h === "vehiclePrice") spec.aggregate = "VEHICLE_TOTAL_PRICE";
+  else if (h === "vehicleCargo") spec.aggregate = "VEHICLE_CARGO";
+  else if (h === "vehicleFuelPerKm") spec.aggregate = "VEHICLE_FUEL_PER_KM";
+  else if (h === "vehicleCarbon") spec.aggregate = "VEHICLE_CARBON";
+  // 仓库清单输入源连自「每种种类的仓库总存储量」/「仓库总价格」端口时，标记为对应聚合端点。
+  else if (h === "warehouseStorage") spec.aggregate = "WAREHOUSE_STORAGE";
+  else if (h === "warehousePrice") spec.aggregate = "WAREHOUSE_TOTAL_PRICE";
+  // 科技树节点输入源连自「前置节点」/「研发费用」端口时，标记为对应聚合端点。
+  else if (h === "prerequisites") spec.aggregate = "TECH_PREREQUISITES";
+  else if (h === "researchCost") spec.aggregate = "TECH_RESEARCH_COST";
+  // 基建清单输入源连自各聚合端口时，标记为对应 INFRA_* 聚合端点。
+  else if (h.startsWith("infra")) {
+    const m: Record<string, string> = {
+      infraPrice: "INFRA_PRICE",
+      infraFootprint: "INFRA_FOOTPRINT",
+      infraEmployment: "INFRA_EMPLOYMENT",
+      infraPopulation: "INFRA_POPULATION",
+      infraHighQuality: "INFRA_HIGHQUALITY",
+      infraHappiness: "INFRA_HAPPINESS",
+      infraIncome: "INFRA_INCOME",
+      infraCarbon: "INFRA_CARBON",
+      // 「基建启用总费用」端口：activationPrice × 数量 之和。
+      infraActivationPrice: "INFRA_ACTIVATION_PRICE",
+    };
+    if (m[h]) spec.aggregate = m[h];
+  }
+  return spec;
+}
+
 // 由 value 节点解析出 ValueSpec（ENTITY/INPUT/CONST/FORMULA）。
 function resolveValueSpec(graph: GGraph, valueNode?: GNode): any {
   if (!valueNode) return { type: "INPUT", key: "" };
@@ -1130,72 +1199,9 @@ function resolveValueSpec(graph: GGraph, valueNode?: GNode): any {
     };
   }
   if (vt === "INPUT") {
-    const keyEdge = findEdge(graph, valueNode.id, "key");
-    const inputNode = nodeById(graph, keyEdge?.source);
-    const spec: any = { type: "INPUT", key: inputNode?.data.key || "" };
-    // 原料清单输入源连自「碳排放合计」端口时，标记为 CARBON 聚合端点。
-    if (keyEdge?.sourceHandle === "carbon") spec.aggregate = "CARBON";
-    // 节点列表输入源连自「路程」端口时，标记为 ROUTE_DISTANCE 聚合端点。
-    if (keyEdge?.sourceHandle === "distance") spec.aggregate = "ROUTE_DISTANCE";
-    // 节点列表输入源连自「存在的路径类型」端口时，标记为 ROUTE_PATH_TYPES 聚合端点。
-    if (keyEdge?.sourceHandle === "pathTypes") spec.aggregate = "ROUTE_PATH_TYPES";
-    // 零件清单输入源连自「所需原料」端口时，标记为 PART_MATERIALS 聚合端点。
-    if (keyEdge?.sourceHandle === "materials") spec.aggregate = "PART_MATERIALS";
-    // 产品清单输入源连自「需要的零件」端口时，标记为 PRODUCT_PARTS 聚合端点。
-    if (keyEdge?.sourceHandle === "parts") spec.aggregate = "PRODUCT_PARTS";
-    // 零件清单/产品清单输入源连自「所需的科技节点」端口时，按输入项类型标记为对应聚合端点：
-    // 零件清单 → PART_TECH_NODES，产品清单 → PRODUCT_TECH_NODES。
-    if (keyEdge?.sourceHandle === "techNodes") {
-      if (inputNode?.data.type === "partList") spec.aggregate = "PART_TECH_NODES";
-      else if (inputNode?.data.type === "productList") spec.aggregate = "PRODUCT_TECH_NODES";
-    }
-    // 基建清单输入源连自各聚合端口时，标记为对应 INFRA_* 聚合端点：
-    // 价格/占地/就业率加成/人口加成/高素质人口加成/幸福度加成/人均收益加成/减碳排放加成。
-    if (keyEdge?.sourceHandle === "infraPrice") spec.aggregate = "INFRA_PRICE";
-    if (keyEdge?.sourceHandle === "infraFootprint") spec.aggregate = "INFRA_FOOTPRINT";
-    if (keyEdge?.sourceHandle === "infraEmployment") spec.aggregate = "INFRA_EMPLOYMENT";
-    if (keyEdge?.sourceHandle === "infraPopulation") spec.aggregate = "INFRA_POPULATION";
-    if (keyEdge?.sourceHandle === "infraHighQuality") spec.aggregate = "INFRA_HIGHQUALITY";
-    if (keyEdge?.sourceHandle === "infraHappiness") spec.aggregate = "INFRA_HAPPINESS";
-    if (keyEdge?.sourceHandle === "infraIncome") spec.aggregate = "INFRA_INCOME";
-    if (keyEdge?.sourceHandle === "infraCarbon") spec.aggregate = "INFRA_CARBON";
-    // 基建清单输入源连自「基建启用总费用」端口时，标记为 INFRA_ACTIVATION_PRICE 聚合端点（activationPrice × 数量 之和）。
-    if (keyEdge?.sourceHandle === "infraActivationPrice") spec.aggregate = "INFRA_ACTIVATION_PRICE";
-    // 科技树节点输入源连自「前置节点」端口时，标记为 TECH_PREREQUISITES 聚合端点。
-    if (keyEdge?.sourceHandle === "prerequisites") spec.aggregate = "TECH_PREREQUISITES";
-    // 科技树节点输入源连自「研发费用」端口时，标记为 TECH_RESEARCH_COST 聚合端点。
-    if (keyEdge?.sourceHandle === "researchCost") spec.aggregate = "TECH_RESEARCH_COST";
-    // 原料清单输入源连自「原料总价格」端口时，标记为 PRICE 聚合端点；
-    // 若输入节点连有参与方，把其角色写入 spec.party，运行期据此按所在地筛选地点价。
-    if (keyEdge?.sourceHandle === "price") {
-      spec.aggregate = "PRICE";
-      const partyEdge = findEdge(graph, inputNode?.id || "", "party");
-      const partyNode = nodeById(graph, partyEdge?.source);
-      if (partyNode && partyNode.type === "party") spec.party = partyNode.data.role;
-    }
-    // 原料清单输入源连自「原料总数量」端口时，标记为 MATERIAL_TOTAL_QTY 聚合端点。
-    if (keyEdge?.sourceHandle === "materialQty") spec.aggregate = "MATERIAL_TOTAL_QTY";
-    // 零件清单输入源连自「零件总件数」端口时，标记为 PART_TOTAL_QTY 聚合端点。
-    if (keyEdge?.sourceHandle === "partQty") spec.aggregate = "PART_TOTAL_QTY";
-    // 产品清单输入源连自「产品总件数」端口时，标记为 PRODUCT_TOTAL_QTY 聚合端点。
-    if (keyEdge?.sourceHandle === "productQty") spec.aggregate = "PRODUCT_TOTAL_QTY";
-    // 燃料清单输入源连自「燃料总数量」端口时，标记为 FUEL_TOTAL_QTY 聚合端点。
-    if (keyEdge?.sourceHandle === "fuelQty") spec.aggregate = "FUEL_TOTAL_QTY";
-    // 燃料清单输入源连自「燃料总价格」端口时，标记为 FUEL_TOTAL_PRICE 聚合端点。
-    if (keyEdge?.sourceHandle === "fuelPrice") spec.aggregate = "FUEL_TOTAL_PRICE";
-    // 载具清单输入源连自「载具总价格」端口时，标记为 VEHICLE_TOTAL_PRICE 聚合端点。
-    if (keyEdge?.sourceHandle === "vehiclePrice") spec.aggregate = "VEHICLE_TOTAL_PRICE";
-    // 载具清单输入源连自「载具总载货量」端口时，标记为 VEHICLE_CARGO 聚合端点。
-    if (keyEdge?.sourceHandle === "vehicleCargo") spec.aggregate = "VEHICLE_CARGO";
-    // 载具清单输入源连自「总每公里油耗」端口时，标记为 VEHICLE_FUEL_PER_KM 聚合端点。
-    if (keyEdge?.sourceHandle === "vehicleFuelPerKm") spec.aggregate = "VEHICLE_FUEL_PER_KM";
-    // 载具清单输入源连自「总碳排数」端口时，标记为 VEHICLE_CARBON 聚合端点。
-    if (keyEdge?.sourceHandle === "vehicleCarbon") spec.aggregate = "VEHICLE_CARBON";
-    // 仓库清单输入源连自「每种种类的仓库总存储量」端口时，标记为 WAREHOUSE_STORAGE 聚合端点。
-    if (keyEdge?.sourceHandle === "warehouseStorage") spec.aggregate = "WAREHOUSE_STORAGE";
-    // 仓库清单输入源连自「仓库总价格」端口时，标记为 WAREHOUSE_TOTAL_PRICE 聚合端点。
-    if (keyEdge?.sourceHandle === "warehousePrice") spec.aggregate = "WAREHOUSE_TOTAL_PRICE";
-    return spec;
+    // 聚合口径由「输入节点 → value 节点 key 端口」这条连线的源端口决定，
+    // 与输入节点直连效果/运算/条件端口的路径共用同一映射（buildInputSpec）。
+    return buildInputSpec(graph, findEdge(graph, valueNode.id, "key"));
   }
   if (vt === "CONST") {
     const valEdge = findEdge(graph, valueNode.id, "value");
@@ -1240,12 +1246,13 @@ function resolveValueSpec(graph: GGraph, valueNode?: GNode): any {
 
 // 由任意"产出值"的节点（value / list-op / dict-op / input）解析出 ValueSpec。
 // 用于效果/检查的值、金额、数量等端口，支持运算节点串联。
-function resolveValueSource(graph: GGraph, node?: GNode): any {
+function resolveValueSource(graph: GGraph, node?: GNode, viaEdge?: GEdge): any {
   if (!node) return { type: "INPUT", key: "" };
   if (node.type === "list-op" || node.type === "dict-op" || node.type === "calc" || node.type === "compare")
     return opNodeToSpec(graph, node);
   if (node.type === "value") return resolveValueSpec(graph, node);
-  if (node.type === "input") return { type: "INPUT", key: node.data.key || "" };
+  // 输入节点直连：聚合口径由连线的源端口决定（如「每种种类的仓库总存储量」→ WAREHOUSE_STORAGE）。
+  if (node.type === "input") return buildInputSpec(graph, viaEdge);
   return { type: "INPUT", key: "" };
 }
 
@@ -1346,7 +1353,7 @@ function opNodeToSpec(graph: GGraph, node: GNode): any {
   const args = handles.map((h) => {
     const e = findEdge(graph, node.id, h);
     const src = nodeById(graph, e?.source);
-    if (src) return resolveValueSource(graph, src);
+    if (src) return resolveValueSource(graph, src, e);
     // 未连线：取该参数端口的字面量默认值（用户在属性面板填写）
     const lit = node.data.argLiterals?.[h];
     if (lit) return lit;
@@ -1435,7 +1442,7 @@ function resolveControlBranch(graph: GGraph, node: GNode): { when: string; cond:
   const port = pe.sourceHandle || "";
   if (port !== "then" && port !== "else") return undefined;
   const condNode = nodeById(graph, findEdge(graph, ifNode.id, "cond")?.source);
-  return { when: port, cond: resolveValueSource(graph, condNode) };
+  return { when: port, cond: resolveValueSource(graph, condNode, findEdge(graph, ifNode.id, "cond")) };
 }
 
 // 解析某输入项是否挂在某个 IF 分支之下（创建表单条件显隐）。
@@ -1496,7 +1503,8 @@ export function graphToFlat(graph: GGraph): FlatContract {
   function effectSpec(node: GNode): any {
     const d = node.data;
     if (node.type === "if") {
-      const condNode = byId(findEdge(graph, node.id, "cond")?.source);
+      const condEdge = findEdge(graph, node.id, "cond");
+      const condNode = byId(condEdge?.source);
       const thenNodes = effectNodes.filter(
         (n) =>
           childParent.get(n.id)?.parentId === node.id && childParent.get(n.id)?.port === "then",
@@ -1507,41 +1515,45 @@ export function graphToFlat(graph: GGraph): FlatContract {
       );
       return {
         kind: "IF",
-        cond: resolveValueSource(graph, condNode),
+        cond: resolveValueSource(graph, condNode, condEdge),
         then: thenNodes.map(effectSpec),
         else: elseNodes.map(effectSpec),
       };
     }
     if (node.type === "foreach") {
-      const itemsNode = byId(findEdge(graph, node.id, "items")?.source);
+      const itemsEdge = findEdge(graph, node.id, "items");
+      const itemsNode = byId(itemsEdge?.source);
       const bodyNodes = effectNodes.filter(
         (n) =>
           childParent.get(n.id)?.parentId === node.id && childParent.get(n.id)?.port === "body",
       );
       return {
         kind: "FOREACH",
-        items: resolveValueSource(graph, itemsNode),
+        items: resolveValueSource(graph, itemsNode, itemsEdge),
         var: d.var || "item",
         body: bodyNodes.map(effectSpec),
       };
     }
     if (node.type === "assign") {
-      const vNode = byId(findEdge(graph, node.id, "value")?.source);
-      return { kind: "ASSIGN", name: d.name || "", value: resolveValueSource(graph, vNode) };
+      const vEdge = findEdge(graph, node.id, "value");
+      const vNode = byId(vEdge?.source);
+      return { kind: "ASSIGN", name: d.name || "", value: resolveValueSource(graph, vNode, vEdge) };
     }
     // 叶子效果：只有产业字段(FIELD)。以 fieldKey 定位，按公司所属产业类型解析到具体字段。
     // 可选第二数值来源 value2 + 组合方式 valueOp：最终写入量 = value <valueOp> value2。
     const party = resolvePartyRole(graph, node);
-    const vNode = byId(findEdge(graph, node.id, "value")?.source);
-    const v2Node = byId(findEdge(graph, node.id, "value2")?.source);
+    const vEdge = findEdge(graph, node.id, "value");
+    const vNode = byId(vEdge?.source);
+    const v2Edge = findEdge(graph, node.id, "value2");
+    const v2Node = byId(v2Edge?.source);
     return {
       kind: "FIELD",
       party,
       fieldKey: d.fieldKey || "",
       op: d.op || "ADD",
       valueOp: d.valueOp || undefined,
-      value: resolveValueSource(graph, vNode),
-      value2: v2Node ? resolveValueSource(graph, v2Node) : undefined,
+      value: resolveValueSource(graph, vNode, vEdge),
+      value2: v2Node ? resolveValueSource(graph, v2Node, v2Edge) : undefined,
     };
   }
 
@@ -1561,34 +1573,35 @@ export function graphToFlat(graph: GGraph): FlatContract {
         base.industryTypeId = d.industryTypeId ?? null;
       } else if (kind === "VALUE_COMPARE") {
         // 两个自由数值源互相比较，都比某参与方字段更灵活。
-        const v1 = nodeById(graph, findEdge(graph, n.id, "value1")?.source);
-        const v2 = nodeById(graph, findEdge(graph, n.id, "value2")?.source);
+        const e1 = findEdge(graph, n.id, "value1");
+        const e2 = findEdge(graph, n.id, "value2");
         base.op = d.op || "GTE";
-        base.value1 = resolveValueSource(graph, v1);
-        base.value2 = resolveValueSource(graph, v2);
+        base.value1 = resolveValueSource(graph, nodeById(graph, e1?.source), e1);
+        base.value2 = resolveValueSource(graph, nodeById(graph, e2?.source), e2);
       } else if (kind === "DICT_COMPARE") {
         // 两个自由字典源互相比较：前提（值一键 ⊆ 值二键）由引擎执行时校验；
         // 满足后对共有键逐一比较。无需参与方。
-        const v1 = nodeById(graph, findEdge(graph, n.id, "value1")?.source);
-        const v2 = nodeById(graph, findEdge(graph, n.id, "value2")?.source);
+        const e1 = findEdge(graph, n.id, "value1");
+        const e2 = findEdge(graph, n.id, "value2");
         base.op = d.op || "GTE";
-        base.value1 = resolveValueSource(graph, v1);
-        base.value2 = resolveValueSource(graph, v2);
+        base.value1 = resolveValueSource(graph, nodeById(graph, e1?.source), e1);
+        base.value2 = resolveValueSource(graph, nodeById(graph, e2?.source), e2);
       } else if (kind === "LIST_COMPARE") {
         // 两个自由列表源互相比较：op∈{ELEMENT_EQ,CONTAINS,GT,GTE,EQ}，无需参与方。
-        const v1 = nodeById(graph, findEdge(graph, n.id, "value1")?.source);
-        const v2 = nodeById(graph, findEdge(graph, n.id, "value2")?.source);
+        const e1 = findEdge(graph, n.id, "value1");
+        const e2 = findEdge(graph, n.id, "value2");
         base.op = d.op || "GTE";
-        base.value1 = resolveValueSource(graph, v1);
-        base.value2 = resolveValueSource(graph, v2);
+        base.value1 = resolveValueSource(graph, nodeById(graph, e1?.source), e1);
+        base.value2 = resolveValueSource(graph, nodeById(graph, e2?.source), e2);
         } else {
         // 兼容旧版 FIELD_COMPARE：左操作数为某参与方字段 + 右侧值。
-        const vNode = nodeById(graph, findEdge(graph, n.id, "value")?.source);
+        const vEdge = findEdge(graph, n.id, "value");
+        const vNode = nodeById(graph, vEdge?.source);
         base.kind = "FIELD_COMPARE";
         base.party = resolvePartyRole(graph, n);
         base.fieldKey = d.fieldKey || "";
         base.op = d.op || "GTE";
-        base.value = resolveValueSource(graph, vNode);
+        base.value = resolveValueSource(graph, vNode, vEdge);
       }
       // 挂在 IF 分支下的检查：记下分支归属（when + 条件值源），引擎 runConditions 据此短路。
       const br = resolveControlBranch(graph, n);
