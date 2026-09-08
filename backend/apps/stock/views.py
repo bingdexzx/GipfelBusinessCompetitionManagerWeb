@@ -30,6 +30,8 @@ import math
 
 from decimal import Decimal
 
+from django.db.models import Q
+
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -121,22 +123,17 @@ def _get_operable_account_ids(user, competition_id: int) -> list[int] | None:
     """解析当前用户可操作的资金账户 id 集合。
 
     - 超管/高级管理：返回 None（全部账户）
-    - stock:edit：自己名下用户账户 + stockCompanyScopes 内公司账户
-    - stock:view：仅自己名下用户账户
+    - 其余（含 stock:view 选手）：自己名下用户账户 + stockCompanyScopes 内
+      「自己公司」的账户——账户由管理员统一创建并派给选手公司，选手据此
+      在行情页交易（下单/撤单仍逐笔经 _assert_account_operable 复核）。
     """
     if _is_high_manager(user):
         return None
     scopes = user.stock_company_scopes_list if hasattr(user, "stock_company_scopes_list") else []
-    qs = StockFundsAccount.objects.filter(competition_id=competition_id)
-    if _can(user, _EDIT_PERM):
-        from django.db.models import Q
-
-        qs = qs.filter(
-            Q(owner_type="USER", user_id=user.id)
-            | Q(owner_type="COMPANY", company_id__in=scopes)
-        )
-    else:
-        qs = qs.filter(owner_type="USER", user_id=user.id)
+    qs = StockFundsAccount.objects.filter(competition_id=competition_id).filter(
+        Q(owner_type="USER", user_id=user.id)
+        | Q(owner_type="COMPANY", company_id__in=scopes)
+    )
     return list(qs.values_list("pk", flat=True))
 
 
@@ -744,11 +741,16 @@ class OrderListView(APIView):
 
 
 class OrderCollectionView(APIView):
-    """POST /stocks/orders — 下单。"""
+    """POST /stocks/orders — 下单。
+
+    权限：stock:view（选手即可交易）。真正的控制点是
+    _assert_account_operable——只能用「自己名下 / 自己公司」的资金账户，
+    账户的创建/变更仍需 stock:edit（管理员统一创建）。
+    """
 
     permission_classes = _PERM_CLASSES
 
-    @require_permissions(_EDIT_PERM)
+    @require_permissions(_VIEW_PERM)
     def post(self, request):
         serializer = CreateOrderSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -850,11 +852,15 @@ class OrderCollectionView(APIView):
 
 
 class OrderItemView(APIView):
-    """DELETE /stocks/orders/:id — 撤单。"""
+    """DELETE /stocks/orders/:id — 撤单。
+
+    权限：stock:view（同下单——选手可撤自己的挂单），
+    _assert_account_operable 限定只能撤自己公司/名下账户的单。
+    """
 
     permission_classes = _PERM_CLASSES
 
-    @require_permissions(_EDIT_PERM)
+    @require_permissions(_VIEW_PERM)
     def delete(self, request, pk):
         try:
             order = StockOrder.objects.get(pk=pk)
