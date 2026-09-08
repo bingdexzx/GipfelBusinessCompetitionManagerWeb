@@ -782,21 +782,25 @@ def _get_last_signatory_company_id(contract: Contract) -> int | None:
 def _assert_execute_scope(user, contract: Contract) -> None:
     """执行方范围校验（会签模型核心）。
 
-    - contract:execute / contract:manage / 超管 直接放行
-    - 仅 contract:audit 公司级管理员：必须是最后一个参与方公司在其 companyScopes 内
+    - 超管直接放行
+    - 其余账号：须持有 execute / audit / manage 任一合同权限，且合同的
+      最后一个参与方公司必须在其 companyScopes（公司管理范围）内——
+      没有该公司管理权的账号（即使持比赛级 contract:execute）不可执行。
     """
     if not user:
         return
-    if has_permission(user.role, user.permissions_list, "contract:execute"):
+    if getattr(user, "role", None) == "SUPER_ADMIN":
         return
-    can_audit = has_permission(user.role, user.permissions_list, _CONTRACT_AUDIT_PERM)
-    if not can_audit:
+    can_any = any(
+        has_permission(user.role, user.permissions_list, p)
+        for p in ("contract:execute", _CONTRACT_AUDIT_PERM, _CONTRACT_MANAGE_PERM)
+    )
+    if not can_any:
         raise BusinessError("无权执行合同", code=403, status_code=403)
     last_cid = _get_last_signatory_company_id(contract)
-    scopes = user.company_scopes_list
-    if last_cid is None or last_cid not in scopes:
+    if last_cid is None or last_cid not in user.company_scopes_list:
         raise BusinessError(
-            "仅合同最后一方参与公司的管理员可执行", code=403, status_code=403
+            "仅具有合同参与公司管理权的账号可执行", code=403, status_code=403
         )
 
 

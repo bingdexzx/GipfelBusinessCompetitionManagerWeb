@@ -72,6 +72,7 @@
         <template #default="{ row }">
           <el-button size="small" @click="openDetail(row)">详情</el-button>
           <el-button
+            v-if="canExecuteRow(row)"
             size="small"
             type="success"
             :disabled="executeBtnState(row).disabled"
@@ -118,6 +119,7 @@
       <template #actions="{ row }">
         <el-button size="small" @click="openDetail(row)">详情</el-button>
         <el-button
+          v-if="canExecuteRow(row)"
           size="small"
           type="success"
           :disabled="executeBtnState(row).disabled"
@@ -1109,18 +1111,29 @@ const canOperateContracts = computed(
 // 列表中是否存在草稿（决定「暂无草稿可执行」引导是否出现）
 const hasDraft = computed(() => filteredContracts.value.some((c: any) => c.status === "DRAFT"));
 
-// 执行按钮三态（与后端 execute() 的 assertAuditScope 保持一致）：
-// - 无 execute/audit 权限 → 禁用（权限不足）
-// - 非草稿 → 禁用（状态原因）
-// - 仅持 audit（无 execute/manage）且合同参与方均不在 companyScopes 内 → 禁用（范围外，避免点击后被后端 403）
-// 执行按钮状态（与后端 assertExecuteScope 对齐）：
-// - 无 execute/audit 权限 → 禁用
+// 当前账号对某合同是否具备执行资格（与后端 _assert_execute_scope 对齐）。
+// 超管恒可；其余账号须持有 execute/audit/manage 任一合同权限，且合同的
+// 最后一方参与公司必须在其公司管理范围（companyScopes）内——无该公司
+// 管理权的账号（即使持比赛级 contract:execute）不展示、不可点击执行按钮。
+function canExecuteRow(row: any): boolean {
+  if (authStore.isSuperAdmin) return true;
+  if (!authStore.canAny(["contract:execute", "contract:audit", "contract:manage"])) return false;
+  const parties = parseJson(row.parties, []);
+  const real = parties.filter((p: any) => !p.isHost && typeof p.companyId === "number");
+  const lastCo = real.length ? real[real.length - 1].companyId : null;
+  if (lastCo == null) return false;
+  const scopes = authStore.user?.companyScopes ?? [];
+  return scopes.includes(lastCo);
+}
+
+// 执行按钮状态（与后端 _assert_execute_scope 保持一致）：
+// - 无 execute/audit/manage 任一合同权限 → 禁用（权限不足）
 // - 已执行/已终止 → 禁用（状态原因）
-// - 草稿/待执行：落账前会签态，编号齐备由后端执行时统一校验；此处仅校验「执行方权限」
-//   · 比赛级/超管（全局执行/管理）→ 直接可执行（兜底）
-//   · 仅 audit 公司级管理员 → 必须是「最后一方参与公司」才可执行，否则禁用
+// - 超管外一律要求「合同最后一方参与公司在其公司管理范围（companyScopes）内」：
+//   即使持比赛级 contract:execute，没有该公司的管理权也不可执行。
+//   按钮可见性由 canExecuteRow 控制（无公司管理权直接不展示）。
 function executeBtnState(row: any): { disabled: boolean; title: string } {
-  if (!authStore.canAny(["contract:execute", "contract:audit"])) {
+  if (!authStore.canAny(["contract:execute", "contract:audit", "contract:manage"])) {
     return { disabled: true, title: "无合同执行权限" };
   }
   if (row.status === "EXECUTED" || row.status === "TERMINATED") {
@@ -1132,15 +1145,8 @@ function executeBtnState(row: any): { disabled: boolean; title: string } {
           : "合同已终止",
     };
   }
-  const globalExec = authStore.can("contract:execute") || authStore.can("contract:manage");
-  if (!globalExec) {
-    // 仅 contract:audit 公司级管理员：必须是最后一个非主办方参与公司
-    const parties = parseJson(row.parties, []);
-    const real = parties.filter((p: any) => !p.isHost && typeof p.companyId === "number");
-    const lastCo = real.length ? real[real.length - 1].companyId : null;
-    if (lastCo == null || !authStore.canAuditCompany(lastCo)) {
-      return { disabled: true, title: "仅合同最后一方参与公司的管理员可执行" };
-    }
+  if (!canExecuteRow(row)) {
+    return { disabled: true, title: "仅具有合同参与公司管理权的账号可执行" };
   }
   const tip =
     row.status === "PENDING_EXEC"
