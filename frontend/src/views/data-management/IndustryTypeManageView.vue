@@ -768,6 +768,16 @@ async function loadTypes() {
   try {
     const res: any = await industryTypesApi.list();
     types.value = Array.isArray(res) ? res : res?.items || res?.data || [];
+    // 弹窗持有的行引用同步到最新对象：loadTypes 会整体替换数组，
+    // 详情弹窗 / 字段管理弹窗若继续指向旧行，会显示修改前的旧值（表现为「改了但不生效」）。
+    if (typeDetailRow.value) {
+      const fresh = types.value.find((t: any) => t.id === typeDetailRow.value.id);
+      if (fresh) typeDetailRow.value = fresh;
+    }
+    if (fieldTarget.value) {
+      const fresh = types.value.find((t: any) => t.id === fieldTarget.value.id);
+      if (fresh) fieldTarget.value = fresh;
+    }
   } catch {
     // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   } finally {
@@ -1084,6 +1094,11 @@ async function loadFields() {
   try {
     const res: any = await industryTypesApi.listFields(fieldTarget.value.id);
     fields.value = Array.isArray(res) ? res : res?.items || res?.data || [];
+    // 字段详情弹窗的行引用同步到最新对象，避免刷新后仍显示旧值
+    if (fieldDetailRow.value) {
+      const fresh = fields.value.find((f: any) => f.id === fieldDetailRow.value.id);
+      if (fresh) fieldDetailRow.value = fresh;
+    }
   } catch {
     // 错误提示由全局响应拦截器统一弹出，避免重复 toast
   } finally {
