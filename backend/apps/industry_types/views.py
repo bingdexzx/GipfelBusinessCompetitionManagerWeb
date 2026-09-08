@@ -331,6 +331,23 @@ def _serialize_type(instance: IndustryType) -> dict:
     return IndustryTypeSerializer(instance).data
 
 
+def _touch_parent_type(industry_type_id: int) -> None:
+    """字段定义变更后 touch 父产业类型的 updated_at 并广播 industry-types。
+
+    产业类型列表序列化嵌套 fields，而字段增/删/改不改变父行 updated_at ——
+    前端增量同步（updatedAfter）不会带回父类型，本地副本的嵌套 fields 停在旧值
+    （表现为「添加字段后字段数不增加 / 改初始值列表不刷新」）。
+    touch 走 .update() 绕过 auto_now，须显式写 now；update() 不触发 post_save，
+    广播需显式 emit，其他客户端才能实时刷新列表。
+    """
+    from django.utils import timezone
+
+    from apps.realtime.emit import emit_resource_changed
+
+    IndustryType.objects.filter(pk=industry_type_id).update(updated_at=timezone.now())
+    emit_resource_changed("industry-types", industry_type_id, None, "updated")
+
+
 # ==================== 产业类型：列表 / 创建 ====================
 class CollectionView(APIView):
     permission_classes = _PERM_CLASSES
@@ -509,6 +526,7 @@ class FieldListView(APIView):
         # 新计算字段需为已有公司补算初值；若类型已有其它计算字段，本次也需联动重算
         if bool(data.get("isCalculated")) or _has_calc_fields(pk):
             _recompute_industry_type(pk)
+        _touch_parent_type(pk)
         return Response(IndustryFieldSerializer(field).data)
 
 
@@ -605,6 +623,7 @@ class FieldItemView(APIView):
         # 仅排序/可见性/定时器这类 PATCH 不重算，避免拖拽排序时逐条全量算。
         if set(data) & _CALC_RELEVANT_KEYS and _has_calc_fields(field.industry_type_id):
             _recompute_industry_type(field.industry_type_id)
+        _touch_parent_type(field.industry_type_id)
         payload = IndustryFieldSerializer(field).data
         # 无法自动修正的外部引用（合同类型）随响应回传，前端当场提示管理员，
         # 避免只落服务端日志、操作者毫无感知。
@@ -631,5 +650,6 @@ class FieldItemView(APIView):
         # 引用被清理后依赖该字段的公式结果已变化，需级联重算并广播
         if _has_calc_fields(industry_type_id):
             _recompute_industry_type(industry_type_id)
+        _touch_parent_type(industry_type_id)
         # 合同类型引用 / 公式被置 0 这类无法自动修正的影响随响应回传，前端当场提示
         return Response({"ok": True, "refWarnings": ref_warnings})
