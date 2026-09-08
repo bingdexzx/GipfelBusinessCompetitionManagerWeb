@@ -26,6 +26,7 @@ from .views import (
     ContractPartyNumbersAPIView,
     ContractPrecheckAPIView,
     ContractStatusAPIView,
+    ContractTrialAPIView,
     ContractTypeCollectionAPIView,
     ContractTypeItemAPIView,
 )
@@ -36,6 +37,8 @@ urlpatterns = [
     # 合同类型（全局，无比赛域）
     path("contract-types", ContractTypeCollectionAPIView.as_view(), name="contract-types-collection"),
     path("contract-types/<int:pk>", ContractTypeItemAPIView.as_view(), name="contract-types-item"),
+    # 合同类型试算（dry-run，不落账；置于 <int:pk> 之前语义更清晰）
+    path("contracts/trial", ContractTrialAPIView.as_view(), name="contracts-trial"),
     # 合同（比赛级）
     path("contracts", ContractCollectionAPIView.as_view(), name="contracts-collection"),
     path("contracts/<int:pk>", ContractItemAPIView.as_view(), name="contracts-item"),

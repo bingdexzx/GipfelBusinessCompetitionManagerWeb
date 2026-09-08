@@ -440,6 +440,102 @@ class ContractPrecheckAPIView(APIView):
         return Response({"checks": checks})
 
 
+class ContractTrialAPIView(APIView):
+    """POST /api/contracts/trial —— 合同类型试算（dry-run，不落账）。
+
+    请求体：{contractTypeId, companyId, inputs?}。
+    以所选公司充当全部非主办方参与方、输入取 inputSchema 默认值（可被 inputs 覆盖），
+    在「执行后整体回滚」的事务内跑完整引擎流程，返回检查结果与效果预览，
+    不留任何数据痕迹（字段改写 / 效果记录随回滚丢弃，on_commit 广播被取消）。
+    """
+
+    permission_classes = _PERM_CLASSES
+
+    @require_permissions(_CT_MANAGE_PERM)
+    def post(self, request):
+        data = request.data if isinstance(request.data, dict) else {}
+        try:
+            ct_id = int(data.get("contractTypeId"))
+            company_id = int(data.get("companyId"))
+        except (TypeError, ValueError):
+            raise BusinessError("请选择合同类型与测试公司", code=400, status_code=400)
+        ct = ContractType.objects.filter(pk=ct_id).first()
+        if not ct:
+            raise BusinessError("合同类型不存在", code=404, status_code=404)
+        from apps.companies.models import Company
+
+        company = Company.objects.filter(pk=company_id).first()
+        if not company:
+            raise BusinessError("公司不存在", code=404, status_code=404)
+        # 比赛域隔离：非超管仅可试算自己比赛范围内的公司
+        if getattr(request.user, "role", None) != "SUPER_ADMIN":
+            if company.competition_id != getattr(request.user, "competition_id", None):
+                raise BusinessError("公司不存在", code=404, status_code=404)
+
+        # 参与方：全部角色绑定测试公司（主办方无公司）
+        parties = []
+        for r in parse_json_array(ct.party_roles):
+            if not isinstance(r, dict) or not r.get("role"):
+                continue
+            parties.append(
+                {
+                    "role": r["role"],
+                    "label": r.get("label") or r["role"],
+                    "isHost": bool(r.get("isHost")),
+                    "companyId": None if r.get("isHost") else company.id,
+                }
+            )
+        if not parties:
+            raise BusinessError("该合同类型未配置参与方，无法试算", code=400, status_code=400)
+
+        # 输入：inputSchema 默认值打底，允许请求覆盖
+        inputs: dict = {}
+        for f in parse_json_array(ct.input_schema):
+            if isinstance(f, dict) and f.get("key") and f.get("default") is not None:
+                inputs[f["key"]] = f["default"]
+        override = data.get("inputs")
+        if isinstance(override, dict):
+            inputs.update(override)
+
+        engine_dict = {
+            "id": None,
+            "competition_id": company.competition_id,
+            "parties": json.dumps(parties, ensure_ascii=False),
+            "inputs": dumps_json_safe(inputs, ensure_ascii=False),
+            "contract_type": {
+                "id": ct.id,
+                "effects": ct.effects,
+                "conditions": ct.conditions or "[]",
+                "inputSchema": ct.input_schema or "[]",
+            },
+        }
+
+        with transaction.atomic():
+            try:
+                engine_result = _engine.execute(engine_dict, throw_on_fail=False)
+            except BusinessError as err:
+                # 试算不掩盖配置问题：把引擎报错转为一条失败检查返回
+                transaction.set_rollback(True)
+                return Response(
+                    {
+                        "checks": [
+                            {
+                                "kind": "TRIAL",
+                                "label": "试算中断",
+                                "passed": False,
+                                "errorMessage": getattr(err, "message", None) or str(err),
+                            }
+                        ],
+                        "effects": [],
+                    }
+                )
+            checks = engine_result["result"].get("checks") or []
+            effects = [e for e in engine_result["log"] if isinstance(e, dict) and e.get("kind") == "FIELD"]
+            # 整体回滚：字段改写 / 效果记录不落库，on_commit 广播随回滚丢弃
+            transaction.set_rollback(True)
+        return Response({"checks": checks, "effects": effects})
+
+
 class ContractStatusAPIView(APIView):
     """PATCH /api/contracts/:id/status —— 标记合同状态（仅 TERMINATED）。"""
 

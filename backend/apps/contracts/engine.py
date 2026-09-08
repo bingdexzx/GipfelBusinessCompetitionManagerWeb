@@ -1774,12 +1774,13 @@ def eval_value_spec(spec: Any, inputs: dict, scope: dict | None = None, ctx: Eva
 class ContractEngine:
     """合同引擎：执行 effects 改写公司产业字段并落账审计记录；预检条件；删除复原。"""
 
-    def execute(self, contract) -> dict:
+    def execute(self, contract, throw_on_fail: bool = True) -> dict:
         """执行合同：解析 effects/conditions，在事务内改写公司产业字段并写审计日志。
 
         ``contract`` 需含：parties(JSON str)、inputs(JSON str)、contract_type（含
         effects/conditions/input_schema，JSON str）、competition_id、id。
         返回 ``{log, result}``，result = {logs, fields, checks}。
+        ``throw_on_fail=False``：检查失败不中断执行（试算场景，收集全部检查结果）。
         """
         from django.db import transaction
 
@@ -1789,12 +1790,12 @@ class ContractEngine:
         inputs = self._safe_parse_obj(contract["inputs"], "contract.inputs")
         input_schema = self._safe_parse(contract["contract_type"].get("inputSchema") or "[]", "contractType.inputSchema")
 
-        # 清单范围校验（基建/载具）：违规直接中止事务
+        # 清单范围校验（基建/载具）：违规直接中止事务（试算场景不中止，见下方捕获）
         infra_err = self._validate_list_filters(input_schema, inputs, "infrastructureList", "allowedInfrastructures", "基建")
-        if infra_err:
+        if infra_err and throw_on_fail:
             raise BusinessError(f"基建清单范围校验未通过:\n{infra_err}", code=400, status_code=400)
         veh_err = self._validate_list_filters(input_schema, inputs, "vehicleList", "allowedVehicles", "载具")
-        if veh_err:
+        if veh_err and throw_on_fail:
             raise BusinessError(f"载具清单范围校验未通过:\n{veh_err}", code=400, status_code=400)
 
         party_map = {p["role"]: p for p in parties}
@@ -1811,7 +1812,11 @@ class ContractEngine:
 
         with transaction.atomic():
             if conditions:
-                result["checks"] = self._run_conditions(conditions, party_map, inputs, scope, ctx, throw_on_fail=True)
+                result["checks"] = self._run_conditions(conditions, party_map, inputs, scope, ctx, throw_on_fail=throw_on_fail)
+            if infra_err:
+                result["checks"].append({"kind": "INFRA_LIST_FILTER", "party": "", "label": "基建范围校验", "passed": False, "detail": infra_err, "errorMessage": f"基建清单范围校验未通过:\n{infra_err}"})
+            if veh_err:
+                result["checks"].append({"kind": "VEHICLE_LIST_FILTER", "party": "", "label": "载具范围校验", "passed": False, "detail": veh_err, "errorMessage": f"载具清单范围校验未通过:\n{veh_err}"})
 
             def apply_leaf(eff, sc):
                 if eff.get("kind") != "FIELD":
@@ -1887,7 +1892,9 @@ class ContractEngine:
             for eff in effects:
                 apply_effect(eff, scope)
 
-            if effect_rows:
+            # 无 id 的假合同（试算 dry-run）不写效果审计行：contract_id 非空约束
+            # 也决定了其无法落库；字段改写等副作用由调用方事务回滚丢弃。
+            if effect_rows and contract.get("id") is not None:
                 self._bulk_create_effects(effect_rows)
 
         return {"log": log, "result": result}
