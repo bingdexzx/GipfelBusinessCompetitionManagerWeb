@@ -202,7 +202,7 @@ class ContractCollectionAPIView(APIView):
             return Response(paginated_response(items, total, page, page_size))
 
         # 有范围限制：需解析 JSON parties 做内存过滤，无法下推到数据库（已知限制）。
-        # 仅对持 contract:audit（无 execute）或纯 contract:view 且有公司范围的账号进入此分支，
+        # 非超管的操作类账号（execute/audit/manage）与持公司范围的纯 view 账号进入此分支，
         # 其可见合同集本身受公司范围约束，实际体量有限；若要支撑超大规模，需对 parties 内
         # 公司 id 做冗余列（如 contract_party_companies 表）以支持 SQL 级过滤。
         all_rows = list(qs.order_by("-created_at"))
@@ -719,16 +719,22 @@ def _parties_list_in_scopes(parties: list, scopes: list[int]) -> bool:
 
 
 def _needs_scope_filter(user) -> bool:
-    """判断是否需要公司范围过滤（需解析 JSON parties 字段，无法下推到数据库 where）。"""
+    """判断是否需要公司范围过滤（需解析 JSON parties 字段，无法下推到数据库 where）。
+
+    超管外，凡持有任一合同权限的账号都按公司范围过滤：
+    操作类权限（execute/audit/manage）按 companyScopes，纯 view 按 contractViewCompanyScopes。
+    """
     if not user:
+        return False
+    if getattr(user, "role", None) == "SUPER_ADMIN":
         return False
     can_audit = has_permission(user.role, user.permissions_list, _CONTRACT_AUDIT_PERM)
     can_execute = has_permission(user.role, user.permissions_list, "contract:execute")
     can_manage = has_permission(user.role, user.permissions_list, _CONTRACT_MANAGE_PERM)
     can_view = has_permission(user.role, user.permissions_list, _CONTRACT_VIEW_PERM)
-    if can_audit and not can_execute:
+    if can_audit or can_execute or can_manage:
         return True
-    if can_view and not can_audit and not can_execute and not can_manage:
+    if can_view:
         scopes = user.contract_view_company_scopes_list
         return len(scopes) > 0
     return False
@@ -741,14 +747,17 @@ def _filter_by_scope(items: list[dict], user) -> list[dict]:
     """
     if not user:
         return items
+    if getattr(user, "role", None) == "SUPER_ADMIN":
+        return items
     can_audit = has_permission(user.role, user.permissions_list, _CONTRACT_AUDIT_PERM)
     can_execute = has_permission(user.role, user.permissions_list, "contract:execute")
     can_manage = has_permission(user.role, user.permissions_list, _CONTRACT_MANAGE_PERM)
     can_view = has_permission(user.role, user.permissions_list, _CONTRACT_VIEW_PERM)
 
-    # 审核范围：仅 contract:audit（无 execute）的账号按 companyScopes 限制可审核合同；
-    # 空范围 = 看不到任何合同
-    if can_audit and not can_execute:
+    # 操作类账号（execute/audit/manage 任一）：一律按公司管理范围（companyScopes）过滤，
+    # 参与方中没有任何所辖公司的合同不显示（与执行权校验 _assert_execute_scope 对齐）；
+    # 空范围 = 看不到任何合同。
+    if can_audit or can_execute or can_manage:
         scopes = user.company_scopes_list
         return [
             c for c in items
@@ -757,7 +766,7 @@ def _filter_by_scope(items: list[dict], user) -> list[dict]:
 
     # 合同查看范围：仅持纯 contract:view 的账号按 contractViewCompanyScopes 限制可见合同；
     # 空范围 = 不限制（可见全部合同）
-    if can_view and not can_audit and not can_execute and not can_manage:
+    if can_view:
         scopes = user.contract_view_company_scopes_list
         if not scopes:
             return items
