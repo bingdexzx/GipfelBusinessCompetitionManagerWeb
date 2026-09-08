@@ -329,47 +329,59 @@ fi
 #        否则仓库中对服务单元的改动（如日志查看器 8121 端口修复、ExecStart 变更）不会传播到 live 单元，
 #        重启后仍使用旧配置。与 deploy-linux.sh 第 6 步保持一致。
 refresh_unit() {
-    local src="$1" name="$2"
-    [[ -f "$src" ]] || { warn "找不到服务单元模板 $src，跳过刷新 $name"; return; }
-    # 模板为空（历史 bug：`>` 先清空与模板同路径的渲染产物）→ 尝试从 git 恢复
-    if [[ ! -s "$src" ]]; then
-        if git -C "$INSTALL_DIR" checkout -- "deploy/$(basename "$src")" 2>/dev/null && [[ -s "$src" ]]; then
-            warn "模板 $src 为空，已从 git 仓库恢复"
-        else
-            warn "模板 $src 为空且无法从 git 恢复，跳过安装 $name"
+    local src="$1" name="$2" attempt
+    for attempt in 1 2; do
+        [[ -f "$src" ]] || { warn "找不到服务单元模板 $src，跳过刷新 $name"; return; }
+        # 模板为空（历史 bug：`>` 先清空与模板同路径的渲染产物）→ 自动恢复后重试：
+        # 优先 --source-dir 的模板副本（模式 B 部署目录不是 git 仓库），否则 git checkout 恢复
+        if [[ ! -s "$src" ]]; then
+            if [[ -n "$SOURCE_DIR" && -s "$SOURCE_DIR/deploy/$(basename "$src")" ]]; then
+                cp -f "$SOURCE_DIR/deploy/$(basename "$src")" "$src"
+                warn "模板 $src 为空，已从源码目录恢复"
+            elif git -C "$INSTALL_DIR" checkout -- "deploy/$(basename "$src")" 2>/dev/null && [[ -s "$src" ]]; then
+                warn "模板 $src 为空，已从 git 仓库恢复"
+            elif [[ $attempt == 1 ]]; then
+                warn "模板 $src 为空且暂无法恢复，重试前再试一次"
+            else
+                warn "模板 $src 为空且无法从 git/源码目录恢复，跳过安装 $name"
+                return 1
+            fi
+        fi
+        # masked 自愈：mask 有两种落点，且 cp -f 会跟随 /dev/null 软链把内容写进 /dev/null，
+        # 故必须先解除再写入——
+        #   永久：/etc/systemd/system/$name → /dev/null
+        #   运行时：/run/systemd/system/$name → /dev/null（/run 优先级高于 /etc，
+        #           即使 /etc 写入真实 unit，运行时 mask 仍会遮蔽 → enable/restart 报 masked）
+        # systemctl unmask 本身会同时清理 /etc 与 /run 两处，必须无条件执行：
+        # 仅凭「/etc 下存在 /dev/null 软链」检测会漏掉运行时 mask（曾真实发生）。
+        systemctl unmask "$name" 2>/dev/null || true
+        rm -f "/etc/systemd/system/$name" "/run/systemd/system/$name"
+        # 渲染到独立临时文件：目标与模板同路径时，`>` 会先清空文件、sed 再读到空内容，
+        # 模板与产物一起变 0 字节——systemd 把空 unit 文件按 masked 处理（真实事故）。
+        local tmp; tmp="$(mktemp "/tmp/${name}.XXXXXX")"
+        sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$src" > "$tmp"
+        # 渲染产物必须非空：空文件装上去即是 masked，宁可不装也不要破坏现场
+        if [[ ! -s "$tmp" ]]; then
+            rm -f "$tmp"
+            warn "渲染 $name 得到空文件（模板 $src 可能为空或被截断）"
+            [[ $attempt == 1 ]] && continue
             return 1
         fi
-    fi
-    # masked 自愈：mask 有两种落点，且 cp -f 会跟随 /dev/null 软链把内容写进 /dev/null，
-    # 故必须先解除再写入——
-    #   永久：/etc/systemd/system/$name → /dev/null
-    #   运行时：/run/systemd/system/$name → /dev/null（/run 优先级高于 /etc，
-    #           即使 /etc 写入真实 unit，运行时 mask 仍会遮蔽 → enable/restart 报 masked）
-    # systemctl unmask 本身会同时清理 /etc 与 /run 两处，必须无条件执行：
-    # 仅凭「/etc 下存在 /dev/null 软链」检测会漏掉运行时 mask（曾真实发生）。
-    if [[ -L "/etc/systemd/system/$name" || -L "/run/systemd/system/$name" ]]; then
-        warn "检测到 $name 存在 mask 软链，执行 unmask 解除"
-    fi
-    systemctl unmask "$name" 2>/dev/null || true
-    rm -f "/etc/systemd/system/$name" "/run/systemd/system/$name"
-    # 渲染到独立临时文件：目标与模板同路径时，`>` 会先清空文件、sed 再读到空内容，
-    # 模板与产物一起变 0 字节——systemd 把空 unit 文件按 masked 处理（真实事故）。
-    local tmp; tmp="$(mktemp "/tmp/${name}.XXXXXX")"
-    sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$src" > "$tmp"
-    # 渲染产物必须非空：空文件装上去即是 masked，宁可不装也不要破坏现场
-    if [[ ! -s "$tmp" ]]; then
+        cp -f "$tmp" "/etc/systemd/system/$name"
         rm -f "$tmp"
-        warn "渲染 $name 得到空文件（模板 $src 可能为空或被截断），跳过安装"
-        return 1
-    fi
-    cp -f "$tmp" "/etc/systemd/system/$name"
-    rm -f "$tmp"
-    # 让 systemd 重新扫描 unit（清掉内存中残留的 masked 状态），再 enable；
-    # enable 失败必须告警并输出诊断：LoadState / FragmentPath 直接揭示 masked 的真实来源
-    # （mask 可能存在于 systemd unit 搜索路径的任何一层，不止 /etc 与 /run）。
-    systemctl daemon-reload
-    if ! systemctl enable "$name" 2>/dev/null; then
-        warn "systemctl enable $name 失败，自动诊断如下："
+        # 让 systemd 重新扫描 unit（清掉内存中残留的 masked 状态），再 enable
+        systemctl daemon-reload
+        if systemctl enable "$name" 2>/dev/null; then
+            ok "已刷新并启用服务单元 $name → /etc/systemd/system/$name"
+            return 0
+        fi
+        if [[ $attempt == 1 ]]; then
+            warn "systemctl enable $name 第 1 次失败，自动恢复后重试"
+            continue
+        fi
+        # 最终失败：输出诊断——LoadState / FragmentPath 直接揭示 masked 的真实来源
+        # （空文件与 /dev/null 软链都会被判为 masked；mask 也可能存在于搜索路径的任何一层）
+        warn "systemctl enable $name 两次尝试均失败，自动诊断如下："
         systemctl show -p LoadState,FragmentPath "$name" 2>/dev/null | while IFS= read -r line; do
             warn "  $line"
         done
@@ -378,11 +390,8 @@ refresh_unit() {
         done < <(find /etc/systemd/system /run/systemd/system /usr/local/lib/systemd/system \
                       /usr/lib/systemd/system /lib/systemd/system \
                       -maxdepth 1 -name "$name" 2>/dev/null)
-        warn "修复：删除上列指向 /dev/null 的软链（保留真实 unit 文件），然后："
-        warn "  sudo systemctl daemon-reload && sudo systemctl enable --now $name"
         return 1
-    fi
-    ok "已刷新并启用服务单元 $name → /etc/systemd/system/$name"
+    done
 }
 UNIT_REFRESH_FAILED=0
 refresh_unit "$INSTALL_DIR/deploy/gipfel.service" gipfel.service || UNIT_REFRESH_FAILED=1
@@ -390,8 +399,8 @@ refresh_unit "$INSTALL_DIR/deploy/logviewer.service" gipfel-logviewer.service ||
 systemctl daemon-reload
 
 if [[ "$UNIT_REFRESH_FAILED" == 1 ]]; then
-    warn "服务单元未能正常启用（masked 等问题未解除），本次跳过重启，避免用旧状态误判。"
-    warn "请按上方诊断手工处理后执行：sudo systemctl daemon-reload && sudo systemctl restart gipfel gipfel-logviewer"
+    warn "服务单元未能正常启用（masked 等问题未解除），本次跳过全部重启，避免用旧状态误判。"
+    warn "请按上方诊断处理模板/软链后执行：sudo systemctl daemon-reload && sudo systemctl restart gipfel gipfel-logviewer"
 elif systemctl cat gipfel.service >/dev/null 2>&1; then
     log "重启 gipfel.service"
     systemctl restart gipfel
@@ -405,8 +414,10 @@ else
     warn "gipfel.service 尚未注册（首次部署请先运行 deploy-linux.sh），跳过重启"
 fi
 
-# 日志查看器（独立站点）
-if systemctl cat gipfel-logviewer.service >/dev/null 2>&1; then
+# 日志查看器（独立站点）；刷新失败时同样跳过重启
+if [[ "$UNIT_REFRESH_FAILED" == 1 ]]; then
+    warn "单元刷新失败，跳过 gipfel-logviewer 重启"
+elif systemctl cat gipfel-logviewer.service >/dev/null 2>&1; then
     log "重启 gipfel-logviewer.service"
     systemctl restart gipfel-logviewer
     sleep 2
