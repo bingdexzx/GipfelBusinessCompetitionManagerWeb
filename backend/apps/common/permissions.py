@@ -362,8 +362,11 @@ ROLE_TEMPLATES = {
         "isSuperAdmin": False,
     },
     "PLAYER": {
-        "defaultPermissions": BASE_VIEW_PERMISSIONS,
-        "grantCeiling": BASE_VIEW_PERMISSIONS,
+        # 选手默认即可交易：stock:edit 覆盖「建自己的资金账户 + 下单/撤单」，
+        # 账户操作仍受 _get_operable_account_ids 收敛（仅自己名下账户），
+        # 不会触及他人账户与股票管理（stock:manage 仍为超管专属）。
+        "defaultPermissions": BASE_VIEW_PERMISSIONS + ["stock:edit"],
+        "grantCeiling": BASE_VIEW_PERMISSIONS + ["stock:edit"],
         "grantExtras": [],
         "isSuperAdmin": False,
     },
