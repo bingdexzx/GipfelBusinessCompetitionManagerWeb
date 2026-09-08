@@ -1242,7 +1242,12 @@ async function loadCompanies() {
   }
   try {
     const res = await api.get("/companies", {
-      params: { competitionId: compStore.competitionId },
+      params: {
+        competitionId: compStore.competitionId,
+        // 持有 contract:manage（可新建合同）时不限 viewCompanyScopes：
+        // 新建合同需可选本比赛内任意公司（后端校验权限，无权限账号忽略此参数）
+        ...(authStore.can("contract:manage") ? { unscoped: 1 } : {}),
+      },
     });
     companies.value = Array.isArray(res) ? res : res.items || [];
   } catch (e) {

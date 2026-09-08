@@ -60,9 +60,14 @@ class CollectionAPIView(APIView):
                 qs = qs.filter(region_id=int(region_id))
             except (TypeError, ValueError):
                 pass
-        # viewCompanyScopes 过滤
+        # viewCompanyScopes 过滤。unscoped=1 且持有 contract:manage（能新建合同）
+        # 时跳过该过滤：合同管理新建合同需可选本比赛内任意公司。
+        # 比赛域隔离与 company:view 权限不受影响，无 contract:manage 的账号忽略该参数。
         scopes = _company_list_scopes(request.user)
-        if scopes is not None:
+        if scopes is not None and not (
+            request.query_params.get("unscoped") in ("1", "true")
+            and has_permission(request.user.role, request.user.permissions_list, "contract:manage")
+        ):
             qs = qs.filter(pk__in=scopes)
         # 预取产业类型 + 字段值计数（避免 N+1）
         qs = qs.select_related("industry_type").annotate(
