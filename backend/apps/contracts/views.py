@@ -26,7 +26,7 @@ from apps.common.guards import (
     no_competition_scope,
     require_permissions,
 )
-from apps.common.json_util import parse_json_array
+from apps.common.json_util import dumps_json_safe, parse_json_array
 from apps.common.pagination import paginated_response, parse_pagination
 from apps.common.permissions import has_permission
 from apps.common.scope import assert_same_competition
@@ -338,9 +338,10 @@ class ContractExecuteAPIView(APIView):
                 raise BusinessError("合同已终止，不可再次执行", code=400, status_code=400)
             # 抢占成功：仅此一处执行引擎副作用，保证落账副作用只发生一次
             engine_result = _engine.execute(engine_dict)
+            # 引擎日志/结果含 Decimal 金额，须走大数安全序列化（直接 json.dumps 会抛 TypeError）
             Contract.objects.filter(pk=pk).update(
-                execution_log=json.dumps(engine_result["log"], ensure_ascii=False),
-                execution_result=json.dumps(engine_result["result"], ensure_ascii=False),
+                execution_log=dumps_json_safe(engine_result["log"], ensure_ascii=False),
+                execution_result=dumps_json_safe(engine_result["result"], ensure_ascii=False),
                 updated_at=timezone.now(),
             )
         # 同步内存对象，保证后续序列化/广播返回最新状态
@@ -348,8 +349,8 @@ class ContractExecuteAPIView(APIView):
         contract.inputs = inputs_raw
         contract.signed_at = signed_at
         contract.executed_at = executed_at
-        contract.execution_log = json.dumps(engine_result["log"], ensure_ascii=False)
-        contract.execution_result = json.dumps(engine_result["result"], ensure_ascii=False)
+        contract.execution_log = dumps_json_safe(engine_result["log"], ensure_ascii=False)
+        contract.execution_result = dumps_json_safe(engine_result["result"], ensure_ascii=False)
         contract.updated_at = timezone.now()
 
         # 级联重算计算字段 + 广播刷新

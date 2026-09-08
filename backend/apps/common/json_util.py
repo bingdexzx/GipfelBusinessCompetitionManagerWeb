@@ -1,4 +1,4 @@
-"""JSON 解析工具。"""
+"""JSON 解析 / 安全序列化工具。"""
 from __future__ import annotations
 
 import json
@@ -31,3 +31,16 @@ def parse_field_config(raw: Any) -> dict:
         except (ValueError, TypeError):
             return {}
     return {}
+
+
+def dumps_json_safe(obj: Any, **kwargs: Any) -> str:
+    """大数安全的 json.dumps：Decimal / 超过 2^53 的 int 先按出站口径递归转换
+    （整数值 Decimal → int、小数 Decimal → 字符串、大 int → 字符串），再序列化。
+
+    用于把含 Decimal 的引擎产物（合同执行日志 / 结果等）落库为 JSON 字符串——
+    直接 json.dumps 会抛 "Object of type Decimal is not JSON serializable"。
+    转换口径与 apps/common/renderers.py 的响应渲染保持一致。
+    """
+    from .renderers import _convert_big_numbers
+
+    return json.dumps(_convert_big_numbers(obj), **kwargs)
