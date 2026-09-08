@@ -110,6 +110,13 @@ api.interceptors.response.use(
       // 不清新 token、不跳登录页、不弹「账号已在其他设备登录」。
       const reqToken = typeof reqAuth === "string" ? reqAuth.replace(/^Bearer\s+/i, "") : "";
       const curToken = getAccountItem("token") || "";
+      // 登录接口的 401 = 用户名或密码错误：必须先于下面的「本地无登录态静默丢弃」判断——
+      // 登录页本来就没有 token，若顺序颠倒，登录失败会被静默吞掉、界面毫无提示（真实事故）。
+      const isLoginRequest = error.config?.url?.includes("/auth/login");
+      if (isLoginRequest) {
+        ElMessage.error(getErrorMessage(error));
+        return Promise.reject(error);
+      }
       // 本地已无登录态（此前已被踢出/已登出）：残留页面的请求 401 静默丢弃，
       // 不重复弹错（避免「身份认证信息未提供」连环提示）、不重复跳转登录页
       if (!curToken) {
@@ -118,10 +125,7 @@ api.interceptors.response.use(
       if (reqToken && reqToken !== curToken) {
         return Promise.reject(error);
       }
-      const isLoginRequest = error.config?.url?.includes("/auth/login");
-      if (isLoginRequest) {
-        ElMessage.error(getErrorMessage(error));
-      } else {
+      {
         removeAccountItem("token");
         clearCurrentAccountCache().catch(() => {}); // fire-and-forget：同步标记已清除，异步清理 IndexedDB
         _resetMemo();
