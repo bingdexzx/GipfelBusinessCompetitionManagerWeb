@@ -72,7 +72,21 @@ export const useAuthStore = defineStore("auth", () => {
     stopHeartbeat();
     setSessionRefreshing(true);
     try {
-      await authApi.changePassword({ oldPassword, newPassword });
+      try {
+        await authApi.changePassword({ oldPassword, newPassword });
+      } catch (e: any) {
+        // 会话在弹窗期间被顶掉（后端每次登录都递增 token_version：别处再登录一次，
+        // 本页 token 即失效 → 改密请求 401「账号已在其他设备登录」）。
+        // 用用户刚输入的旧密码静默重登换新 token（单设备设计 = 本机接管会话），再重试一次。
+        // 注意：旧密码输错走 400「旧密码不正确」，不会进入此分支；重登失败则原样抛出。
+        const status = e?.response?.status;
+        if (status === 401 && user.value?.username) {
+          await login(user.value.username, oldPassword);
+          await authApi.changePassword({ oldPassword, newPassword });
+        } else {
+          throw e;
+        }
+      }
       const username = user.value?.username;
       if (username) {
         // 重新登录（后端会再次递增 token_version 并签发新 token，旧 token 全部作废，
