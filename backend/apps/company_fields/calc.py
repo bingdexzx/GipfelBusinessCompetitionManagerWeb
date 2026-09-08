@@ -284,7 +284,7 @@ def _eval_graph(
                     if ref is None:
                         v = None
                     else:
-                        v = _stored_to_raw(ref, values.get(str(key)))
+                        v = _field_raw_with_default(ref, values, str(key))
                 elif kind == "OP":
                     handles = OP_ARG_SPECS.get(str(d.get("op")), [])
                     inc = incoming.get(nid, {})
@@ -295,7 +295,7 @@ def _eval_graph(
                     # 沙箱变量：本产业类型全部字段现值（原始值形态）+ 运行期变量 + 数学助手
                     sandbox: dict = {}
                     for key, f in field_by_key.items():
-                        sandbox[key] = _stored_to_raw(f, values.get(key))
+                        sandbox[key] = _field_raw_with_default(f, values, key)
                     sandbox.update(EXPR_HELPERS)
                     sandbox.update(scope)
                     try:
@@ -346,6 +346,22 @@ def _write_calc_value(company_id: int, field_id: int, value: str) -> bool:
             company_id, field_id,
         )
     return False
+
+
+def _field_raw_with_default(field, values: dict, key: str) -> object:
+    """字段原始值读取：公司从未写入过该字段（无 CompanyFieldValue 记录）时，
+    回退使用产业字段定义的 default_value——与合同引擎 field_cache 的
+    「value or defaultValue」语义一致。
+
+    例：字段「默认值测试1」default_value='200'，公司从未写入 →
+    公式引用该字段时取 200 而非 0。已写入过（哪怕空串）则用存值。
+    """
+    from .timer import _stored_to_raw
+
+    stored = values.get(key)
+    if stored is None:
+        stored = field.default_value
+    return _stored_to_raw(field, stored)
 
 
 def _trim_number_trailing_zeros(s: str) -> str:

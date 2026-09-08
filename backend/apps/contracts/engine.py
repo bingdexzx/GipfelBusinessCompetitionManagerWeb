@@ -671,6 +671,20 @@ def _f_sub(a: Any, b: Any) -> Any:
     return _f_to_num(a) - _f_to_num(b)
 
 
+def _f_div(a: Any, b: Any) -> Any:
+    """大数安全除法（与 apply_op DIV 口径一致）：
+    int/int 整除走 int；非整除走 Decimal（context 精度 50 位），
+    避免 Python 真除产生 float 在 2^53 以上丢精度（如 200/300 会得到
+    0.6666666666666666 的 16 位 float 尾数，Decimal 则精确得多）。
+    """
+    x, y = _f_to_num(a), _f_to_num(b)
+    if y == 0:
+        return 0
+    if isinstance(x, int) and isinstance(y, int):
+        return x // y if x % y == 0 else Decimal(x) / Decimal(y)
+    return x / y
+
+
 def _f_index(v: Any, idx: Any) -> Any:
     if isinstance(v, list):
         i = int(_f_to_num(idx))
@@ -802,7 +816,7 @@ class _FormulaParser:
             op = self._next()[1]
             right = self._parse_power()
             a, b = _f_to_num(left), _f_to_num(right)
-            left = a * b if op == "*" else (0 if b == 0 else a / b) if op == "/" else (0 if b == 0 else a % b)
+            left = a * b if op == "*" else _f_div(a, b) if op == "/" else (0 if b == 0 else a % b)
         return left
 
     def _parse_power(self):
