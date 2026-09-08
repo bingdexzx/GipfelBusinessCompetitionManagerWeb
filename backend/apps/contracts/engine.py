@@ -1202,6 +1202,10 @@ def compute_material_list_carbon(raw, competition_id):
 
 
 def compute_material_list_price(raw, competition_id, location_node_id=None):
+    """原料清单总价格。原料价格只按地点存储（node_prices = {mapNodeId: price}）：
+    - 指定地点且该原料在该地点有价 → 用地点价；
+    - 否则 → 该原料全部地点价的平均值（市场均价口径；无任何地点价按 0）。
+    """
     if not isinstance(raw, dict):
         return 0
     entries = _entries(raw)
@@ -1211,28 +1215,28 @@ def compute_material_list_price(raw, competition_id, location_node_id=None):
     from apps.materials.models import Material
 
     names = [n for n, _ in entries]
-    mats = Material.objects.filter(competition_id=competition_id, name__in=names).values("name", "price", "node_prices")
-    by_name = {m["name"]: m for m in mats}
-    # 预解析地点价表
-    node_prices_map = {}
-    if location_node_id is not None:
-        for m in mats:
-            try:
-                np = json.loads(m["node_prices"]) if m["node_prices"] else {}
-            except (ValueError, TypeError):
-                np = {}
-            if isinstance(np, dict) and str(location_node_id) in np:
-                node_prices_map[m["name"]] = to_number(np[str(location_node_id)])
+    mats = Material.objects.filter(competition_id=competition_id, name__in=names).values("name", "node_prices")
+    avg_prices: dict = {}
+    loc_prices: dict = {}
+    for m in mats:
+        try:
+            np = json.loads(m["node_prices"]) if m["node_prices"] else {}
+        except (ValueError, TypeError):
+            np = {}
+        if not isinstance(np, dict) or not np:
+            continue
+        nums = [to_number(v) for v in np.values() if is_finite_num(to_number(v))]
+        if nums:
+            avg_prices[m["name"]] = sum(nums) / len(nums)
+        if location_node_id is not None and str(location_node_id) in np:
+            loc_prices[m["name"]] = to_number(np[str(location_node_id)])
 
     total = 0
     for name, q in entries:
-        m = by_name.get(name)
-        if not m:
-            continue
-        if location_node_id is not None and name in node_prices_map:
-            price = node_prices_map[name]
+        if location_node_id is not None and name in loc_prices:
+            price = loc_prices[name]
         else:
-            price = to_number(m["price"])
+            price = avg_prices.get(name, 0)
         total += price * to_number(q)
     return total
 
