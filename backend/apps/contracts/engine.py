@@ -2090,20 +2090,22 @@ class ContractEngine:
                     passed = False
                     detail = f"DICT_COMPARE 要求两个操作数均为字典，实际：值1={'字典' if isinstance(v1, dict) else dumps_engine_json(v1)}，值2={'字典' if isinstance(v2, dict) else dumps_engine_json(v2)}"
                 else:
+                    # 逐键比较前提：值二（基准，如「所需原料」）的键必须全部存在于
+                    # 值一（如「库存」）；值一多出来的键（多余库存）不影响比较。
                     keys1, keys2 = list(v1.keys()), list(v2.keys())
-                    missing = [k for k in keys1 if k not in keys2]
+                    missing = [k for k in keys2 if k not in keys1]
                     if missing:
                         passed = False
-                        detail = f"前提不满足：值一的键必须全部存在于值二（值二缺失键：{', '.join(missing)}）"
+                        detail = f"前提不满足：值二的键必须全部存在于值一（值一缺失键：{', '.join(missing)}）"
                     else:
                         op_label = COMPARE_OP_LABEL.get(op, op)
                         fails = []
-                        for k in keys1:
+                        for k in keys2:
                             a, b = to_number(v1[k]), to_number(v2[k])
                             if not compare_op(a, op, b):
                                 fails.append(f"「{k}」：{a} {op_label} {b} 不成立")
                         passed = len(fails) == 0
-                        detail = (f"字典逐项比较通过（{len(keys1)} 个共有键均满足 {op_label}）" if passed else f"字典逐项比较未通过：{'；'.join(fails)}")
+                        detail = (f"字典逐项比较通过（{len(keys2)} 个基准键均满足 {op_label}）" if passed else f"字典逐项比较未通过：{'；'.join(fails)}")
 
             elif kind == "LIST_COMPARE":
                 v1 = resolve_value(c.get("value1"))

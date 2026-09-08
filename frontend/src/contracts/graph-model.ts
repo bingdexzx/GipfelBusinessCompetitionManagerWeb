@@ -172,7 +172,8 @@ export const COND_KINDS = ["VALUE_COMPARE", "FIELD_COMPARE", "INDUSTRY_IS", "DIC
 export const VALUE_COMPARE_OPS = ["GTE", "LTE", "GT", "LT", "EQ", "CONTAINS", "HAS_KEY"];
 
 // 字典互相比较（DICT_COMPARE）支持的算子：仅数值比较三种，逐键 GTE / GT / EQ。
-// 前提：值一的每个键都必须存在于值二的键集合中（值一键 ⊆ 值二键）。
+// 前提：值二（基准，如「所需原料」）的每个键都必须存在于值一（如「库存」）；
+// 值一多出来的键（多余库存）不影响比较（值二键 ⊆ 值一键）。
 export const DICT_COMPARE_OPS = ["GTE", "GT", "EQ"];
 
 // 列表互相比较（LIST_COMPARE）支持的算子：元素相等 / 被包含 / 大于(长度) / 大于等于(长度) / 等于(长度)。
@@ -1590,8 +1591,8 @@ export function graphToFlat(graph: GGraph): FlatContract {
         base.value1 = resolveValueSource(graph, nodeById(graph, e1?.source), e1);
         base.value2 = resolveValueSource(graph, nodeById(graph, e2?.source), e2);
       } else if (kind === "DICT_COMPARE") {
-        // 两个自由字典源互相比较：前提（值一键 ⊆ 值二键）由引擎执行时校验；
-        // 满足后对共有键逐一比较。无需参与方。
+        // 两个自由字典源互相比较：前提（值二键 ⊆ 值一键，如需求键都在库存中）由引擎执行时校验；
+        // 满足后对值二的每个键逐一比较。无需参与方。
         const e1 = findEdge(graph, n.id, "value1");
         const e2 = findEdge(graph, n.id, "value2");
         base.op = d.op || "GTE";
