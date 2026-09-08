@@ -50,6 +50,10 @@ def _resolve_allowed_hosts() -> list:
     生产必须显式配置 DJANGO_ALLOWED_HOSTS（逗号分隔），否则仅回环可达，公网 Host 会被拒（400）。
     另自动纳入 LOG_VIEWER_PUBLIC_URL 的主机（若已配置日志查看器公网地址）。
     收紧后可消除 Host 投毒（VersionView 的 log_viewer_url 不再反射任意 Host）。
+
+    注意：urlparse(...).netloc 含端口（host:port），但 Django 的 get_host() 用
+    split_domain_port 拆出 domain 再 validate_host，仅校验 domain 与 ALLOWED_HOSTS，
+    端口被忽略——故这里剥掉端口，仅放 host。
     """
     hosts = ["127.0.0.1", "localhost", "::1"]
     extra = os.environ.get("DJANGO_ALLOWED_HOSTS", "").strip()
@@ -57,9 +61,11 @@ def _resolve_allowed_hosts() -> list:
         hosts += [h.strip() for h in extra.split(",") if h.strip()]
     lv = os.environ.get("LOG_VIEWER_PUBLIC_URL", "").strip()
     if lv:
-        host = lv.split("://", 1)[-1].split("/", 1)[0]
-        if host and host not in hosts:
-            hosts.append(host)
+        from urllib.parse import urlparse
+
+        p = urlparse(lv)
+        if p.hostname and p.hostname not in hosts:
+            hosts.append(p.hostname)
     return hosts
 
 

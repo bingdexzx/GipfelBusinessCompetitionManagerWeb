@@ -65,13 +65,19 @@ SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = (_SECURE_COOKIES == "true")
 
 # ALLOWED_HOSTS：优先由 LOG_VIEWER_PUBLIC_URL 推导外网可达主机，再补回环地址；
 # 亦可通过 LOGVIEWER_ALLOWED_HOSTS（逗号分隔）显式追加。不再通配 "*"（M1）。
+# 注意：urlparse(...).netloc 含端口（host:port），但 Django 的 get_host() 用
+# split_domain_port 拆出 domain 再 validate_host，仅校验 domain 与 ALLOWED_HOSTS，
+# 端口被忽略——故 netloc 原样加入是「无效条目」（Django 仍报
+# "Invalid HTTP_HOST header: '...': You may need to add '<domain>' to ALLOWED_HOSTS"）。
+# 此处剥掉端口，仅放 host。
 _ALLOWED_HOSTS = ["127.0.0.1", "localhost", "::1"]
 if _LV_URL:
     from urllib.parse import urlparse as _urlparse
 
     _p = _urlparse(_LV_URL)
-    if _p.netloc:
-        _ALLOWED_HOSTS.append(_p.netloc)
+    if _p.hostname:  # hostname 不含端口；netloc 含端口，validate_host 不识别
+        if _p.hostname not in _ALLOWED_HOSTS:
+            _ALLOWED_HOSTS.append(_p.hostname)
 _EXTRA_HOSTS = os.environ.get("LOGVIEWER_ALLOWED_HOSTS", "").strip()
 if _EXTRA_HOSTS:
     _ALLOWED_HOSTS.extend(h.strip() for h in _EXTRA_HOSTS.split(",") if h.strip())

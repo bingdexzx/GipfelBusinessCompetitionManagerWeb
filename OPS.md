@@ -186,6 +186,22 @@ npm run typecheck    # 类型检查（CI 必跑）
   ```
 - **区分**：若是 401/429/403 走对应 Q7/安全章节；**400 + HTML** 几乎必然是 ALLOWED_HOSTS。
 
+### Q7c. 日志查看器（:8120）返回 400 / Host header 报错
+
+- **现象**：浏览器打开「系统设置 → 日志查看器」按钮跳转后的页面，得到 Django 原生 400 Bad Request HTML；或日志查看器自身 `Invalid HTTP_HOST header: '<公网IP:8120>': You may need to add '<domain>' to ALLOWED_HOSTS` 错误。主后端 `/api/...` 同时正常返回。
+- **根因**：日志查看器是**独立 Django 服务**（`backend/logviewer/`，绑 127.0.0.1:8121，nginx 8120 反代），拥有**自己**的 `ALLOWED_HOSTS`，与主后端的 `DJANGO_ALLOWED_HOSTS` **不共享**。`LOGVIEWER_ALLOWED_HOSTS` 默认只含回环 + `LOG_VIEWER_PUBLIC_URL` 推导出的 host；若公网 IP 探测失败或未写该项，公网访问一律 400。
+- **自动修复**：`deploy-linux.sh` / `update-from-github.sh` 在纯 IP 部署场景会自动探测公网 IP 写入 `LOG_VIEWER_PUBLIC_URL`（同时由其 hostname 推导日志查看器自身的 ALLOWED_HOSTS）；`update-from-github.sh` 自愈已具备「内网 IP / 缺失行 / 与当前公网 IP 不一致」三类纠正。
+- **手动补救**（受限网络 / 探测失败）：
+  ```bash
+  # /opt/gipfel/backend/.env 写入/纠正公网地址（注意 hostname 部分必须与访问 Host 头一致）
+  sudo sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://<公网IP>:8120/|" /opt/gipfel/backend/.env
+  # 或追加兜底白名单（不含端口）
+  echo 'LOGVIEWER_ALLOWED_HOSTS=<公网IP或域名>' | sudo tee -a /opt/gipfel/backend/.env
+  sudo systemctl restart gipfel-logviewer
+  ```
+- **为什么不能只改 `DJANGO_ALLOWED_HOSTS`**：日志查看器进程读的是它自己 `settings.py` 的 `ALLOWED_HOSTS`，主后端的同名变量对它**无效**。改完主后端 .env 一定要 `restart gipfel-logviewer`，不是 `restart gipfel`。
+- **进程校验**：`curl -H "Host: <公网IP>" http://127.0.0.1:8121/` 不再返回 400 即视为生效。
+
 ## 10. 安全与合规速览
 
 - **JWT**：HS256，`JWT_SECRET` 必填（未配置进程 fail-fast 拒绝启动），默认 24h，`tokenVersion` 顶号立即失效。Django 自身 `SECRET_KEY` 支持经 `DJANGO_SECRET_KEY` 独立配置（未配置回退 `JWT_SECRET`；更换会使 session/CSRF cookie 失效，择机轮换）。
