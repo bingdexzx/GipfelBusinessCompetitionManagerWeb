@@ -4,10 +4,16 @@
 错误：{ code:<http或业务码>, message:"中文提示", data:null }
 
 所有 REST 响应都经 JSONRenderer 包装为该格式。
+
+大数安全：渲染前递归把绝对值超过 2^53 的 int 转为字符串（JS Number 精确
+整数上限 2^53，10^23 级金额以 JSON number 出站会被前端 JSON.parse 静默
+丢精度）；Decimal 按整数值→int / 小数→字符串转换。见 renderers.py。
 """
 from __future__ import annotations
 
 from rest_framework.renderers import JSONRenderer as DRFJSONRenderer
+
+from apps.common.renderers import _convert_big_numbers
 
 
 class JSONRenderer(DRFJSONRenderer):
@@ -16,9 +22,15 @@ class JSONRenderer(DRFJSONRenderer):
     - 视图直接返回 dict/list/None：视为 data，code=0, message="成功"
     - 视图显式返回已包装结构（含 'code' 键）：原样返回
     - 异常由 exception_handler 处理后同样走此渲染器
+    - 大数兜底：>2^53 的 int / Decimal 出站前转字符串（不因转换异常阻断响应）
     """
 
     def render(self, data, accepted_media_type=None, renderer_context=None):
+        try:
+            data = _convert_big_numbers(data)
+        except Exception:  # noqa: BLE001  兜底转换绝不阻断正常响应
+            pass
+
         # 已包装（含 code 键）原样返回，避免双重包装
         if isinstance(data, dict) and "code" in data:
             return super().render(data, accepted_media_type, renderer_context)

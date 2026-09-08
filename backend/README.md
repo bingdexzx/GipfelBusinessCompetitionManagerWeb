@@ -141,6 +141,17 @@ files → common
 
 分页列表的 `data` 还带 `pagination` 字段。
 
+## 大数支持（千万京 10^23 级）
+
+系统分层支持大数金额，回归测试见 `tests/big_number_smoke.py`：
+
+- **公司产业字段值（主战场）**：`CompanyFieldValue.value` 为 TEXT 列，存储无上限；计算链路（合同引擎 `apply_field_effect` / 表达式求值器 `safe_evaluate` / `apply_op` 算术 / 派生字段 `calc.py` / 财年定时器 `timer.py`）全部 **int（Python 任意精度整数）优先 + Decimal（50 位有效数字）**，10^23 量级 ADD/SUB/MUL 完全无损，不再产生中间 float。
+- **出站 JSON 兜底**：统一渲染器（`apps/common/response.py` + `renderers.py`）把绝对值 > 2^53 的 int / 大 Decimal 递归转为**字符串**出站——前端 `JSON.parse` 不会丢精度；小整数（id/version 等）保持 number。
+- **引擎 JSON 序列化**：`dumps_engine_json` 兼容 int/Decimal（Decimal 整数值 → number、小数 → 字符串）。
+- **前端展示**：`utils/format.ts` 的 `formatMoney` 大数走 BigInt 千分位（字符串直通不经 Number）；`formatMoneyCN` 提供万/亿/兆/京/垓 中文单位紧凑显示。
+- **数值列上限**：股票/仓储/载具等 `DecimalField(max_digits=30)`——校验层放宽，但注意 **SQLite 平台限制：DecimalField 实际只有 ~15 位有效数字**（NUMERIC affinity + Django prec=15 converter），超 10^15 的精确值请走公司字段值链路；切换 PostgreSQL 后数值列即获得真正任意精度。
+- **已知边界**：合同 `EXP`/`LOG` 等超越函数仍为 float（结果量级小，无影响）；`DIV` 整除走 int、非整除走 Decimal（50 位）。
+
 ## 股票引擎要点（apps/stock/engine.py）
 
 回合制**集合竞价**模型：每轮收集订单 → 统一撮合 → 轮末未成交订单作废。

@@ -193,8 +193,11 @@ def _order_calc_fields(calc_fields: list) -> list:
     return ordered
 
 
-def _consumer_demand_total(company: dict, stored_location: str | None) -> float:
-    """消费者需求总数（按所在地）：公司所在区域的需求量合计。"""
+def _consumer_demand_total(company: dict, stored_location: str | None) -> object:
+    """消费者需求总数（按所在地）：公司所在区域的需求量合计。
+
+    返回 DB 聚合原值（int/Decimal，任意精度），不做 float 化——大数量级下
+    float 会丢精度（10^23 量级 ULP≈10^7）。"""
     from django.db.models import Sum
 
     from apps.consumer_demands.models import ConsumerDemand
@@ -205,7 +208,7 @@ def _consumer_demand_total(company: dict, stored_location: str | None) -> float:
     agg = ConsumerDemand.objects.filter(
         competition_id=company["competition_id"], region=region
     ).aggregate(s=Sum("quantity"))
-    return float(agg["s"] or 0)
+    return agg["s"] or 0
 
 
 def _eval_graph(

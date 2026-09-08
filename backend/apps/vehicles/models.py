@@ -21,7 +21,7 @@ class Vehicle(models.Model):
     fuel_consumption_per_km = models.FloatField()
     max_cargo = models.FloatField()
     # 价格：玩家购买场景，必须 Decimal
-    price = models.DecimalField(max_digits=18, decimal_places=4)
+    price = models.DecimalField(max_digits=30, decimal_places=4)
     # 碳排：派生系数，Float 足够
     carbon_emission = models.FloatField()
     competition = models.ForeignKey(

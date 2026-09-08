@@ -14,9 +14,11 @@
 """
 from __future__ import annotations
 
+import decimal
 import json
 import logging
 import threading
+from decimal import Decimal
 
 from django.db import transaction
 
@@ -26,6 +28,34 @@ from apps.industry_types.models import IndustryField
 from .views import _recompute_calc_fields, _write_field_value
 
 logger = logging.getLogger("gipfel")
+
+# 大数精度（千万京 10^23 级）：NUMBER 字段值解析不用 float（double 在 2^53 以上丢精度），
+# 整数走任意精度 int，小数走 Decimal（context 精度 50 位）。
+decimal.getcontext().prec = 50
+
+
+def _parse_number_raw(text: object) -> object:
+    """字段值文本 → 精确数值：整数字符串 → int（任意精度），小数 → Decimal，非法 → 0。"""
+    if isinstance(text, bool):
+        return 1 if text else 0
+    if isinstance(text, int):
+        return text
+    if isinstance(text, Decimal):
+        return text if text.is_finite() else 0
+    if isinstance(text, float):
+        return Decimal(repr(text)) if text == text and text not in (float("inf"), float("-inf")) else 0
+    s = str(text).strip() if text is not None else ""
+    if not s:
+        return 0
+    try:
+        return int(s)
+    except ValueError:
+        pass
+    try:
+        d = Decimal(s)
+    except decimal.InvalidOperation:
+        return 0
+    return d if d.is_finite() else 0
 
 # 每比赛级并发守卫：防止同一比赛财年定时器被并发双触发（TOCTOU → 重复写入/部分不一致）
 _fiscal_locks: dict[int, threading.Lock] = {}
@@ -44,6 +74,9 @@ def _serialize(field_type: str, raw: object) -> str:
     if field_type == "BOOLEAN":
         return "true" if raw else "false"
     if field_type == "NUMBER":
+        # Decimal 规范化为定点表示（避免 1E+23 科学计数形态入库），int/其余走 str
+        if isinstance(raw, Decimal):
+            return format(raw, "f")
         return str(raw)
     return str(raw)
 
@@ -53,10 +86,7 @@ def _timer_raw_value(field: IndustryField) -> object:
     v = field.timer_value
     ft = field.field_type
     if ft == "NUMBER":
-        try:
-            return float(v)
-        except (TypeError, ValueError):
-            return 0
+        return _parse_number_raw(v)
     if ft == "BOOLEAN":
         return str(v).strip().lower() == "true"
     if ft == "STRING":
@@ -75,10 +105,7 @@ def _stored_to_raw(field: IndustryField, value: str | None) -> object:
         return 0 if field.field_type == "NUMBER" else "" if field.field_type == "STRING" else False
     ft = field.field_type
     if ft == "NUMBER":
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return 0
+        return _parse_number_raw(value)
     if ft == "BOOLEAN":
         return str(value).strip().lower() == "true"
     if ft == "STRING":

@@ -98,9 +98,9 @@ class StockSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255, trim_whitespace=True)
     # 总股本 / 初始净利润 / 价格：精确到 4 位（与 model 对齐）。
     # 用 DecimalField 是因为：浮点会累计误差，玩家账户不平就源于此。
-    # DRF DecimalField 默认 max_digits=18 decimal_places=2；显式声明以避免歧义。
-    totalShares = serializers.DecimalField(max_digits=18, decimal_places=4, min_value=Decimal("0"))
-    initNetProfit = serializers.DecimalField(max_digits=18, decimal_places=4, min_value=Decimal("0"))
+    # DRF DecimalField 默认 max_digits=30 decimal_places=2；显式声明以避免歧义。
+    totalShares = serializers.DecimalField(max_digits=30, decimal_places=4, min_value=Decimal("0"))
+    initNetProfit = serializers.DecimalField(max_digits=30, decimal_places=4, min_value=Decimal("0"))
     industryPE = serializers.FloatField(min_value=0, required=False)
     currentCarbon = serializers.FloatField()
     industryAvgCarbon = serializers.FloatField()
@@ -113,8 +113,8 @@ class StockSerializer(serializers.Serializer):
     pbRandom = serializers.FloatField(min_value=0, max_value=20, required=False, allow_null=True)
     companyId = serializers.IntegerField(required=False, allow_null=True)
     competitionId = serializers.IntegerField()
-    initPrice = serializers.DecimalField(max_digits=18, decimal_places=4, read_only=True)
-    currentPrice = serializers.DecimalField(max_digits=18, decimal_places=4, read_only=True)
+    initPrice = serializers.DecimalField(max_digits=30, decimal_places=4, read_only=True)
+    currentPrice = serializers.DecimalField(max_digits=30, decimal_places=4, read_only=True)
     round = serializers.IntegerField(read_only=True)
     createdAt = serializers.DateTimeField(read_only=True)
     updatedAt = serializers.DateTimeField(read_only=True)
@@ -248,7 +248,7 @@ class StockFundsAccountSerializer(serializers.Serializer):
     companyId = serializers.IntegerField(required=False, allow_null=True)
     userId = serializers.IntegerField(required=False, allow_null=True)
     cashBalance = serializers.DecimalField(
-        max_digits=18, decimal_places=4, min_value=Decimal("0"), required=False
+        max_digits=30, decimal_places=4, min_value=Decimal("0"), required=False
     )
     bindFieldId = serializers.IntegerField(required=False, allow_null=True)
     competitionId = serializers.IntegerField()
@@ -282,8 +282,8 @@ class CreateOrderSerializer(serializers.Serializer):
     fundsAccountId = serializers.IntegerField()
     side = serializers.ChoiceField(choices=["BUY", "SELL"])
     # 委托价格/数量：撮合输入必须 Decimal，否则撮合误差会累积。
-    price = serializers.DecimalField(max_digits=18, decimal_places=4, min_value=Decimal("0.0001"))
-    quantity = serializers.DecimalField(max_digits=18, decimal_places=4, min_value=Decimal("0.0001"))
+    price = serializers.DecimalField(max_digits=30, decimal_places=4, min_value=Decimal("0.0001"))
+    quantity = serializers.DecimalField(max_digits=30, decimal_places=4, min_value=Decimal("0.0001"))
     competitionId = serializers.IntegerField()
 
 

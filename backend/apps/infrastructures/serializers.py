@@ -16,11 +16,11 @@ class InfrastructureSerializer(serializers.Serializer):
     populationBonus = serializers.FloatField(default=0)
     highQualityPopulationBonus = serializers.FloatField(default=0)
     # 玩家购买场景：必须 Decimal（价格类）。bonus/footprint 是系数/面积，Float 足够。
-    price = serializers.DecimalField(max_digits=18, decimal_places=4)
+    price = serializers.DecimalField(max_digits=30, decimal_places=4)
     happinessIndexBonus = serializers.FloatField(default=0)
     perCapitaIncomeBonus = serializers.FloatField(default=0)
     carbonReductionBonus = serializers.FloatField(default=0)
-    activationPrice = serializers.DecimalField(max_digits=18, decimal_places=4)
+    activationPrice = serializers.DecimalField(max_digits=30, decimal_places=4)
     competitionId = serializers.IntegerField()
     createdAt = serializers.DateTimeField(read_only=True)
     updatedAt = serializers.DateTimeField(read_only=True)

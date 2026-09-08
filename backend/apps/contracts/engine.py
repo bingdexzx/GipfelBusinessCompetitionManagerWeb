@@ -19,12 +19,83 @@ import heapq
 import json
 import logging
 import math
+import decimal
+from decimal import Decimal
 from typing import Any, Iterable
 
 from apps.common.exceptions import BusinessError
 from apps.common.json_util import parse_field_config
 
 logger = logging.getLogger("gipfel")
+
+# ==================== 大数精度（千万京 10^23 级支持） ====================
+# 历史实现把一切数值统一转 IEEE double（to_number -> float）：
+#   - double 精确整数上限 2^53 ≈ 9×10^15（约 0.9 京）；
+#   - 10^23 量级下 ULP ≈ 10^7，加减小金额会静默丢失数百万级精度。
+# 现约定引擎内部数值 = int | Decimal：
+#   - int：Python 任意精度整数，整数量级（千万京以上）完全无损；
+#   - Decimal：context 精度 50 位有效数字，覆盖小数与大数混合运算；
+#   - float 不再在引擎内产生/传播（仅 EXP/LOG 等超越函数局部使用）。
+decimal.getcontext().prec = 50
+
+# 引擎内部数值类型：int（任意精度）与 Decimal（50 位有效数字）
+EngineNum = (int, Decimal)
+
+#: 超过 JS Number 安全整数（2^53）的阈值——出站 JSON 序列化时需转字符串
+JS_MAX_SAFE_INT = 2 ** 53
+
+
+def is_finite_num(v: Any) -> bool:
+    """引擎数值的有限性检查（兼容 int / Decimal，替代 math.isfinite）。"""
+    if isinstance(v, bool):
+        return False
+    if isinstance(v, int):
+        return True
+    if isinstance(v, Decimal):
+        return v.is_finite()
+    return False
+
+
+def _parse_decimal(text: str) -> Decimal | None:
+    """字符串 → Decimal（非法/无穷/NaN 返回 None）。"""
+    try:
+        d = Decimal(text)
+    except (decimal.InvalidOperation, ValueError, TypeError):
+        return None
+    return d if d.is_finite() else None
+
+
+def dumps_engine_json(val: Any) -> str:
+    """引擎侧 JSON 序列化：兼容 int（任意精度）与 Decimal。
+
+    Decimal 序列化约定：
+      - 整数值（如 Decimal("1e23")）→ JSON number（int），保持前端数字形态；
+      - 非整数值 → 字符串（"123.45"），避免 double 化丢精度；
+        前端展示直接渲染字符串，后续回读 to_number 可无损解析。
+    超过 2^53 的大 int 保留为 JSON number（由全局 DRF 渲染器统一转字符串，
+    见 apps/common/renderers.py）。
+    """
+    def _convert(o: Any) -> Any:
+        if isinstance(o, Decimal):
+            if o == o.to_integral_value():
+                return int(o)
+            return format(o, "f")
+        return o
+
+    return json.dumps(_convert_engine_decimals(val), ensure_ascii=False)
+
+
+def _convert_engine_decimals(val: Any) -> Any:
+    """递归把容器内的 Decimal 转为 JSON 安全值（供需要先行转换的场景）。"""
+    if isinstance(val, Decimal):
+        if val == val.to_integral_value():
+            return int(val)
+        return format(val, "f")
+    if isinstance(val, list):
+        return [_convert_engine_decimals(x) for x in val]
+    if isinstance(val, dict):
+        return {k: _convert_engine_decimals(v) for k, v in val.items()}
+    return val
 
 
 # ==================== 常量（来自 shared/engine-dsl） ====================
@@ -86,19 +157,53 @@ def _camel_to_snake(name: str) -> str:
 
 # ==================== 纯函数工具 ====================
 
-def to_number(v: Any, fallback: float = 0) -> float:
-    """任意值转数字（布尔/空串/非有限值兜底为 fallback）。"""
+def to_number(v: Any, fallback: Any = 0) -> Any:
+    """任意值转引擎数值（int 优先 / Decimal，绝不产生 float）。
+
+    - bool → 1/0；
+    - int → 原样返回（Python 任意精度，千万京以上无损）；
+    - Decimal → 原样返回（有限值）；
+    - float → Decimal(str(v))（str 是 float 的最短无损 repr，可精确回转）；
+    - 字符串 → 整数形态走 int（任意精度），其余走 Decimal；
+    - 空/非法/非有限值 → fallback（默认 0）。
+    """
     if isinstance(v, bool):
         return 1 if v else 0
-    if isinstance(v, (int, float)):
-        return v if isinstance(v, (int, float)) and math.isfinite(v) else fallback
+    if isinstance(v, int):
+        return v
+    if isinstance(v, Decimal):
+        return v if v.is_finite() else fallback
+    if isinstance(v, float):
+        if not math.isfinite(v):
+            return fallback
+        d = _parse_decimal(repr(v))
+        return d if d is not None else fallback
     if v is None or v == "":
         return fallback
     try:
-        n = float(v)
-    except (TypeError, ValueError):
+        s = str(v).strip()
+    except Exception:
         return fallback
-    return n if math.isfinite(n) else fallback
+    if s == "":
+        return fallback
+    # 整数形态（含大数）：走任意精度 int；其余走 Decimal
+    try:
+        return int(s)
+    except ValueError:
+        pass
+    d = _parse_decimal(s)
+    return d if d is not None else fallback
+
+
+def to_number_int(v: Any, fallback: Any = 0) -> int:
+    """转整数（LIST_SLICE 下标等场景）：Decimal 整数值取整，超出 int 范围不适用（int 无限）。"""
+    n = to_number(v, fallback)
+    if isinstance(n, Decimal):
+        try:
+            return int(n.to_integral_value(rounding=decimal.ROUND_TRUNCATE))
+        except (decimal.InvalidOperation, ValueError, TypeError):
+            return fallback if isinstance(fallback, int) else 0
+    return n if isinstance(n, int) else int(n)
 
 
 def is_truthy(v: Any) -> bool:
@@ -119,7 +224,7 @@ def to_number_array(v: Any) -> list:
     """把输入值规范为数字数组（支持数组、JSON 字符串数组、逗号分隔字符串）。"""
     parse = lambda x: to_number(x)  # noqa: E731
     if isinstance(v, list):
-        return [parse(x) for x in v if isinstance(to_number(x), (int, float)) and math.isfinite(to_number(x))]
+        return [parse(x) for x in v if is_finite_num(to_number(x))]
     if isinstance(v, str):
         s = v.strip()
         if not s:
@@ -128,11 +233,11 @@ def to_number_array(v: Any) -> list:
             arr = json.loads(s)
             if isinstance(arr, list):
                 out = [parse(x) for x in arr]
-                return [x for x in out if isinstance(x, (int, float)) and math.isfinite(x)]
+                return [x for x in out if is_finite_num(x)]
         except (ValueError, TypeError):
             pass
         parts = [parse(t.strip()) for t in s.split(",")]
-        return [x for x in parts if isinstance(x, (int, float)) and math.isfinite(x)]
+        return [x for x in parts if is_finite_num(x)]
     return []
 
 
@@ -141,7 +246,14 @@ def deep_equal(a: Any, b: Any) -> bool:
         return True
     if isinstance(a, bool) or isinstance(b, bool):
         return a is b
-    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+    # 数值比较：int / float / Decimal 相互比较（Python 原生支持 int<->float<->Decimal）
+    a_num = isinstance(a, (int, float, Decimal)) and not isinstance(a, bool)
+    b_num = isinstance(b, (int, float, Decimal)) and not isinstance(b, bool)
+    if a_num and b_num:
+        if isinstance(a, Decimal) and not a.is_finite():
+            return False
+        if isinstance(b, Decimal) and not b.is_finite():
+            return False
         return a == b
     if isinstance(a, str) and isinstance(b, str):
         return a == b
@@ -166,11 +278,11 @@ def cast_scalar(type_name: str | None, val: Any) -> Any:
     if val is None:
         return ""
     if isinstance(val, (dict, list)):
-        return json.dumps(val, ensure_ascii=False)
+        return dumps_engine_json(val)
     return str(val)
 
 
-def compare_op(actual: float, op: str, expected: float) -> bool:
+def compare_op(actual: Any, op: str, expected: Any) -> bool:
     if op == "GT":
         return actual > expected
     if op == "LT":
@@ -322,7 +434,7 @@ def apply_field_effect(
                 after = n_before - n_val
             else:  # ADD
                 after = n_before + n_val
-    return {"store": json.dumps(after, ensure_ascii=False), "before": before, "after": after}
+    return {"store": dumps_engine_json(after), "before": before, "after": after}
 
 
 def compare_field(
@@ -370,7 +482,7 @@ def compare_field(
         )
         if not is_list and is_dict:
             ok = expected in actual or any(deep_equal(v, expected) for v in actual.values())
-        return {"passed": ok, "actual": actual, "expected": expected, "detail": f"字段包含 {json.dumps(expected, ensure_ascii=False)}: {'是' if ok else '否'}"}
+        return {"passed": ok, "actual": actual, "expected": expected, "detail": f"字段包含 {dumps_engine_json(expected)}: {'是' if ok else '否'}"}
     if op == "HAS_KEY":
         ok = is_dict and expected in actual
         return {"passed": ok, "actual": actual, "expected": expected, "detail": f"字典含键 {expected}: {'是' if ok else '否'}"}
@@ -491,8 +603,9 @@ class _Tokenizer:
                 self.i += 1
         text = self.s[start:self.i]
         try:
-            n = float(text) if ("." in text or "e" in text or "E" in text) else int(text)
-        except ValueError:
+            # 小数字面量走 Decimal（50 位精度），整数字面量走任意精度 int
+            n = Decimal(text) if ("." in text or "e" in text or "E" in text) else int(text)
+        except (decimal.InvalidOperation, ValueError):
             raise _SafeExpressionError(f"非法数字: {text}")
         return ("num", text)
 
@@ -521,7 +634,7 @@ class _Tokenizer:
         return ("ident", self.s[start:self.i])
 
 
-def _f_to_num(v: Any) -> float:
+def _f_to_num(v: Any) -> Any:
     return to_number(v)
 
 
@@ -530,7 +643,7 @@ def _f_truthy(v: Any) -> bool:
         return False
     if isinstance(v, bool):
         return v
-    if isinstance(v, (int, float)):
+    if isinstance(v, (int, float, Decimal)):
         return v != 0
     if isinstance(v, str):
         return len(v) > 0
@@ -725,7 +838,7 @@ class _FormulaParser:
         t = self._next()
         if t[0] == "num":
             text = t[1]
-            return float(text) if ("." in text or "e" in text or "E" in text) else int(text)
+            return Decimal(text) if ("." in text or "e" in text or "E" in text) else int(text)
         if t[0] == "str":
             return t[1]
         if t[0] == "lparen":
@@ -976,7 +1089,7 @@ def apply_op(op: str, args: list, scope: dict | None = None) -> Any:
     if op == "SUM_OF":
         return sum(num(x) for x in as_list(a[0]))
 
-    # —— 算术 ——
+    # —— 算术 ——（int/Decimal 混合运算原生精确；DIV 禁止 int/int 真除 float 化）
     if op == "ADD":
         return num(a[0]) + num(a[1])
     if op == "SUB":
@@ -984,11 +1097,17 @@ def apply_op(op: str, args: list, scope: dict | None = None) -> Any:
     if op == "MUL":
         return num(a[0]) * num(a[1])
     if op == "DIV":
-        return 0 if num(a[1]) == 0 else num(a[0]) / num(a[1])
+        x, y = num(a[0]), num(a[1])
+        if y == 0:
+            return 0
+        # int/int 真除会产生 float（丢精度）：整除走 int，否则 Decimal 除法（50 位精度）
+        if isinstance(x, int) and isinstance(y, int):
+            return x // y if x % y == 0 else Decimal(x) / Decimal(y)
+        return x / y
     if op == "EXP":
-        return math.exp(num(a[0]))
+        return math.exp(float(num(a[0])))
     if op == "LOG":
-        x = num(a[0]); base = num(a[1])
+        x = float(num(a[0])); base = float(num(a[1]))
         return math.log(x) / math.log(base) if base > 0 else math.log(x)
     if op == "MIN":
         return min(num(a[0]), num(a[1]))
@@ -1093,7 +1212,7 @@ def compute_material_list_price(raw, competition_id, location_node_id=None):
     return total
 
 
-def compute_total_qty(raw) -> float:
+def compute_total_qty(raw) -> Any:
     if not isinstance(raw, dict):
         return 0
     return sum(to_number(v) for v in raw.values())
@@ -1651,9 +1770,9 @@ class ContractEngine:
                     "field_key": eff["fieldKey"],
                     "field_name": field["name"],
                     "op": eff["op"],
-                    "value_raw": json.dumps(new_value, ensure_ascii=False),
-                    "before_raw": json.dumps(applied["before"], ensure_ascii=False),
-                    "after_raw": json.dumps(applied["after"], ensure_ascii=False),
+                    "value_raw": dumps_engine_json(new_value),
+                    "before_raw": dumps_engine_json(applied["before"]),
+                    "after_raw": dumps_engine_json(applied["after"]),
                 })
 
             def apply_effect(eff, sc):
@@ -1748,9 +1867,9 @@ class ContractEngine:
             # 按序重放其余已执行合同的增量
             for r in rem:
                 delta = parse_json_value(r["value_raw"])
-                value = apply_field_effect(json.dumps(value, ensure_ascii=False), ftype, config, r["op"], delta)["after"]
+                value = apply_field_effect(dumps_engine_json(value), ftype, config, r["op"], delta)["after"]
 
-            self._write_field_value(cid, fid, json.dumps(value, ensure_ascii=False))
+            self._write_field_value(cid, fid, dumps_engine_json(value))
 
     def precheck(self, contract) -> list:
         """预检：仅评估前置检查并返回结果，不落账、不改写任何数据。"""
@@ -1830,7 +1949,7 @@ class ContractEngine:
                 actual = v1
                 expected = v2
                 op_label = COMPARE_OP_LABEL.get(op, op)
-                detail = f"值1 {op_label} 值2：{'通过' if ok else '未通过'}（{json.dumps(actual, ensure_ascii=False)} {op_label} {json.dumps(expected, ensure_ascii=False)}）"
+                detail = f"值1 {op_label} 值2：{'通过' if ok else '未通过'}（{dumps_engine_json(actual)} {op_label} {dumps_engine_json(expected)}）"
 
             elif kind == "DICT_COMPARE":
                 v1 = resolve_value(c.get("value1"))
@@ -1842,7 +1961,7 @@ class ContractEngine:
                     detail = f"DICT_COMPARE 仅支持 ≥(GTE) / >(GT) / =(EQ) 三种算子，当前算子无效：{op}"
                 elif not (isinstance(v1, dict) and isinstance(v2, dict)):
                     passed = False
-                    detail = f"DICT_COMPARE 要求两个操作数均为字典，实际：值1={'字典' if isinstance(v1, dict) else json.dumps(v1, ensure_ascii=False)}，值2={'字典' if isinstance(v2, dict) else json.dumps(v2, ensure_ascii=False)}"
+                    detail = f"DICT_COMPARE 要求两个操作数均为字典，实际：值1={'字典' if isinstance(v1, dict) else dumps_engine_json(v1)}，值2={'字典' if isinstance(v2, dict) else dumps_engine_json(v2)}"
                 else:
                     keys1, keys2 = list(v1.keys()), list(v2.keys())
                     missing = [k for k in keys1 if k not in keys2]
@@ -1869,7 +1988,7 @@ class ContractEngine:
                     detail = f"LIST_COMPARE 仅支持 元素相等(ELEMENT_EQ) / 被包含(CONTAINS) / >(GT) / ≥(GTE) / =(EQ) 五种算子，当前算子无效：{op}"
                 elif not (isinstance(v1, list) and isinstance(v2, list)):
                     passed = False
-                    detail = f"LIST_COMPARE 要求两个操作数均为列表，实际：值1={'列表' if isinstance(v1, list) else json.dumps(v1, ensure_ascii=False)}，值2={'列表' if isinstance(v2, list) else json.dumps(v2, ensure_ascii=False)}"
+                    detail = f"LIST_COMPARE 要求两个操作数均为列表，实际：值1={'列表' if isinstance(v1, list) else dumps_engine_json(v1)}，值2={'列表' if isinstance(v2, list) else dumps_engine_json(v2)}"
                 else:
                     op_label = COMPARE_OP_LABEL.get(op, op)
                     a1, a2 = v1, v2
@@ -1884,13 +2003,13 @@ class ContractEngine:
                     elif op == "CONTAINS":
                         missing = [x for x in a1 if not any(deep_equal(y, x) for y in a2)]
                         passed = len(missing) == 0
-                        detail = (f"值一被包含于值二（值一 {len(a1)} 个元素均能在值二中找到）" if passed else f"值一未被完全包含于值二，缺失元素：{json.dumps(missing, ensure_ascii=False)}")
+                        detail = (f"值一被包含于值二（值一 {len(a1)} 个元素均能在值二中找到）" if passed else f"值一未被完全包含于值二，缺失元素：{dumps_engine_json(missing)}")
                     elif op == "EQ":
                         passed = set_equal
                         detail = (f"两列表元素集合相同（{len(a1)} 个元素一致）" if passed else f"两列表元素集合不同（值1={len(a1)} 个 / 值2={len(a2)} 个，存在一方特有元素）")
                     elif op == "GTE":
                         passed = set_has(a1, a2)
-                        detail = (f"值一包含值二（值二 {len(a2)} 个元素均能在值一中找到）" if passed else f"值一未包含值二，值二特有元素：{json.dumps([y for y in a2 if not any(deep_equal(x, y) for x in a1)], ensure_ascii=False)}")
+                        detail = (f"值一包含值二（值二 {len(a2)} 个元素均能在值一中找到）" if passed else f"值一未包含值二，值二特有元素：{dumps_engine_json([y for y in a2 if not any(deep_equal(x, y) for x in a1)])}")
                     else:  # GT
                         passed = set_has(a1, a2) and not set_equal
                         detail = (f"值一真包含值二（值二 {len(a2)} 个元素均能在值一中找到，且值一元素更多）" if passed else "值一未真包含值二（需 值二 ⊆ 值一 且 值一元素更多）")
