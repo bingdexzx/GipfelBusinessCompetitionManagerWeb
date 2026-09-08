@@ -401,15 +401,21 @@ for _svc in gipfel.service gipfel-logviewer.service; do
     systemctl unmask "$_svc" 2>/dev/null || true
     rm -f "/etc/systemd/system/$_svc" "/run/systemd/system/$_svc"
 done
-UNIT_FILE="$INSTALL_DIR/deploy/gipfel.service"
-sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$PROJECT_ROOT/deploy/gipfel.service" > "$UNIT_FILE"
+# 渲染到独立临时文件：PROJECT_ROOT 与 INSTALL_DIR 同目录（原地部署）时，
+# 直接 > 到 deploy/ 下的目标会先清空模板、sed 读到空内容，模板与产物一起变 0 字节
+# ——systemd 把空 unit 文件按 masked 处理（真实事故）。
+_tmp_unit="$(mktemp /tmp/gipfel.unit.XXXXXX)"
+sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$PROJECT_ROOT/deploy/gipfel.service" > "$_tmp_unit"
 rm -f /etc/systemd/system/gipfel.service
-cp -f "$UNIT_FILE" /etc/systemd/system/gipfel.service
+cp -f "$_tmp_unit" /etc/systemd/system/gipfel.service
+rm -f "$_tmp_unit"
 
 LV_UNIT_FILE="$INSTALL_DIR/deploy/logviewer.service"
-sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$PROJECT_ROOT/deploy/logviewer.service" > "$LV_UNIT_FILE"
+_tmp_unit="$(mktemp /tmp/gipfel.unit.XXXXXX)"
+sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$PROJECT_ROOT/deploy/logviewer.service" > "$_tmp_unit"
 rm -f /etc/systemd/system/gipfel-logviewer.service
-cp -f "$LV_UNIT_FILE" /etc/systemd/system/gipfel-logviewer.service
+cp -f "$_tmp_unit" /etc/systemd/system/gipfel-logviewer.service
+rm -f "$_tmp_unit"
 
 systemctl daemon-reload
 systemctl enable --now gipfel

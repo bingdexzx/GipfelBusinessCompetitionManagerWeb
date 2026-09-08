@@ -331,6 +331,15 @@ fi
 refresh_unit() {
     local src="$1" name="$2"
     [[ -f "$src" ]] || { warn "找不到服务单元模板 $src，跳过刷新 $name"; return; }
+    # 模板为空（历史 bug：`>` 先清空与模板同路径的渲染产物）→ 尝试从 git 恢复
+    if [[ ! -s "$src" ]]; then
+        if git -C "$INSTALL_DIR" checkout -- "deploy/$(basename "$src")" 2>/dev/null && [[ -s "$src" ]]; then
+            warn "模板 $src 为空，已从 git 仓库恢复"
+        else
+            warn "模板 $src 为空且无法从 git 恢复，跳过安装 $name"
+            return 1
+        fi
+    fi
     # masked 自愈：mask 有两种落点，且 cp -f 会跟随 /dev/null 软链把内容写进 /dev/null，
     # 故必须先解除再写入——
     #   永久：/etc/systemd/system/$name → /dev/null
@@ -343,9 +352,18 @@ refresh_unit() {
     fi
     systemctl unmask "$name" 2>/dev/null || true
     rm -f "/etc/systemd/system/$name" "/run/systemd/system/$name"
-    local tmp="$INSTALL_DIR/deploy/$(basename "$src")"
+    # 渲染到独立临时文件：目标与模板同路径时，`>` 会先清空文件、sed 再读到空内容，
+    # 模板与产物一起变 0 字节——systemd 把空 unit 文件按 masked 处理（真实事故）。
+    local tmp; tmp="$(mktemp "/tmp/${name}.XXXXXX")"
     sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$src" > "$tmp"
+    # 渲染产物必须非空：空文件装上去即是 masked，宁可不装也不要破坏现场
+    if [[ ! -s "$tmp" ]]; then
+        rm -f "$tmp"
+        warn "渲染 $name 得到空文件（模板 $src 可能为空或被截断），跳过安装"
+        return 1
+    fi
     cp -f "$tmp" "/etc/systemd/system/$name"
+    rm -f "$tmp"
     # 让 systemd 重新扫描 unit（清掉内存中残留的 masked 状态），再 enable；
     # enable 失败必须告警并输出诊断：LoadState / FragmentPath 直接揭示 masked 的真实来源
     # （mask 可能存在于 systemd unit 搜索路径的任何一层，不止 /etc 与 /run）。
