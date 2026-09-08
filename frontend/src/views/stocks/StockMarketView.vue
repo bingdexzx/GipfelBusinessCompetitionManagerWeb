@@ -314,7 +314,9 @@ const myHoldingShares = computed(() => {
 });
 // 委托价限价范围（当前价 ±10%）
 const priceLimit = computed(() => {
-  const price = selectedStock.value?.currentPrice || 0;
+  // 后端 DecimalField 出站是字符串（如 "96.5000"）——必须先转数字：
+  // 否则 price + limit 变字符串拼接 → NaN → 上限显示「—」（- 会隐式转数字所以下限正常）
+  const price = Number(selectedStock.value?.currentPrice || 0);
   const limit = price * 0.1;
   const lower = Math.max(0.01, Math.round((price - limit) * 100) / 100);
   // 未选股票时 price=0 → lower=0.01 > upper=0，会触发 el-input-number 的 min>max 异常；用 max 兜底保证 upper>=lower
