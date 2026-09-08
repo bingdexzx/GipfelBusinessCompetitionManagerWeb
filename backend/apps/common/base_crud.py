@@ -100,13 +100,15 @@ class CrudMixin:
     def _check_conflict(self, data: dict, exclude_id=None):
         if not self.unique_fields:
             return
+        # 仅当唯一元组完整（所有唯一字段均有值）才做冲突检测。
+        # 部分 PATCH（如地图节点拖动只发 x/y）缺失唯一字段时跳过，
+        # 否则过滤条件退化为仅 competition_id，会把同比赛下任何其他记录误判为重名。
         flt = {}
         for f in self.unique_fields:
             snake = self._CAMEL_TO_SNAKE.get(f, self._camel_to_snake(f))
-            if f in data and data[f] is not None:
-                flt[snake] = data[f]
-        if not flt:
-            return
+            if data.get(f) is None:
+                return
+            flt[snake] = data[f]
         qs = self.model.objects.filter(**flt)
         if exclude_id is not None:
             qs = qs.exclude(pk=exclude_id)
@@ -173,7 +175,15 @@ class CrudUpdateView(CrudMixin, APIView):
             k: v for k, v in serializer.validated_data.items()
             if k not in ("competitionId", "competition_id")
         }
-        conflict_data = dict(data)
+        # 冲突检测须用「完整唯一元组」：PATCH 只带部分字段时，缺失的唯一字段
+        # （如 name）用实例现值补齐，保证检测的是「改名/迁移后的完整元组」而非残缺条件。
+        conflict_data = {
+            f: getattr(instance, self._CAMEL_TO_SNAKE.get(f, self._camel_to_snake(f)), None)
+            for f in self.unique_fields
+        }
+        for k, v in data.items():
+            if k in conflict_data:
+                conflict_data[k] = v
         conflict_data["competitionId"] = getattr(instance, "competition_id", None)
         self._check_conflict(conflict_data, exclude_id=pk)
         serializer.update(instance, data)
