@@ -1490,9 +1490,16 @@ def _load_company_models():
 
 
 def _load_industry_models():
-    from apps.industry_types.models import IndustryField  # noqa: F401
+    """加载产业类型兄弟模型：返回 (IndustryField, IndustryType)。
+
+    注意顺序：所有调用方均按 `IndustryField, _ = ...` 或
+    `IndustryField, IndustryType = ...` 解包——此前返回顺序颠倒成
+    (IndustryType, IndustryField)，导致合同执行时 FieldError:
+    Cannot resolve keyword 'industry_type_id'（对 IndustryType 过滤）。
+    """
+    from apps.industry_types.models import IndustryField
     from apps.industry_types.models import IndustryType
-    return IndustryType, IndustryField
+    return IndustryField, IndustryType
 
 
 def resolve_party_location_node_id(role: str, ctx: EvalCtx):
