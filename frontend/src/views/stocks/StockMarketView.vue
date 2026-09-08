@@ -414,7 +414,16 @@ async function loadCandles(id: number) {
   loadingCandles.value = true;
   try {
     const res = await stockApi.candles(id);
-    candles.value = res.candles || [];
+    // 后端 Decimal 出站是字符串（大数精度保留），统一转数字：
+    // 否则 calcMA 的 sum += 会字符串拼接 → NaN → MA5/MA10/MA20 全部断线
+    candles.value = (res.candles || []).map((c: any) => ({
+      ...c,
+      open: Number(c.open),
+      high: Number(c.high),
+      low: Number(c.low),
+      close: Number(c.close),
+      changePct: Number(c.changePct ?? 0),
+    }));
     await nextTick();
     drawChart();
   } finally {
