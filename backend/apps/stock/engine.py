@@ -27,7 +27,7 @@ import logging
 import math
 import random
 import threading
-from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation, localcontext
 from typing import Any, Iterable
 
 from django.db import connection, transaction
@@ -45,6 +45,8 @@ def round2(v) -> Decimal:
 
     接受 Decimal/float/int/str 输入，统一转 Decimal 后四舍五入到 0.01。
     返回 Decimal（写入 DecimalField 时无需再转 float）。
+    大数安全：quantize 在 localcontext(prec=70) 下执行——默认 context 28 位
+    对 10^26 以上数值会 InvalidOperation，曾被 except 吞成 0（现金清零事故）。
     """
     if isinstance(v, Decimal):
         d = v
@@ -53,10 +55,12 @@ def round2(v) -> Decimal:
             d = Decimal(str(v))
         except (ValueError, ArithmeticError, TypeError):
             return Decimal("0")
-    try:
-        return d.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    except (InvalidOperation, ValueError):
-        return Decimal("0")
+    with localcontext() as ctx:
+        ctx.prec = 70
+        try:
+            return d.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        except (InvalidOperation, ValueError):
+            return Decimal("0")
 
 
 def clamp(v: float, lo: float, hi: float) -> float:

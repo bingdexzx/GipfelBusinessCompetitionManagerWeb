@@ -15,8 +15,8 @@ class Stock(models.Model):
     # 基础信息（万股 / 万元）—— 股本/净利润/价格必须精确，
     # 浮点累计误差会让玩家账户与账面余额对不上。max_digits=30 容纳亿级；
     # decimal_places=4 给撮合误差留余量（价格场景仅 2 位生效）。
-    total_shares = models.DecimalField(max_digits=30, decimal_places=4)
-    init_net_profit = models.DecimalField(max_digits=30, decimal_places=4)
+    total_shares = models.DecimalField(max_digits=60, decimal_places=4)
+    init_net_profit = models.DecimalField(max_digits=60, decimal_places=4)
     # PE / 碳排 / 幸福度：衍生指标（来自产业计算图），浮点足够。
     industry_pe = models.FloatField()
     current_carbon = models.FloatField()
@@ -32,8 +32,8 @@ class Stock(models.Model):
     pb_field_id = models.IntegerField(null=True, blank=True)
     pb_random = models.FloatField(null=True, blank=True)
     # 价格用 Decimal，避免浮点误差累积。
-    init_price = models.DecimalField(max_digits=30, decimal_places=4)
-    current_price = models.DecimalField(max_digits=30, decimal_places=4)
+    init_price = models.DecimalField(max_digits=60, decimal_places=4)
+    current_price = models.DecimalField(max_digits=60, decimal_places=4)
     round = models.IntegerField(default=0)
     # 关联商赛公司（仅 int 引用，但建立 FK 以支持 SET_NULL）
     company = models.ForeignKey(
@@ -73,7 +73,7 @@ class StockFundsAccount(models.Model):
     user_id = models.IntegerField(null=True, blank=True)
     # 玩家现金账户最关键：1 万笔成交后浮点累计误差可达 1.5 万元，
     # 玩家投诉的"我账户少了钱"根源在此。改 Decimal 后多笔成交保持精确到分。
-    cash_balance = models.DecimalField(max_digits=30, decimal_places=4, default=1_000_000)
+    cash_balance = models.DecimalField(max_digits=60, decimal_places=4, default=1_000_000)
     # 绑定产业字段 ID（仅公司账户），现金将同步该字段值（仅 int 引用）
     bind_field_id = models.IntegerField(null=True, blank=True)
     competition = models.ForeignKey(
@@ -107,8 +107,8 @@ class StockHolding(models.Model):
         related_name="holdings",
     )
     # 持股数与成本价：撮合后累加场景，浮点会漂；改 Decimal 与资金账户配套。
-    shares = models.DecimalField(max_digits=30, decimal_places=4)
-    cost_price = models.DecimalField(max_digits=30, decimal_places=4)
+    shares = models.DecimalField(max_digits=60, decimal_places=4)
+    cost_price = models.DecimalField(max_digits=60, decimal_places=4)
     competition = models.ForeignKey(
         "competitions.Competition",
         on_delete=models.CASCADE,
@@ -144,9 +144,9 @@ class StockOrder(models.Model):
     )
     side = models.CharField(max_length=8, choices=SIDE_CHOICES)
     # 委托价格/数量/金额：撮合核心输入，必须精确。
-    price = models.DecimalField(max_digits=30, decimal_places=4)
-    quantity = models.DecimalField(max_digits=30, decimal_places=4)
-    amount = models.DecimalField(max_digits=30, decimal_places=4)
+    price = models.DecimalField(max_digits=60, decimal_places=4)
+    quantity = models.DecimalField(max_digits=60, decimal_places=4)
+    amount = models.DecimalField(max_digits=60, decimal_places=4)
     status = models.CharField(max_length=16, default="PENDING", choices=STATUS_CHOICES)
     round = models.IntegerField(default=0)
     competition = models.ForeignKey(
@@ -178,11 +178,11 @@ class StockCandle(models.Model):
     )
     round = models.IntegerField()
     # K 线 OHLC 与涨跌幅：每轮计算结果，存 Decimal 与股价口径一致。
-    open = models.DecimalField(max_digits=30, decimal_places=4)
-    high = models.DecimalField(max_digits=30, decimal_places=4)
-    low = models.DecimalField(max_digits=30, decimal_places=4)
-    close = models.DecimalField(max_digits=30, decimal_places=4)
-    change_pct = models.DecimalField(max_digits=30, decimal_places=4)
+    open = models.DecimalField(max_digits=60, decimal_places=4)
+    high = models.DecimalField(max_digits=60, decimal_places=4)
+    low = models.DecimalField(max_digits=60, decimal_places=4)
+    close = models.DecimalField(max_digits=60, decimal_places=4)
+    change_pct = models.DecimalField(max_digits=60, decimal_places=4)
     competition = models.ForeignKey(
         "competitions.Competition",
         on_delete=models.CASCADE,
