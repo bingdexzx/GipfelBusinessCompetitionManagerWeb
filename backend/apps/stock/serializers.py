@@ -284,7 +284,8 @@ class CreateOrderSerializer(serializers.Serializer):
     # 委托价格/数量：撮合输入必须 Decimal，否则撮合误差会累积。
     price = serializers.DecimalField(max_digits=30, decimal_places=4, min_value=Decimal("0.0001"))
     quantity = serializers.DecimalField(max_digits=30, decimal_places=4, min_value=Decimal("0.0001"))
-    competitionId = serializers.IntegerField()
+    # 前端不下发（服务端从股票记录取比赛归属）；保留字段兼容旧客户端显式传入
+    competitionId = serializers.IntegerField(required=False)
 
 
 # ==================== 推进轮次 ====================

@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import math
 
+from decimal import Decimal
+
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -767,16 +769,16 @@ class OrderCollectionView(APIView):
         if not _is_high_manager(request.user):
             _assert_account_operable(account, request.user)
 
-        # 委托价限制：不得超过当前价 ±10%
-        price_limit = stock.current_price * 0.1
-        upper_limit = round((stock.current_price + price_limit) * 100) / 100
-        lower_limit = round((stock.current_price - price_limit) * 100) / 100
-        if data["price"] > upper_limit + 0.001:
+        # 委托价限制：不得超过当前价 ±10%（Decimal 域，杜绝 Decimal×float TypeError）
+        price_limit = stock.current_price * Decimal("0.1")
+        upper_limit = (stock.current_price + price_limit).quantize(Decimal("0.01"))
+        lower_limit = (stock.current_price - price_limit).quantize(Decimal("0.01"))
+        if data["price"] > upper_limit + Decimal("0.001"):
             raise BusinessError(
                 f"委托价不能超过 ¥{upper_limit}（当前价 ¥{stock.current_price} 的 +10%）",
                 code=400, status_code=400,
             )
-        if data["price"] < lower_limit - 0.001:
+        if data["price"] < lower_limit - Decimal("0.001"):
             raise BusinessError(
                 f"委托价不能低于 ¥{lower_limit}（当前价 ¥{stock.current_price} 的 -10%）",
                 code=400, status_code=400,
@@ -799,24 +801,24 @@ class OrderCollectionView(APIView):
             pending = StockOrder.objects.filter(
                 funds_account_id=locked_account.id, stock_id=stock.id, status="PENDING"
             )
-            pending_buy_cost = 0.0
+            pending_buy_cost = Decimal("0")
             pending_sell_shares = 0
             for o in pending:
                 if o.side == "BUY":
-                    pending_buy_cost += float(o.price) * float(o.quantity)
+                    pending_buy_cost += Decimal(str(o.price)) * Decimal(str(o.quantity))
                 else:
                     pending_sell_shares += int(o.quantity)
 
             if data["side"] == "BUY":
                 need = data["price"] * data["quantity"]
-                if available_balance < need + pending_buy_cost - 1e-6:
+                if available_balance < need + pending_buy_cost - Decimal("0.000001"):
                     raise BusinessError("现金余额不足", code=400, status_code=400)
             else:
                 holding = StockHolding.objects.filter(
                     funds_account_id=locked_account.id, stock_id=stock.id
                 ).first()
                 available_shares = (holding.shares if holding else 0) - pending_sell_shares
-                if available_shares < data["quantity"] - 1e-9:
+                if available_shares < data["quantity"] - Decimal("0.000001"):
                     raise BusinessError("持仓不足", code=400, status_code=400)
 
             order = StockOrder.objects.create(
