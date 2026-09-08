@@ -365,11 +365,13 @@ export function nodeOutputs(node: GNode): string[] {
   // 节点列表输入源额外暴露「路程」端点（相邻节点最短路距离之和），
   // 供下游数值源/公式节点连线引用，无需再绕到数据源节点的 routeRef 端口。
   if (node.type === "input" && node.data.type === "nodeRoute") return ["out", "distance", "pathTypes"];
-  // 零件清单输入源额外暴露「所需原料」「所需的科技节点」端点。
+  // 零件清单输入源额外暴露「所需原料」「所需的科技节点」「零件总件数」「所需原料总数量」端点。
   //  - materials：按比赛展开每个零件的配比 → 原料→数量 字典；
   //  - techNodes：按比赛查每个零件所需的科技节点(TechNode)名称，去重返回字符串数组。
+  //  - partQty：清单字典各零件数量之和；
+  //  - partMaterialQty：展开配比后所有原料数量之和（所需原料总件数）。
   if (node.type === "input" && node.data.type === "partList")
-    return ["out", "materials", "techNodes", "partQty"];
+    return ["out", "materials", "techNodes", "partQty", "partMaterialQty"];
   // 产品清单输入源额外暴露「需要的零件」「所需的科技节点」端点。
   //  - parts：按比赛展开每个产品的配比 → 零件→数量 字典；
   //  - techNodes：按比赛查每个产品所需的科技节点(TechNode)名称，去重返回字符串数组。
@@ -447,6 +449,7 @@ export const PORT_LABEL_TO_HANDLE: Record<string, string> = {
   路程: "distance",
   存在的路径类型: "pathTypes",
   所需原料: "materials",
+  所需原料总数量: "partMaterialQty",
   需要的零件: "parts",
   所需的科技节点: "techNodes",
   基建总价格: "infraPrice",
@@ -517,6 +520,8 @@ export const PORT_DESC: Record<string, string> = {
     "仓库总价格：按比赛查询每种仓库的「价格(price) × 输入数量」之和，作为单个浮点数输出，可接入下游的数值端口（效果/检查计算）",
   materials:
     "所需原料：按比赛查询每个零件的「配比(原料→系数)」，将清单中零件的「数量 × 系数」按原料累加，输出 {原料名称: 总数量} 字典，可接入下游的字典/公式端口",
+  partMaterialQty:
+    "所需原料总数量：按比赛查询每个零件的配比，展开为原料字典后把所有原料数量求和（Σ 零件数量 × 各原料配比），输出单个浮点数（所需原料的总件数），可接入下游的数值端口（效果/检查计算）",
   parts:
     "需要的零件：按比赛查询每个产品的「配比(零件→系数)」，将清单中产品的「数量 × 系数」按零件累加，输出 {零件名称: 总数量} 字典，可接入下游的字典/公式端口",
   techNodes:
@@ -792,6 +797,8 @@ export function portDataType(node: GNode, kind: "in" | "out", idx: number): stri
       if (nodeOutputs(node)[idx] === "materialQty") return "浮点数(原料总数量)";
       // partList 输入节点有第四个输出端口 partQty：清单字典各零件数量之和，浮点数
       if (nodeOutputs(node)[idx] === "partQty") return "浮点数(零件总件数)";
+      // partList 输入节点有第五个输出端口 partMaterialQty：展开配比后所有原料数量之和，浮点数
+      if (nodeOutputs(node)[idx] === "partMaterialQty") return "浮点数(所需原料总数量)";
       // productList 输入节点有第四个输出端口 productQty：清单字典各产品数量之和，浮点数
       if (nodeOutputs(node)[idx] === "productQty") return "浮点数(产品总件数)";
       if (nodeOutputs(node)[idx] === "fuelQty") return "浮点数(燃料总数量)";
@@ -1129,6 +1136,8 @@ function buildInputSpec(graph: GGraph, edge?: GEdge): any {
   else if (h === "pathTypes") spec.aggregate = "ROUTE_PATH_TYPES";
   // 零件清单输入源连自「所需原料」端口时，标记为 PART_MATERIALS 聚合端点。
   else if (h === "materials") spec.aggregate = "PART_MATERIALS";
+  // 零件清单输入源连自「所需原料总数量」端口时，标记为 PART_MATERIAL_TOTAL_QTY 聚合端点。
+  else if (h === "partMaterialQty") spec.aggregate = "PART_MATERIAL_TOTAL_QTY";
   // 产品清单输入源连自「需要的零件」端口时，标记为 PRODUCT_PARTS 聚合端点。
   else if (h === "parts") spec.aggregate = "PRODUCT_PARTS";
   // 零件清单/产品清单输入源连自「所需的科技节点」端口时，按输入项类型标记聚合端点。
@@ -1639,6 +1648,7 @@ export function flatToGraph(flat: Partial<FlatContract>): GGraph {
     ROUTE_DISTANCE: "distance",
     ROUTE_PATH_TYPES: "pathTypes",
     PART_MATERIALS: "materials",
+    PART_MATERIAL_TOTAL_QTY: "partMaterialQty",
     PRODUCT_PARTS: "parts",
     PRICE: "price",
     INFRA_PRICE: "infraPrice",

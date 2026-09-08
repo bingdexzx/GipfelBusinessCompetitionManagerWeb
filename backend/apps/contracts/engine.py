@@ -1275,6 +1275,15 @@ def compute_part_materials(raw, competition_id):
     return result
 
 
+def compute_part_material_total_qty(raw, competition_id):
+    """零件清单「所需原料总数量」：展开每个零件的原料配比后，把所有原料数量求和。
+
+    即 Σ(零件数量 × 该零件各原料配比)，输出单个浮点数（所需原料的总件数）。
+    """
+    materials = compute_part_materials(raw, competition_id)
+    return sum(to_number(v) for v in materials.values())
+
+
 def compute_product_parts(raw, competition_id):
     if not isinstance(raw, dict):
         return {}
@@ -1675,6 +1684,8 @@ def eval_value_spec(spec: Any, inputs: dict, scope: dict | None = None, ctx: Eva
             return compute_route_path_types(to_number_array(raw), ctx.competition_id if ctx else None)
         if aggregate == "PART_MATERIALS":
             return compute_part_materials(raw, ctx.competition_id if ctx else None)
+        if aggregate == "PART_MATERIAL_TOTAL_QTY":
+            return compute_part_material_total_qty(raw, ctx.competition_id if ctx else None)
         if aggregate == "PRODUCT_PARTS":
             return compute_product_parts(raw, ctx.competition_id if ctx else None)
         if aggregate == "PART_TECH_NODES":
