@@ -11,9 +11,9 @@ from apps.common.helpers import assert_competition_exists as _assert_competition
 class ProductionLineSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)
     name = serializers.CharField(max_length=255, trim_whitespace=True)
-    price = serializers.DecimalField(max_digits=30, decimal_places=4)
+    price = serializers.DecimalField(max_digits=60, decimal_places=4)
     laborCount = serializers.IntegerField()
-    maxPerYear = serializers.DecimalField(max_digits=30, decimal_places=4)
+    maxPerYear = serializers.DecimalField(max_digits=60, decimal_places=4)
     competitionId = serializers.IntegerField()
     createdAt = serializers.DateTimeField(read_only=True)
     updatedAt = serializers.DateTimeField(read_only=True)

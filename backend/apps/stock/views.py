@@ -432,10 +432,10 @@ class AccountOverviewView(APIView):
         holdings_by_account: dict[int, list] = {}
         for h in holdings:
             arr = holdings_by_account.setdefault(h.funds_account_id, [])
-            market_value = round(h.shares * h.stock.current_price * 100) / 100
-            cost_basis = round(h.shares * h.cost_price * 100) / 100
-            profit = round((market_value - cost_basis) * 100) / 100
-            profit_pct = round((profit / cost_basis) * 10000) / 100 if cost_basis > 0 else 0
+            market_value = _round2(h.shares * h.stock.current_price)
+            cost_basis = _round2(h.shares * h.cost_price)
+            profit = _round2(market_value - cost_basis)
+            profit_pct = _round2(profit / cost_basis * 100) if cost_basis > 0 else 0
             arr.append({
                 "stockCode": h.stock.code,
                 "stockName": h.stock.name,
@@ -661,7 +661,7 @@ class AccountHoldingsView(APIView):
                 "currentPrice": h.stock.current_price,
                 "shares": h.shares,
                 "costPrice": h.cost_price,
-                "marketValue": round(h.shares * h.stock.current_price * 100) / 100,
+                "marketValue": _round2(h.shares * h.stock.current_price),
                 "competitionId": h.competition_id,
                 "createdAt": h.created_at,
                 "updatedAt": h.updated_at,
@@ -827,7 +827,7 @@ class OrderCollectionView(APIView):
                 side=data["side"],
                 price=data["price"],
                 quantity=data["quantity"],
-                amount=round(data["price"] * data["quantity"] * 100) / 100,
+                amount=_round2(data["price"] * data["quantity"]),
                 status="PENDING",
                 round=stock.round,
                 competition_id=competition_id,
@@ -922,7 +922,7 @@ class HoldingListView(APIView):
                 "currentPrice": h.stock.current_price,
                 "shares": h.shares,
                 "costPrice": h.cost_price,
-                "marketValue": round(h.shares * h.stock.current_price * 100) / 100,
+                "marketValue": _round2(h.shares * h.stock.current_price),
                 "competitionId": h.competition_id,
                 "createdAt": h.created_at,
                 "updatedAt": h.updated_at,

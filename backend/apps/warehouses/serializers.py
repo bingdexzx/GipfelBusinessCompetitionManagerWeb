@@ -13,8 +13,8 @@ _TYPE_CHOICES = [c[0] for c in Warehouse.TYPE_CHOICES]
 class WarehouseSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)
     name = serializers.CharField(max_length=255, trim_whitespace=True)
-    capacity = serializers.DecimalField(max_digits=30, decimal_places=4)
-    price = serializers.DecimalField(max_digits=30, decimal_places=4)
+    capacity = serializers.DecimalField(max_digits=60, decimal_places=4)
+    price = serializers.DecimalField(max_digits=60, decimal_places=4)
     type = serializers.ChoiceField(choices=_TYPE_CHOICES)
     competitionId = serializers.IntegerField()
     createdAt = serializers.DateTimeField(read_only=True)

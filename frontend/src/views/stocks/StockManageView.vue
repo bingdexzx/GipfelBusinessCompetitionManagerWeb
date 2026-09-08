@@ -26,7 +26,8 @@
             <div class="ss-name">{{ s.name }}</div>
             <div class="ss-code">{{ s.code }}</div>
           </div>
-          <div class="ss-price" :class="s.currentPrice >= s.initPrice ? 'up' : 'down'">¥{{ fmt(s.currentPrice) }}</div>
+          <!-- currentPrice/initPrice 出站为 Decimal 字符串，必须 Number() 后比较：字符串 "9" > "10" 字典序为真会标错涨跌色 -->
+          <div class="ss-price" :class="Number(s.currentPrice) >= Number(s.initPrice) ? 'up' : 'down'">¥{{ fmt(s.currentPrice) }}</div>
           <div class="ss-meta">
             <div class="ss-row"><span>初始价</span><b>{{ fmt(s.initPrice) }}</b></div>
             <div class="ss-row"><span>总股本(万)</span><b>{{ fmt(s.totalShares) }}</b></div>

@@ -13,8 +13,8 @@ class Warehouse(models.Model):
 
     name = models.CharField(max_length=255)
     # 容量 + 价格：玩家购买场景，必须 Decimal。
-    capacity = models.DecimalField(max_digits=30, decimal_places=4)
-    price = models.DecimalField(max_digits=30, decimal_places=4)
+    capacity = models.DecimalField(max_digits=60, decimal_places=4)
+    price = models.DecimalField(max_digits=60, decimal_places=4)
     type = models.CharField(max_length=16, choices=TYPE_CHOICES)
     competition = models.ForeignKey(
         "competitions.Competition",

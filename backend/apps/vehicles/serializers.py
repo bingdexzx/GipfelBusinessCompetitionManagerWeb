@@ -51,7 +51,7 @@ class VehicleSerializer(serializers.Serializer):
     # 油耗/载货是系数/容量，Float 足够；价格必须 Decimal。
     fuelConsumptionPerKm = serializers.FloatField(min_value=0)
     maxCargo = serializers.FloatField(min_value=0)
-    price = serializers.DecimalField(max_digits=30, decimal_places=4, min_value=Decimal("0"))
+    price = serializers.DecimalField(max_digits=60, decimal_places=4, min_value=Decimal("0"))
     carbonEmission = serializers.FloatField(min_value=0)
     competitionId = serializers.IntegerField()
     vehiclePathTypes = VehiclePathTypeItemSerializer(many=True, required=False)

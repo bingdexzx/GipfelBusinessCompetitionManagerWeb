@@ -7,7 +7,7 @@ class Fuel(models.Model):
 
     name = models.CharField(max_length=255)
     # 燃料单价：玩家购买时累加到现金支出，浮点累计会漂。改 Decimal。
-    price_per_liter = models.DecimalField(max_digits=30, decimal_places=4)
+    price_per_liter = models.DecimalField(max_digits=60, decimal_places=4)
     competition = models.ForeignKey(
         "competitions.Competition",
         on_delete=models.CASCADE,
