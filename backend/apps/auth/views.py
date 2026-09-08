@@ -9,6 +9,8 @@ from __future__ import annotations
 import os
 import re
 
+import logging
+
 from django.conf import settings
 from django.core.signing import TimestampSigner
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -25,6 +27,8 @@ from apps.common.middleware import (
 from .authentication import create_jwt
 
 VERSION = "1.3.18"
+
+logger = logging.getLogger("gipfel")
 
 
 # ==================== 用户资料序列化 ====================
@@ -114,6 +118,16 @@ class LoginView(APIView):
         # 用户不存在或密码错误：统一提示，避免枚举用户
         if user is None or not user.check_password(password):
             record_login_failure(ip, username)
+            # 诊断日志：日志行的 [xxx] 前缀取自 Authorization 头里的（可能已失效的）token，
+            # 并非本次请求体里的用户名——真正尝试的用户名以此处为准。
+            # 真实环境曾复现「改密 200 后 20ms 用新密码重登 401、10ms 即返回（未跑 bcrypt）」的竞态，
+            # 依据 user_found/hash_len 可区分「查无此人」与「哈希异常」。
+            logger.warning(
+                "登录失败: username=%r user_found=%s hash_len=%s",
+                username[:64],
+                user is not None,
+                len(user.password_hash) if user else "-",
+            )
             raise BusinessError("用户名或密码错误", code=401, status_code=401)
 
         # 账号已被禁用

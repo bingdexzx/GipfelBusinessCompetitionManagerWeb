@@ -71,9 +71,11 @@ export const useAuthStore = defineStore("auth", () => {
   async function changePassword(oldPassword: string, newPassword: string) {
     stopHeartbeat();
     setSessionRefreshing(true);
+    let changed = false;
     try {
       try {
         await authApi.changePassword({ oldPassword, newPassword });
+        changed = true;
       } catch (e: any) {
         // 会话在弹窗期间被顶掉（后端每次登录都递增 token_version：别处再登录一次，
         // 本页 token 即失效 → 改密请求 401「账号已在其他设备登录」）。
@@ -83,16 +85,24 @@ export const useAuthStore = defineStore("auth", () => {
         if (status === 401 && user.value?.username) {
           await login(user.value.username, oldPassword);
           await authApi.changePassword({ oldPassword, newPassword });
+          changed = true;
         } else {
           throw e;
         }
       }
-      const username = user.value?.username;
-      if (username) {
+      if (changed && user.value?.username) {
         // 重新登录（后端会再次递增 token_version 并签发新 token，旧 token 全部作废，
         // 效果等价于改密吊销 + 本设备续登，其他设备仍被正确踢下线）。
-        // login 内部会以新 token 重新启动心跳。
-        await login(username, newPassword);
+        try {
+          await login(user.value.username, newPassword);
+        } catch (re) {
+          // 改密已成功（后端 200 落库），但自动重登异常——改密提交后的极短窗口内
+          // 后端偶发对正确凭据返回 401（真实环境已复现）。改密是既成事实，
+          // 不能把误导性报错抛给用户：清掉本地会话，明确告知用新密码重新登录。
+          logger.warn("改密成功但自动重登失败，转人工重登:", re);
+          logout();
+          throw new Error("密码修改成功，请使用新密码重新登录");
+        }
       }
     } finally {
       setSessionRefreshing(false);
