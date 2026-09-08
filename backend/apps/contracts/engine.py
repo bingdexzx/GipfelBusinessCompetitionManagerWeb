@@ -1323,6 +1323,12 @@ def compute_product_parts(raw, competition_id):
     return result
 
 
+def compute_product_parts_total_qty(raw, competition_id):
+    """产品清单「所需零件总数量」：展开每个产品的零件配比后，把所有零件数量求和。"""
+    parts = compute_product_parts(raw, competition_id)
+    return sum(to_number(v) for v in parts.values())
+
+
 def _compute_name_list_tech_nodes(raw, competition_id, model_cls, label):
     if not isinstance(raw, dict):
         return []
@@ -1700,6 +1706,8 @@ def eval_value_spec(spec: Any, inputs: dict, scope: dict | None = None, ctx: Eva
             return compute_part_material_total_qty(raw, ctx.competition_id if ctx else None)
         if aggregate == "PRODUCT_PARTS":
             return compute_product_parts(raw, ctx.competition_id if ctx else None)
+        if aggregate == "PRODUCT_PARTS_TOTAL_QTY":
+            return compute_product_parts_total_qty(raw, ctx.competition_id if ctx else None)
         if aggregate == "PART_TECH_NODES":
             return compute_part_tech_nodes(raw, ctx.competition_id if ctx else None)
         if aggregate == "PRODUCT_TECH_NODES":
