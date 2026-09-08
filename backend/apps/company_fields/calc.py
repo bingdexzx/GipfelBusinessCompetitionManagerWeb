@@ -348,6 +348,21 @@ def _write_calc_value(company_id: int, field_id: int, value: str) -> bool:
     return False
 
 
+def _trim_number_trailing_zeros(s: str) -> str:
+    """NUMBER 计算结果显示规范化：小数部分无有效内容时去掉小数点与补位 0。
+
+    例：'1.0'→'1'，'1.50'→'1.5'，'1.23' 不变，'100' 不变，'0.0'→'0'，
+    负数 '-1.50'→'-1.5'。纯字符串裁剪、不经 Number 化（大数安全）；
+    科学计数形态（含 e/E）不处理——_serialize 对 Decimal 已走定点格式化。
+    """
+    if "." in s and "e" not in s and "E" not in s:
+        t = s.rstrip("0").rstrip(".")
+        if t in ("", "-", "+"):
+            return s.startswith("-") and "-0" or "0"
+        return t
+    return s
+
+
 def recompute_calc_fields(company_id: int) -> None:
     """级联重算某公司全部「计算字段」（按依赖拓扑序）。
 
@@ -394,6 +409,9 @@ def recompute_calc_fields(company_id: int) -> None:
                 )
                 continue
             stored = _serialize(f.field_type, raw)
+            if f.field_type == "NUMBER":
+                # 小数部分无有效内容时不补位 0（'1.0'→'1'，'1.50'→'1.5'）
+                stored = _trim_number_trailing_zeros(stored)
             values[f.field_key] = stored
             _write_calc_value(company_id, f.id, stored)
         except Exception as e:  # noqa: BLE001 单字段失败不中断其余字段
