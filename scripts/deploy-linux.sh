@@ -418,17 +418,19 @@ cp -f "$_tmp_unit" /etc/systemd/system/gipfel-logviewer.service
 rm -f "$_tmp_unit"
 
 systemctl daemon-reload
-systemctl enable --now gipfel
+# enable 失败（如 unit 仍被 masked）不能直接中止脚本：交给下方 is-active 检查统一诊断报告
+systemctl enable --now gipfel 2>/dev/null || warn "systemctl enable --now gipfel 失败（unit 可能仍被 masked），详见下方活性检查"
 sleep 2
 if ! systemctl is-active --quiet gipfel; then
     warn "gipfel 服务未立即激活，等待 5s 重试检查"
     sleep 5
 fi
 systemctl is-active --quiet gipfel && ok "gipfel.service 运行中" || \
-    { journalctl -u gipfel -n 30 --no-pager; err "gipfel 服务启动失败，见上方日志"; }
+    { systemctl show -p LoadState,FragmentPath gipfel | while IFS= read -r l; do warn "  $l"; done; \
+      journalctl -u gipfel -n 30 --no-pager; err "gipfel 服务启动失败，见上方日志"; }
 
 # 日志查看器（独立站点，nginx 子域 log.<DOMAIN> 代理）
-systemctl enable --now gipfel-logviewer
+systemctl enable --now gipfel-logviewer 2>/dev/null || warn "systemctl enable --now gipfel-logviewer 失败（unit 可能仍被 masked），详见下方活性检查"
 sleep 2
 if ! systemctl is-active --quiet gipfel-logviewer; then
     warn "gipfel-logviewer 服务未立即激活，等待 5s 重试检查"
@@ -440,10 +442,14 @@ systemctl is-active --quiet gipfel-logviewer && ok "gipfel-logviewer.service 运
 # ---------------- 7. nginx ----------------
 if [[ $WITH_NGINX -eq 1 ]]; then
     log "配置 nginx 虚拟主机"
-    VHOST_FILE="$INSTALL_DIR/deploy/nginx-gipfel.conf"
+    # 渲染到独立临时文件再落位：PROJECT_ROOT 与 INSTALL_DIR 同目录（原地部署）时，
+    # 直接 > 到 deploy/ 下的目标会先清空模板、sed 读到空内容——模板与产物一起作废（与 unit 同款事故）。
+    VHOST_OUT="/etc/nginx/sites-available/gipfel.conf"
+    _tmp_vhost="$(mktemp /tmp/gipfel.vhost.XXXXXX)"
     sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" \
         -e "s|__DOMAIN__|${DOMAIN:-_}|g" \
-        "$PROJECT_ROOT/deploy/nginx-gipfel.conf" > "$VHOST_FILE"
+        "$PROJECT_ROOT/deploy/nginx-gipfel.conf" > "$_tmp_vhost"
+    VHOST_FILE="$_tmp_vhost"
 
     # 日志查看器 server 块二选一（模板含两块，按是否传 --domain 删除另一块）：
     #   有域名 → 保留 log.<DOMAIN> 子域块，删除 8120 端口块；
@@ -455,6 +461,7 @@ if [[ $WITH_NGINX -eq 1 ]]; then
     fi
 
     cp -f "$VHOST_FILE" /etc/nginx/sites-available/gipfel.conf
+    rm -f "$_tmp_vhost"
 
     # 按 nginx.conf 实际 include 风格放置 gipfel 配置（兼容 Debian 的 sites-enabled 与
     # 仅 include conf.d 的精简镜像），避免放错位置导致配置根本不被加载、或两处重复 server 块。

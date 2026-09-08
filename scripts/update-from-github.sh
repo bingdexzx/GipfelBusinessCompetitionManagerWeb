@@ -195,6 +195,26 @@ fi
 [[ -f "$INSTALL_DIR/backend/.env" ]]    && cp -a "$INSTALL_DIR/backend/.env"    "$BACKUP_DIR/" 2>/dev/null || true
 
 # ---------------- 2. 更新后端依赖 + 迁移 ----------------
+# 首跑引导：.env 不存在（全新 clone 未跑过 deploy-linux.sh）→ 从 example 生成，
+# 否则后端 settings.py 因缺 JWT_SECRET fail-fast，下方 manage.py 直接中止
+if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
+    log "未检测到 backend/.env，按首次部署生成（随机 JWT_SECRET / LOGVIEWER_SECRET_KEY，DEBUG=false）"
+    cp "$INSTALL_DIR/backend/.env.example" "$INSTALL_DIR/backend/.env"
+    SECRET="$(head -c 32 /dev/urandom | base64 | tr -d '\n+/=')"
+    sed -i "s|^JWT_SECRET=.*|JWT_SECRET=${SECRET}|" "$INSTALL_DIR/backend/.env"
+    LVSECRET="$(head -c 32 /dev/urandom | base64 | tr -d '\n+/=')"
+    if grep -q '^LOGVIEWER_SECRET_KEY=' "$INSTALL_DIR/backend/.env"; then
+        sed -i -E "s|^LOGVIEWER_SECRET_KEY=.*|LOGVIEWER_SECRET_KEY=${LVSECRET}|" "$INSTALL_DIR/backend/.env"
+    else
+        echo "LOGVIEWER_SECRET_KEY=${LVSECRET}" >> "$INSTALL_DIR/backend/.env"
+    fi
+    if grep -q '^DEBUG=' "$INSTALL_DIR/backend/.env"; then
+        sed -i 's/^DEBUG=.*/DEBUG=false/' "$INSTALL_DIR/backend/.env"
+    else
+        echo 'DEBUG=false' >> "$INSTALL_DIR/backend/.env"
+    fi
+    warn "已生成 .env；公网访问入口（DJANGO_ALLOWED_HOSTS/CORS/CSRF）将在下方自愈块按域名/公网 IP 补全"
+fi
 log "更新后端（pip / migrate / collectstatic）"
 cd "$INSTALL_DIR/backend"
 if [[ ! -d .venv ]]; then
@@ -434,6 +454,14 @@ fi
 if [[ $WITH_NGINX -eq 1 ]]; then
     VHOST_TMPL="$INSTALL_DIR/deploy/nginx-gipfel.conf"
     [[ -f "$VHOST_TMPL" ]] || err "找不到 nginx 模板：$VHOST_TMPL"
+    # 模板为空（历史 bug：deploy-linux.sh 原地部署时渲染目标与模板同路径被 `>` 清空）→ 从 git 恢复
+    if [[ ! -s "$VHOST_TMPL" ]]; then
+        if git -C "$INSTALL_DIR" checkout -- deploy/nginx-gipfel.conf 2>/dev/null && [[ -s "$VHOST_TMPL" ]]; then
+            warn "nginx 模板为空，已从 git 仓库恢复"
+        else
+            err "nginx 模板为空且无法从 git 恢复：$VHOST_TMPL"
+        fi
+    fi
     VHOST_OUT="/etc/nginx/sites-available/gipfel.conf"
     log "重新生成 nginx 虚拟主机"
     sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" \
