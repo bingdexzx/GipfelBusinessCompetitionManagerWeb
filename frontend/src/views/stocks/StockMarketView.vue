@@ -161,8 +161,8 @@
           <el-divider>我的持仓</el-divider>
           <div v-if="loadingAccountData" class="empty-hint small">加载中…</div>
           <div v-else-if="holdings.length" class="holding-list">
-            <div v-for="(row, i) in holdings" :key="row.stock?.id ?? i" class="holding-row">
-              <span class="holding-cell holding-name">{{ row.stock?.name || row.stock?.code || '—' }}</span>
+            <div v-for="(row, i) in holdings" :key="row.stockId ?? i" class="holding-row">
+              <span class="holding-cell holding-name">{{ row.stockName || row.stockCode || '—' }}</span>
               <span class="holding-cell holding-shares">{{ fmt(row.shares) }}股</span>
               <span class="holding-cell holding-value">¥{{ fmt(row.marketValue) }}</span>
             </div>
@@ -173,7 +173,7 @@
           <div v-if="loadingAccountData" class="empty-hint small">加载中…</div>
           <div v-else-if="orders.length" class="order-list">
             <div v-for="row in orders" :key="row.id" class="order-row">
-              <span class="order-name">{{ row.stock?.name || row.stock?.code || '—' }}</span>
+              <span class="order-name">{{ row.stockName || row.stockCode || '—' }}</span>
               <span class="order-side" :class="row.side === 'BUY' ? 'up' : 'down'">{{ row.side === 'BUY' ? '买' : '卖' }}</span>
               <span class="order-price">{{ fmt(row.price) }}</span>
               <span class="order-qty">{{ fmt(row.quantity) }}</span>
@@ -236,14 +236,19 @@ interface Account {
   fieldBalance?: number | null;
 }
 interface Holding {
-  stock: { id: number; code: string; name: string };
+  // 后端返回扁平字段（stockId/stockCode/stockName），非嵌套 stock 对象
+  stockId: number;
+  stockCode: string;
+  stockName: string;
   shares: number;
   costPrice: number;
   marketValue: number;
 }
 interface Order {
   id: number;
-  stock?: { code: string; name?: string };
+  stockId?: number;
+  stockCode?: string;
+  stockName?: string;
   side: string;
   price: number;
   quantity: number;
@@ -309,7 +314,7 @@ const quoteStats = computed(() => {
 
 const myHoldingShares = computed(() => {
   if (!selectedStockId.value) return 0;
-  const h = holdings.value.find((x) => x.stock && x.stock.id === selectedStockId.value);
+  const h = holdings.value.find((x) => x.stockId === selectedStockId.value);
   return h ? h.shares : 0;
 });
 // 委托价限价范围（当前价 ±10%）
