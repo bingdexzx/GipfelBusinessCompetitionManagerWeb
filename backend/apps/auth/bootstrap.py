@@ -16,6 +16,10 @@ from django.conf import settings
 
 logger = logging.getLogger("gipfel")
 
+# post_migrate 对 INSTALLED_APPS 的每个 app 各触发一次本处理器；
+# 默认口令警告每次 migrate 打一条即可，进程内去重（约 26 个 app = 26 条 → 1 条）。
+_default_password_warned = False
+
 
 def _seed_vars():
     username = getattr(settings, "SEED_ADMIN_USERNAME", "admin") or "admin"
@@ -26,11 +30,13 @@ def _seed_vars():
 
 def seed_default_admin(sender, **kwargs):
     """迁移完成后写入默认超管（业务 + 后台）。"""
+    global _default_password_warned
     username, email, password = _seed_vars()
     # 安全提示：默认口令是公开的（写死在代码里），首次部署后未改密等于门户大开。
     # 业务超管有 must_change_password 门禁兜底，但 /admin 后台超管没有——务必经
     # .env 的 SEED_ADMIN_PASSWORD 设置强口令，或首次部署后立即修改两个账户密码。
-    if password == "admin23":
+    if password == "admin23" and not _default_password_warned:
+        _default_password_warned = True
         logger.warning(
             "检测到默认超管口令 admin23（用户名 %s）——公网/多人可达环境必须尽快通过"
             " SEED_ADMIN_PASSWORD 环境变量更换，或登录后立即修改密码！",
