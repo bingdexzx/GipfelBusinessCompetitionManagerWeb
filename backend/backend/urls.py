@@ -4,7 +4,6 @@ URL 路由：聚合所有 REST 模块 + 静态资源 + 健康检查 / 版本。
 所有业务路由前缀 /api，与原 NestJS app.setGlobalPrefix('api') 一致。
 """
 from django.conf import settings
-from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path, re_path
 from django.views.static import serve as static_serve
@@ -46,7 +45,11 @@ urlpatterns = [
 ]
 
 # /uploads 静态托管（CORP cross-origin 由中间件设置）
-urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# 注意：django.conf.urls.static.static() 在 DEBUG=False 时不挂载（生产静默 404，
+# 症状：地图背景图上传成功但加载失败），故与 /static/ 一样无条件以 re_path 托管。
+urlpatterns += [
+    re_path(r"^uploads/(?P<path>.*)$", static_serve, {"document_root": settings.MEDIA_ROOT}),
+]
 
 # 管理后台静态资源（/admin 样式与脚本）。DEBUG=False 时 django.conf.urls.static 不挂载，
 # 故此处无条件以 re_path 托管 STATIC_ROOT，仅匹配 /static/，不影响 /api、/uploads、/socket.io。
