@@ -775,9 +775,15 @@ async function onAccountFieldChange(val?: number | null) {
       const res = await companyFieldsApi.get(accountForm.value.companyId);
       const fieldValue = (res?.fields || []).find((fv: any) => fv.id === fieldId);
       const raw = fieldValue?.value != null ? fieldValue.value : fieldValue?.defaultValue;
-      accountForm.value._bindFieldValue = raw != null ? Number(raw) : null;
-      if (accountForm.value._bindFieldValue != null) {
-        accountForm.value.cashBalance = accountForm.value._bindFieldValue;
+      // 大数安全：_bindFieldValue 保留原始形态（字符串大数由 fmt 走 BigInt 分组精确显示）；
+      // 仅当可安全 Number 化（|n| ≤ 2^53）时才回填 cashBalance——el-input-number
+      // 是原生 Number 控件，2^53 以上本身无法表示，不回填以免静默丢精度。
+      accountForm.value._bindFieldValue = raw != null ? raw : null;
+      if (raw != null) {
+        const n = Number(raw);
+        if (Number.isFinite(n) && Math.abs(n) <= Number.MAX_SAFE_INTEGER) {
+          accountForm.value.cashBalance = n;
+        }
       }
     }
   } catch {

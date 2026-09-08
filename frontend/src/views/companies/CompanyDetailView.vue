@@ -189,8 +189,14 @@ function normalizeEditValue(field: any, rawValue: any): any {
     for (const k of keys) {
       let v = obj[k];
       if (v === undefined) v = defaults[k];
-      if (valueType === "NUMBER")
-        out[k] = v === "" || v == null || isNaN(Number(v)) ? 0 : Number(v);
+      if (valueType === "NUMBER") {
+        // 大数安全：合法数字串保留原样（不经 Number 化，2^53 以上无精度损失），
+        // 空值 / 非数字串回退 0
+        const s = v == null || v === "" ? "" : String(v).trim();
+        if (s === "") out[k] = 0;
+        else if (/^[+-]?\d+(\.\d+)?$/.test(s)) out[k] = s;
+        else out[k] = isNaN(Number(s)) ? 0 : Number(s);
+      }
       else if (valueType === "BOOLEAN") out[k] = v === true || v === "true";
       else out[k] = v == null ? "" : String(v);
     }
@@ -205,7 +211,10 @@ function normalizeEditValue(field: any, rawValue: any): any {
   }
   if (field.fieldType === "BOOLEAN") return rawValue === "true" || rawValue === true;
   if (field.fieldType === "NUMBER")
-    return rawValue === null || rawValue === undefined ? 0 : Number(rawValue);
+    // 大数安全：保留原始字符串形态（后端出站时 >2^53 的 int 已转为字符串），
+    // 绝不 Number 化——JS double 在 2^53（约 0.9 京）以上会静默丢精度，千万京级必错。
+    // 此视图为只读展示，字符串原样显示即精确值。
+    return rawValue === null || rawValue === undefined || rawValue === "" ? 0 : rawValue;
   return rawValue ?? "";
 }
 async function loadFieldValues() {
