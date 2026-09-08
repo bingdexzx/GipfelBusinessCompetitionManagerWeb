@@ -161,6 +161,8 @@ elif [[ -n "$SOURCE_DIR" && -d "$SOURCE_DIR/.git" ]]; then
     rsync -a --delete --exclude node_modules --exclude dist \
         "$SOURCE_DIR/frontend/" "$INSTALL_DIR/frontend/"
     rsync -a --delete "$SOURCE_DIR/deploy/"   "$INSTALL_DIR/deploy/"
+    # scripts/ 也同步：否则服务器上永远跑旧版更新脚本（masked 自愈等修复无法生效）
+    rsync -a --delete "$SOURCE_DIR/scripts/"  "$INSTALL_DIR/scripts/"
 elif [[ -n "$REPO" ]]; then
     # 模式 C：克隆到 INSTALL_DIR（要求目录为空）
     if [[ -e "$INSTALL_DIR" && -n "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]]; then
@@ -360,14 +362,19 @@ refresh_unit() {
                       -maxdepth 1 -name "$name" 2>/dev/null)
         warn "修复：删除上列指向 /dev/null 的软链（保留真实 unit 文件），然后："
         warn "  sudo systemctl daemon-reload && sudo systemctl enable --now $name"
+        return 1
     fi
     ok "已刷新并启用服务单元 $name → /etc/systemd/system/$name"
 }
-refresh_unit "$INSTALL_DIR/deploy/gipfel.service" gipfel.service
-refresh_unit "$INSTALL_DIR/deploy/logviewer.service" gipfel-logviewer.service
+UNIT_REFRESH_FAILED=0
+refresh_unit "$INSTALL_DIR/deploy/gipfel.service" gipfel.service || UNIT_REFRESH_FAILED=1
+refresh_unit "$INSTALL_DIR/deploy/logviewer.service" gipfel-logviewer.service || UNIT_REFRESH_FAILED=1
 systemctl daemon-reload
 
-if systemctl cat gipfel.service >/dev/null 2>&1; then
+if [[ "$UNIT_REFRESH_FAILED" == 1 ]]; then
+    warn "服务单元未能正常启用（masked 等问题未解除），本次跳过重启，避免用旧状态误判。"
+    warn "请按上方诊断手工处理后执行：sudo systemctl daemon-reload && sudo systemctl restart gipfel gipfel-logviewer"
+elif systemctl cat gipfel.service >/dev/null 2>&1; then
     log "重启 gipfel.service"
     systemctl restart gipfel
     sleep 2
