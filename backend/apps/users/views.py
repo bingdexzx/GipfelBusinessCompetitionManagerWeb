@@ -70,13 +70,19 @@ class UserListView(APIView):
 
 
 class UserCreateView(APIView):
-    """POST /api/users —— 创建用户（含密码）。"""
+    """POST /api/users —— 创建用户（含密码）。
+
+    创建的账号默认 mustChangePassword=true：管理员设置的初始密码仅作交付凭据，
+    首次登录强制修改；请求体显式传 mustChangePassword=false 可豁免。
+    """
 
     permission_classes = _PERM_CLASSES
 
     @require_permissions("account:manage")
     def post(self, request):
-        serializer = UserSerializer(data=request.data)
+        data = dict(request.data)
+        data.setdefault("mustChangePassword", True)
+        serializer = UserSerializer(data=data)
         serializer.is_valid(raise_exception=True)
         # 授予上限校验（以新角色为准）
         _assert_grant(
@@ -134,7 +140,11 @@ class UserDeleteView(APIView):
 
 
 class UserPasswordView(APIView):
-    """PATCH /api/users/:id/password —— 管理员重置密码。"""
+    """PATCH /api/users/:id/password —— 管理员重置密码。
+
+    重置即下发临时密码：默认置 mustChangePassword=true，该账号下次登录强制改密；
+    请求体显式传 mustChangePassword=false 可豁免。重置操作者本人时不强制。
+    """
 
     permission_classes = _PERM_CLASSES
 
@@ -147,10 +157,11 @@ class UserPasswordView(APIView):
         if len(password) < 8:
             raise BusinessError("密码长度不能少于 8 位", code=400, status_code=400)
         user.set_password(password)
-        # 可选 mustChangePassword：传入则覆盖，否则保留现状
-        must_change = request.data.get("mustChangePassword")
-        if must_change is not None:
-            user.must_change_password = bool(must_change)
+        if user.id == request.user.id:
+            user.must_change_password = False
+        else:
+            must_change = request.data.get("mustChangePassword")
+            user.must_change_password = True if must_change is None else bool(must_change)
         user.save(update_fields=["password_hash", "must_change_password", "updated_at"])
         return Response(UserSerializer(user).data)
 

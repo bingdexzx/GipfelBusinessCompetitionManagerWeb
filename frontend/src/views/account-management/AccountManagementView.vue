@@ -433,7 +433,7 @@ function handleResetPassword(row: UserItem) {
   })
     .then(async ({ value }) => {
       await usersApi.updatePassword(row.id, { password: value });
-      ElMessage.success("密码已重置");
+      ElMessage.success("密码已重置，该账号下次登录需修改密码");
     })
     .catch(() => {});
 }
