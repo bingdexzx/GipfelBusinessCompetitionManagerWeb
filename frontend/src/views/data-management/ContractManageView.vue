@@ -261,7 +261,9 @@
                   :value="m.id"
                 />
               </el-select>
-              <div class="ge-tip">按路程顺序逐个添加地图节点（至少 2 个，可任意多个）。</div>
+              <div class="ge-tip">
+                按路程顺序逐个添加地图节点（至少 2 个，可任意多个）；第 1 个节点任选，之后只能添加与上一节点有连线的节点。
+              </div>
             </div>
             <div v-else-if="field.type === 'list'" class="list-editor">
               <div v-for="(_, i) in createForm.inputs[field.key] || []" :key="i" class="list-row">
@@ -967,6 +969,21 @@ watch(
 
 // ===== 地图节点（节点路径输入源） =====
 const mapNodes = ref<any[]>([]);
+const mapEdges = ref<any[]>([]);
+/** 无向相邻集合："小id|大id"，与后端 compute_route_distance 的无向口径一致 */
+const mapAdj = computed(() => {
+  const s = new Set<string>();
+  for (const e of mapEdges.value) {
+    const a = Number(e.fromNodeId);
+    const b = Number(e.toNodeId);
+    if (!a || !b || a === b) continue;
+    s.add(a < b ? `${a}|${b}` : `${b}|${a}`);
+  }
+  return s;
+});
+function mapNodesLinked(a: number, b: number) {
+  return mapAdj.value.has(a < b ? `${a}|${b}` : `${b}|${a}`);
+}
 const routeAddVal = ref<number | null>(null);
 async function loadMapNodes() {
   if (mapNodes.value.length || !compStore.competitionId) return;
@@ -981,6 +998,17 @@ async function loadMapNodes() {
       page++;
     }
     mapNodes.value = allNodes;
+    // 同步拉取边表，用于约束：第 2 个节点起必须与上一节点有连线
+    let allEdges: any[] = [];
+    page = 1;
+    while (true) {
+      const res: any = await mapsApi.edges.list(page, 200, compStore.competitionId);
+      const items = Array.isArray(res) ? res : res?.items ?? [];
+      allEdges = allEdges.concat(items);
+      if (items.length < 200) break;
+      page++;
+    }
+    mapEdges.value = allEdges;
   } catch (e) {
     console.error(e);
   }
@@ -991,9 +1019,19 @@ function mapNodeName(id: number) {
 function routeLen(key: string) {
   return ((createForm.inputs[key] as any[]) || []).length;
 }
+/** 路径是否全程相邻相连（边表为空时不校验，避免地图未配边时把用户锁死） */
+function routeFullyLinked(arr: number[]) {
+  if (!mapEdges.value.length) return true;
+  for (let i = 1; i < arr.length; i++) if (!mapNodesLinked(arr[i - 1], arr[i])) return false;
+  return true;
+}
 function addableMapNodes(key: string) {
   const sel: number[] = (createForm.inputs[key] as any[]) || [];
-  return mapNodes.value.filter((m: any) => !sel.includes(m.id));
+  const notSel = mapNodes.value.filter((m: any) => !sel.includes(m.id));
+  // 第 1 个节点任选；之后只能选与当前末节点有连线的节点
+  if (!sel.length || !mapEdges.value.length) return notSel;
+  const last = sel[sel.length - 1];
+  return notSel.filter((m: any) => mapNodesLinked(last, m.id));
 }
 function addRouteNode(key: string, id: number | null) {
   if (id == null) return;
@@ -1022,9 +1060,13 @@ async function loadTechNodes() {
   }
 }
 function removeRouteNode(key: string, id: number) {
-  createForm.inputs[key] = ((createForm.inputs[key] as any[]) || []).filter(
-    (x: number) => x !== id,
-  );
+  const arr: number[] = ((createForm.inputs[key] as any[]) || []).filter((x: number) => x !== id);
+  // 删除中间节点会让其前后两节点直接相邻：若它们之间没有连线则不允许删除
+  if (arr.length >= 2 && !routeFullyLinked(arr)) {
+    ElMessage.warning("无法移除：删除后前后的节点之间没有连线，请先移除相邻节点");
+    return;
+  }
+  createForm.inputs[key] = arr;
 }
 function moveRouteNode(key: string, idx: number, dir: number) {
   const arr: number[] = [...((createForm.inputs[key] as any[]) || [])];
@@ -1033,6 +1075,10 @@ function moveRouteNode(key: string, idx: number, dir: number) {
   const t = arr[idx];
   arr[idx] = arr[j];
   arr[j] = t;
+  if (!routeFullyLinked(arr)) {
+    ElMessage.warning("无法移动：移动后存在相邻节点之间没有连线");
+    return;
+  }
   createForm.inputs[key] = arr;
 }
 
@@ -1376,6 +1422,18 @@ async function handleCreate() {
   if (missingEffectFields.value.length) {
     showUnsupported.value = true;
     return;
+  }
+  // 节点列表：除第 1 个外，每个节点必须与前一节点有连线
+  for (const f of inputSchemaFields.value) {
+    if (f.type !== "nodeRoute" || !isFieldVisible(f)) continue;
+    const arr = (createForm.inputs[f.key] as number[]) || [];
+    if (arr.length && !routeFullyLinked(arr)) {
+      const bad = arr.findIndex((id, i) => i > 0 && !mapNodesLinked(arr[i - 1], id));
+      ElMessage.warning(
+        `「${f.label || f.key}」中「${mapNodeName(arr[bad])}」与前一节点「${mapNodeName(arr[bad - 1])}」之间没有连线，请调整`,
+      );
+      return;
+    }
   }
   const roles = parseJson(selectedType.value?.partyRoles, []);
   const partiesArr = roles.map((p: any) => ({
