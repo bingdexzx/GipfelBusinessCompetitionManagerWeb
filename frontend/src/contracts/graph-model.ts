@@ -1354,9 +1354,11 @@ function opNodeToSpec(graph: GGraph, node: GNode): any {
     const e = findEdge(graph, node.id, h);
     const src = nodeById(graph, e?.source);
     if (src) return resolveValueSource(graph, src, e);
-    // 未连线：取该参数端口的字面量默认值（用户在属性面板填写）
+    // 未连线：取该参数端口的字面量默认值（用户在属性面板填写）。
+    // 必须包成 CONST spec：裸字符串会被引擎 eval_value_spec 当数值源 to_number("PART")→0，
+    // 导致 DICT_GET 等字典/列表运算的字符串键失效（永远命中默认值）。
     const lit = node.data.argLiterals?.[h];
-    if (lit) return lit;
+    if (lit != null && lit !== "") return { type: "CONST", value: lit };
     return { type: "CONST", value: 0 };
   });
   return { type: "OP", op, args };
