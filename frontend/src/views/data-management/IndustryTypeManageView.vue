@@ -1258,7 +1258,11 @@ async function submitField() {
       fieldKey: fieldForm.fieldKey.trim(),
       fieldType: fieldForm.fieldType,
       config,
-      defaultValue: fieldForm.defaultValue || undefined,
+      // 默认值：空串显式发 null 清空（undefined 表示「不修改」，会被后端忽略导致清不掉）
+      defaultValue:
+        fieldForm.defaultValue == null || String(fieldForm.defaultValue).trim() === ""
+          ? null
+          : fieldForm.defaultValue,
       isCalculated: fieldForm.isCalculated,
       calcGraph: fieldForm.isCalculated ? fieldForm.calcGraph : null,
       formula: null,
