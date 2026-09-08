@@ -212,9 +212,10 @@ const router = createRouter({
           path: "settings",
           name: "Settings",
           component: () => import("@/views/settings/SettingsView.vue"),
-          // 系统设置页含「后端管理界面 / 日志查看器」防直连令牌按钮，仅超管可进入；
-          // 接通 requiresSuperAdmin 守卫（H9 纵深防御：非超管即便手输 URL 也会被重定向回首屏）。
-          meta: { title: "系统设置", requiresSuperAdmin: true },
+          // 系统设置对所有登录用户开放：「后端管理界面 / 日志查看器」区块已在页面内
+          // 以 v-if="isSuperAdmin" 隐藏，且两个防直连令牌端点本身仅超管可调（服务端校验），
+          // 非超管即使手输 URL 也只能看到「关于 / 本地数据」两个无害区块。
+          meta: { title: "系统设置" },
         },
         {
           path: "audit-logs",
