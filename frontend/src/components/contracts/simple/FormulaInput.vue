@@ -6,12 +6,11 @@
       <el-option label="公式" value="FORMULA" />
     </el-select>
 
-    <!-- 常量 -->
-    <el-input-number
+    <!-- 常量（大数安全：文本输入承载任意精度，后端引擎按 Decimal 解析） -->
+    <BigNumberInput
       v-if="valueType === 'CONST'"
-      :model-value="modelValue?.value ?? 0"
+      :model-value="modelValue?.value ?? ''"
       @update:model-value="updateConst"
-      size="small"
       style="width: 200px"
     />
 
@@ -68,6 +67,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import BigNumberInput from '@/components/common/BigNumberInput.vue';
 
 interface InputField {
   key: string;
@@ -88,7 +88,7 @@ const valueType = computed({
   get: () => props.modelValue?.type || 'CONST',
   set: (type: string) => {
     if (type === 'CONST') {
-      emit('update:modelValue', { type: 'CONST', value: 0 });
+      emit('update:modelValue', { type: 'CONST', value: '' });
     } else if (type === 'INPUT') {
       emit('update:modelValue', { type: 'INPUT', key: props.inputs[0]?.key || '' });
     } else if (type === 'FORMULA') {
@@ -97,8 +97,9 @@ const valueType = computed({
   },
 });
 
-function updateConst(value: number) {
-  emit('update:modelValue', { type: 'CONST', value: value ?? 0 });
+function updateConst(value: string) {
+  // 大数安全：常量以字符串形态保存，交由后端引擎按 int/Decimal 精确解析
+  emit('update:modelValue', { type: 'CONST', value: value === '' ? 0 : value });
 }
 
 function updateInput(key: string) {

@@ -121,12 +121,10 @@
             </el-form-item>
 
             <el-form-item label="委托价（元/股）">
-              <el-input-number
+              <BigNumberInput
                 v-model="trade.price"
                 :min="priceLimit.lower"
                 :max="priceLimit.upper"
-                :step="0.01"
-                :precision="2"
                 style="width: 100%"
               />
               <div class="price-hint" v-if="selectedStock">
@@ -135,11 +133,9 @@
             </el-form-item>
 
             <el-form-item label="数量（股）">
-              <el-input-number
+              <BigNumberInput
                 v-model="trade.quantity"
                 :min="1"
-                :step="100"
-                :precision="0"
                 style="width: 100%"
               />
             </el-form-item>
@@ -207,6 +203,7 @@ import { stockApi } from "@/api";
 import { useCompetitionStore } from "@/stores/competition";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import { formatMoney } from "@/utils/format";
+import BigNumberInput from "@/components/common/BigNumberInput.vue";
 
 const compStore = useCompetitionStore();
 
@@ -324,8 +321,18 @@ const priceLimit = computed(() => {
   const upper = Math.max(lower, Math.round((price + limit) * 100) / 100);
   return { lower, upper };
 });
-const estAmount = computed(() => Math.round(trade.value.price * trade.value.quantity * 100) / 100);
-const canTrade = computed(() => !!selectedAccountId.value && !!selectedStockId.value && trade.value.price > 0 && trade.value.quantity > 0);
+// 预计金额：Number 相乘仅作预览——超大数（>2^53）时预览值可能失真，
+// 实际委托以字符串原样提交，由后端精确撮合
+const estAmount = computed(
+  () => Math.round(Number(trade.value.price || 0) * Number(trade.value.quantity || 0) * 100) / 100,
+);
+const canTrade = computed(
+  () =>
+    !!selectedAccountId.value &&
+    !!selectedStockId.value &&
+    Number(trade.value.price) > 0 &&
+    Number(trade.value.quantity) > 0,
+);
 
 const chartRef = ref<HTMLElement | null>(null);
 let chart: echarts.ECharts | null = null;

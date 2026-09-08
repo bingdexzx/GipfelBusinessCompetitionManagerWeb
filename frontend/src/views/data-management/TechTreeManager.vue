@@ -174,7 +174,7 @@
         /></el-form-item>
         <el-form-item label="层级"><el-input-number v-model="form.tier" :min="0" /></el-form-item>
         <el-form-item label="研发费用" required
-          ><el-input-number v-model="form.researchCost" :min="0" :precision="2" style="width: 100%"
+          ><BigNumberInput v-model="form.researchCost" :min="0" style="width: 100%"
         /></el-form-item>
         <el-form-item label="前置依赖">
           <el-select v-model="form.prerequisiteIds" multiple filterable placeholder="选择前置节点">
@@ -205,6 +205,7 @@ import * as echarts from "echarts";
 import api from "@/api/request";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import BigNumberInput from "@/components/common/BigNumberInput.vue";
 import MobileCards from "@/components/common/MobileCards.vue";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 

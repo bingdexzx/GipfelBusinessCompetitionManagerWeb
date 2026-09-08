@@ -26,8 +26,11 @@ export interface WidgetConfig {
     text?: string;
     /** 仪表控件 */
     label?: string;
-    /** 总量：可手动填（total），或绑定字段（totalField，取值优先） */
-    total?: number;
+    /**
+     * 总量：可手动填（total），或绑定字段（totalField，取值优先）。
+     * 大数安全：允许字符串承载（>2^53 的值以字符串保存，显示/计算侧 Number 化仅影响比例精度）
+     */
+    total?: number | string;
     totalField?: FieldRef;
     display?: number;
     /** 表格控件：静态字典（键/值两列）；绑定时以绑定字段的字典值为准 */

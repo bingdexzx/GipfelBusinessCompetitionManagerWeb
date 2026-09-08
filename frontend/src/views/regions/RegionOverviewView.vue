@@ -154,7 +154,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="产品数量" required>
-          <el-input-number v-model="demandForm.quantity" :min="0" :step="1" controls-position="right" style="width: 100%" />
+          <BigNumberInput v-model="demandForm.quantity" :min="0" style="width: 100%" />
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="demandForm.note" type="textarea" :rows="2" placeholder="可选" />
@@ -175,6 +175,7 @@ import { Edit, Close } from "@element-plus/icons-vue";
 import { useCompetitionStore } from "@/stores/competition";
 import { useAuthStore } from "@/stores/auth";
 import { regionsApi, companyFieldsApi, consumerDemandsApi, productsApi } from "@/api/index";
+import BigNumberInput from "@/components/common/BigNumberInput.vue";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 
 const compStore = useCompetitionStore();

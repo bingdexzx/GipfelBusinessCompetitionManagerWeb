@@ -102,19 +102,17 @@
           <el-input v-model="form.name" placeholder="请输入仓库名称" />
         </el-form-item>
         <el-form-item label="容量" prop="capacity">
-          <el-input-number
+          <BigNumberInput
             v-model="form.capacity"
             :min="0"
-            :precision="2"
             style="width: 100%"
             placeholder="仓库容量"
           />
         </el-form-item>
         <el-form-item label="价格" prop="price">
-          <el-input-number
+          <BigNumberInput
             v-model="form.price"
             :min="0"
-            :precision="2"
             style="width: 100%"
             placeholder="仓库价格"
           />
@@ -147,6 +145,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
 import SearchToggle from "@/components/common/SearchToggle.vue";
+import BigNumberInput from "@/components/common/BigNumberInput.vue";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 
 interface Warehouse {

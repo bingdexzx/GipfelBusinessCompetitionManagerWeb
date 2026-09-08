@@ -103,7 +103,7 @@
             v-model="form[field.prop]"
             :type="field.inputType || 'text'"
           />
-          <el-input-number
+          <BigNumberInput
             v-else-if="field.type === 'number'"
             v-model="form[field.prop]"
             :min="field.min ?? 0"
@@ -146,6 +146,7 @@ import { useCompetitionStore } from "@/stores/competition";
 import { useCompetitionReload } from "@/composables/useCompetitionReload";
 import { useAuthStore } from "@/stores/auth";
 import { useBreakpoint } from "@/composables/useBreakpoint";
+import BigNumberInput from "@/components/common/BigNumberInput.vue";
 import SearchToggle from "@/components/common/SearchToggle.vue";
 import { confirmDeleteWithImpact } from "@/utils/deleteConfirm";
 

@@ -101,6 +101,16 @@ export function formatMoneyCN(
 }
 
 /**
+ * 大数安全输入校验：字符串是否为合法数字（含任意大的数）。
+ * 供 BigNumberInput 及表单提交前的手工校验使用——与后端 Python int/Decimal
+ * 的解析规则一致：可选符号 + 数字 + 可选小数点。
+ */
+export function isValidNumberString(s: string | number | null | undefined): boolean {
+  if (s == null || s === "") return false;
+  return /^[+-]?\d+(\.\d+)?$/.test(String(s).trim());
+}
+
+/**
  * ISO 时间去秒截断（与全局 $formatTime 完全一致）。
  * 空值或非法日期返回 "-"；否则按 UTC 截断到秒（YYYY-MM-DD HH:mm:ss）。
  */

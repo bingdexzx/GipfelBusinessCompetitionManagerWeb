@@ -220,10 +220,10 @@
           <el-input v-model="stockForm.name" />
         </el-form-item>
         <el-form-item label="总股本(万股)" required>
-          <el-input-number v-model="stockForm.totalShares" :min="0" :precision="2" style="width: 100%" />
+          <BigNumberInput v-model="stockForm.totalShares" :min="0" style="width: 100%" />
         </el-form-item>
         <el-form-item label="初始净利润(万)" required>
-          <el-input-number v-model="stockForm.initNetProfit" :min="0" :precision="2" style="width: 100%" />
+          <BigNumberInput v-model="stockForm.initNetProfit" :min="0" style="width: 100%" />
         </el-form-item>
         <el-form-item label="PE 关联公司">
           <el-select
@@ -255,7 +255,7 @@
             <span class="bound-num">{{ carbonLiveText }}</span>
             <span class="muted">（实时引用「{{ carbonBoundLabel }}」）</span>
           </div>
-          <el-input-number v-else v-model="stockForm.currentCarbon" :precision="2" style="width: 100%" />
+          <BigNumberInput v-else v-model="stockForm.currentCarbon" style="width: 100%" />
         </el-form-item>
         <el-form-item label="行业碳排均值绑定字段">
           <el-select
@@ -274,7 +274,7 @@
             <span class="bound-num">{{ industryAvgCarbonLiveText }}</span>
             <span class="muted">（实时引用 {{ stockForm.industryAvgCarbonRefsSel.length }} 个字段的平均值）</span>
           </div>
-          <el-input-number v-else v-model="stockForm.industryAvgCarbon" :precision="2" style="width: 100%" />
+          <BigNumberInput v-else v-model="stockForm.industryAvgCarbon" style="width: 100%" />
         </el-form-item>
         <el-form-item label="幸福度绑定字段">
           <el-select v-model="stockForm.happinessRefSel" placeholder="不绑定（手动输入）" clearable style="width: 100%">
@@ -331,7 +331,7 @@
           <span class="muted">{{ authStore.user?.displayName || authStore.user?.username || "我自己" }}</span>
         </el-form-item>
         <el-form-item v-if="accountForm.manualCash" label="初始现金(元)">
-          <el-input-number v-model="accountForm.cashBalance" :min="0" :precision="2" style="width: 100%" />
+          <BigNumberInput v-model="accountForm.cashBalance" :min="0" style="width: 100%" />
         </el-form-item>
         <el-alert v-if="accountForm.ownerType === 'USER'" type="info" :closable="false" title="个人账户初始资金固定为 100 万元。" />
         <el-alert v-if="accountForm.bindFieldId" type="info" :closable="false" title="已绑定产业字段，资金余额将自动同步字段值，交易时直接加减该字段。" />
@@ -483,6 +483,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 import { formatMoney } from "@/utils/format";
+import BigNumberInput from "@/components/common/BigNumberInput.vue";
 
 const compStore = useCompetitionStore();
 const authStore = useAuthStore();
@@ -775,16 +776,10 @@ async function onAccountFieldChange(val?: number | null) {
       const res = await companyFieldsApi.get(accountForm.value.companyId);
       const fieldValue = (res?.fields || []).find((fv: any) => fv.id === fieldId);
       const raw = fieldValue?.value != null ? fieldValue.value : fieldValue?.defaultValue;
-      // 大数安全：_bindFieldValue 保留原始形态（字符串大数由 fmt 走 BigInt 分组精确显示）；
-      // 仅当可安全 Number 化（|n| ≤ 2^53）时才回填 cashBalance——el-input-number
-      // 是原生 Number 控件，2^53 以上本身无法表示，不回填以免静默丢精度。
+      // 大数安全：cashBalance 输入框已换 BigNumberInput（文本承载，任意精度），
+      // 字段原始值（字符串/数字）直接回填，无需 Number 化。
       accountForm.value._bindFieldValue = raw != null ? raw : null;
-      if (raw != null) {
-        const n = Number(raw);
-        if (Number.isFinite(n) && Math.abs(n) <= Number.MAX_SAFE_INTEGER) {
-          accountForm.value.cashBalance = n;
-        }
-      }
+      if (raw != null) accountForm.value.cashBalance = raw;
     }
   } catch {
     accountForm.value._bindFieldValue = null;

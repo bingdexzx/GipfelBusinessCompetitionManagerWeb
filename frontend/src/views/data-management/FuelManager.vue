@@ -70,7 +70,7 @@
           <el-input v-model="form.name" placeholder="请输入燃料名称" />
         </el-form-item>
         <el-form-item label="每升价格" prop="pricePerLiter">
-          <el-input-number v-model="form.pricePerLiter" :min="0" style="width: 100%" />
+          <BigNumberInput v-model="form.pricePerLiter" :min="0" style="width: 100%" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -92,6 +92,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
 import SearchToggle from "@/components/common/SearchToggle.vue";
+import BigNumberInput from "@/components/common/BigNumberInput.vue";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 
 interface FuelItem {

@@ -97,13 +97,13 @@
         ><el-input v-model="form.name" placeholder="生产线名称"
       /></el-form-item>
       <el-form-item label="价格" prop="price">
-        <el-input-number v-model="form.price" :min="0" :precision="2" style="width: 100%" />
+        <BigNumberInput v-model="form.price" :min="0" style="width: 100%" />
       </el-form-item>
       <el-form-item label="劳动力数量" prop="laborCount">
         <el-input-number v-model="form.laborCount" :min="1" :step="1" style="width: 100%" />
       </el-form-item>
       <el-form-item label="年加工上限" prop="maxPerYear">
-        <el-input-number v-model="form.maxPerYear" :min="0" :precision="2" style="width: 100%" />
+        <BigNumberInput v-model="form.maxPerYear" :min="0" style="width: 100%" />
       </el-form-item>
     </el-form>
     <template #footer>
@@ -124,6 +124,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
 import SearchToggle from "@/components/common/SearchToggle.vue";
+import BigNumberInput from "@/components/common/BigNumberInput.vue";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 
 const compStore = useCompetitionStore();

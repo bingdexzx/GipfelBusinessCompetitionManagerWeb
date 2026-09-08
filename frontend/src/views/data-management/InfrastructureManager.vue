@@ -85,7 +85,7 @@
           :label="f.label"
           :prop="f.prop"
         >
-          <el-input-number
+          <BigNumberInput
             v-model="(form as any)[f.prop]"
             :min="0"
             style="width: 100%"
@@ -111,6 +111,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
 import SearchToggle from "@/components/common/SearchToggle.vue";
+import BigNumberInput from "@/components/common/BigNumberInput.vue";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 
 interface InfraItem {

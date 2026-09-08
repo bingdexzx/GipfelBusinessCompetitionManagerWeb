@@ -160,13 +160,12 @@
               <div v-if="!originNodes.length" class="np-empty">（所选产地未匹配到地图节点）</div>
               <div v-for="node in originNodes" :key="node.id" class="np-row">
                 <span class="np-label">{{ node.name }}<small>（{{ node.region }}）</small></span>
-                <el-input-number
-                  :model-value="form.nodePrices[node.id] ?? 0"
+                <BigNumberInput
+                  :model-value="form.nodePrices[node.id] ?? ''"
                   :min="0"
-                  :controls="false"
                   size="small"
                   style="width: 120px"
-                  @update:model-value="(v: number | undefined) => onNodePriceChange(node.id, v)"
+                  @update:model-value="(v: string) => onNodePriceChange(node.id, v)"
                 />
               </div>
             </div>
@@ -195,6 +194,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
 import SearchToggle from "@/components/common/SearchToggle.vue";
+import BigNumberInput from "@/components/common/BigNumberInput.vue";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 
 const compStore = useCompetitionStore();
@@ -242,7 +242,8 @@ function getRowNodePrices(row: any) {
   }
   const nodeNameById = new Map((mapNodes.value || []).map((n: any) => [n.id, n.name]));
   return Object.entries(parsed)
-    .filter(([, v]) => typeof v === "number")
+    // 兼容数字与数字字符串（大数安全：新数据以字符串形态存储）
+    .filter(([, v]) => typeof v === "number" || (typeof v === "string" && /^[+-]?\d+(\.\d+)?$/.test(v)))
     .map(([k, v]) => ({ nodeId: Number(k), price: v, nodeName: nodeNameById.get(Number(k)) || `节点#${k}` }));
 }
 
@@ -373,11 +374,12 @@ function openDetail(row: any) {
   showDetail.value = true;
 }
 
-function onNodePriceChange(nodeId: number, v: number | undefined) {
-  if (v == null || v <= 0) {
+function onNodePriceChange(nodeId: number, v: string) {
+  // 大数安全：价格以字符串保存（BigNumberInput 输出干净数字串），后端按 Decimal 解析
+  if (v === "" || Number(v) <= 0) {
     delete (form.nodePrices as Record<number, number>)[nodeId];
   } else {
-    (form.nodePrices as Record<number, number>)[nodeId] = v;
+    (form.nodePrices as Record<number, number>)[nodeId] = v as unknown as number;
   }
 }
 

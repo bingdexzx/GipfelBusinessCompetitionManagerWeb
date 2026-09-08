@@ -201,7 +201,7 @@
                 :value="opt.id"
               />
             </el-select>
-            <el-input-number
+            <BigNumberInput
               v-else-if="field.type === 'number'"
               v-model="createForm.inputs[field.key]"
               :min="0"
@@ -263,11 +263,11 @@
             </div>
             <div v-else-if="field.type === 'list'" class="list-editor">
               <div v-for="(_, i) in createForm.inputs[field.key] || []" :key="i" class="list-row">
-                <el-input-number
+                <BigNumberInput
                   v-if="field.elementType === 'number'"
                   v-model="createForm.inputs[field.key][i]"
                   :min="0"
-                  controls-position="right"
+                  style="width: 160px"
                 />
                 <el-input v-else v-model="createForm.inputs[field.key][i]" placeholder="元素值" />
                 <el-button size="small" type="danger" plain @click="removeListItem(field.key, i)"
@@ -285,11 +285,11 @@
                   placeholder="键"
                   @change="(nv: string) => renameDictKey(field.key, String(k), nv)"
                 />
-                <el-input-number
+                <BigNumberInput
                   v-if="field.elementType === 'number'"
                   v-model="createForm.inputs[field.key][k]"
                   :min="0"
-                  controls-position="right"
+                  style="width: 160px"
                 />
                 <el-input v-else v-model="createForm.inputs[field.key][k]" placeholder="值" />
                 <el-button
@@ -332,11 +332,9 @@
                   class="material-qty-row"
                 >
                   <span class="material-name">{{ name }}</span>
-                  <el-input-number
+                  <BigNumberInput
                     v-model="createForm.inputs[field.key][name]"
                     :min="0"
-                    :step="1"
-                    controls-position="right"
                     style="width: 160px"
                   />
                   <el-button
@@ -624,6 +622,7 @@ import { useCompetitionStore } from "@/stores/competition";
 import { useCompetitionReload } from "@/composables/useCompetitionReload";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
+import BigNumberInput from "@/components/common/BigNumberInput.vue";
 import SearchToggle from "@/components/common/SearchToggle.vue";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 import { useAuthStore } from "@/stores/auth";

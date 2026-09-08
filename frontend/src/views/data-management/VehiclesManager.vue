@@ -132,20 +132,18 @@
         </el-form-item>
 
         <el-form-item label="最大载货量" prop="maxCargo">
-          <el-input-number
+          <BigNumberInput
             v-model="form.maxCargo"
             :min="0"
-            :precision="2"
             placeholder="最大载货量"
             style="width: 100%"
           />
         </el-form-item>
 
         <el-form-item label="价格" prop="price">
-          <el-input-number
+          <BigNumberInput
             v-model="form.price"
             :min="0"
-            :precision="2"
             placeholder="价格"
             style="width: 100%"
           />
@@ -197,6 +195,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
 import SearchToggle from "@/components/common/SearchToggle.vue";
+import BigNumberInput from "@/components/common/BigNumberInput.vue";
 import { useBreakpoint } from "@/composables/useBreakpoint";
 
 interface VehicleItem {

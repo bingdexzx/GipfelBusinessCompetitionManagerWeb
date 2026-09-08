@@ -178,13 +178,8 @@
             </el-select>
           </el-form-item>
           <el-form-item v-if="!editForm.totalFieldKey" label="总量">
-            <el-input-number
-              v-model="editForm.total"
-              :min="0"
-              :step="1"
-              controls-position="right"
-              style="width: 100%"
-            />
+            <!-- 大数安全：总量可到千万京级，用 BigNumberInput 文本承载 -->
+            <BigNumberInput v-model="editForm.total" :min="0" style="width: 100%" />
           </el-form-item>
           <el-form-item v-else label="提示">
             <span class="dw-tip">总量将自动取自绑定字段的当前值</span>
@@ -241,6 +236,8 @@ import {
 import { useCompetitionStore } from "@/stores/competition";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
+import BigNumberInput from "@/components/common/BigNumberInput.vue";
+import { isValidNumberString } from "@/utils/format";
 
 const compStore = useCompetitionStore();
 const authStore = useAuthStore();
@@ -352,7 +349,7 @@ const editForm = ref({
   caption: "",
   text: "",
   label: "",
-  total: 0,
+  total: "" as string | number, // 大数安全：总量可字符串承载
   display: 0,
   dictText: "",
   customText: "",
@@ -451,7 +448,9 @@ function saveEdit() {
       fieldRef: ref,
       totalField: totalRef,
       label: editForm.value.label,
-      total: Number(editForm.value.total) || 0,
+      // 大数安全：合法数字以字符串原样保存（widget 显示侧已按 BigInt 分组），
+      // 非法/空值回退 0；绝不 Number 化——2^53 以上会静默丢精度
+      total: isValidNumberString(editForm.value.total) ? String(editForm.value.total).trim() : 0,
       display: Number(editForm.value.display) || 0,
     };
   }
