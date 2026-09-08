@@ -411,14 +411,26 @@ def apply_field_effect(
             after = obj
         elif op == "SUB":
             if isinstance(new_value, list):
+                # 传键列表：按整键移除（兼容旧用法，显式删键）。
                 remove_keys = [str(k) for k in new_value]
+                after = {k: v for k, v in base.items() if k not in remove_keys}
             elif isinstance(new_value, dict):
-                remove_keys = list(new_value.keys())
+                # 逐键相减：共有键的值相减（保留键，不删键）；
+                # 仅出现在减数字典中的键忽略（base 中没有则无可减）。
+                after = {}
+                for k, v in base.items():
+                    after[k] = to_number(v) - to_number(new_value[k]) if k in new_value else v
             else:
-                remove_keys = [str(new_value)]
-            after = {k: v for k, v in base.items() if k not in remove_keys}
-        else:  # ADD 合并
-            after = {**base, **obj}
+                # 传标量：按整键移除该键（兼容旧用法）。
+                after = {k: v for k, v in base.items() if k != str(new_value)}
+        else:  # ADD
+            if isinstance(new_value, dict):
+                # 逐键相加：共有键的值相加，各自独有的键保留（不再整体覆盖同键值）。
+                after = dict(base)
+                for k, v in obj.items():
+                    after[k] = to_number(after[k]) + to_number(v) if k in after else v
+            else:
+                after = {**base, **obj}
         value_type = (config or {}).get("valueType") or "STRING"
         after = {k: cast_scalar(value_type, v) for k, v in after.items()}
     else:
