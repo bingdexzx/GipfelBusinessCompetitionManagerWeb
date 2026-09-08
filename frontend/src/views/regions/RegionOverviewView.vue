@@ -174,7 +174,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { Edit, Close } from "@element-plus/icons-vue";
 import { useCompetitionStore } from "@/stores/competition";
 import { useAuthStore } from "@/stores/auth";
-import { regionsApi, companyFieldsApi, consumerDemandsApi, productsApi } from "@/api/index";
+import { regionsApi, industryTypesApi, consumerDemandsApi, productsApi } from "@/api/index";
 import BigNumberInput from "@/components/common/BigNumberInput.vue";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 
@@ -303,10 +303,17 @@ async function onCompanyChange(companyId: number) {
     return;
   }
   try {
-    const res = await companyFieldsApi.get(companyId, { includeHidden: true });
-    // 区域总览字段选择展示全部字段（含 hidden）：隐藏字段只作用于公司管理界面不展示，
-    // 区域总览仍可将其选中并发布到数据框（发布后照常展示）。
-    companyFields.value = res?.fields || [];
+    // 字段元数据改走「产业类型字段」接口：区域总览需要可选本区域任意公司的字段，
+    // 而公司字段接口受 viewCompanyScopes 限制（范围外公司直接 404 → 字段列表为空）。
+    // 此处只需字段 id/名称等元数据（卡片值由地图总览接口统一发布），无需该公司字段值。
+    const comp = regionCompanies.value.find((x: any) => x.id === companyId);
+    const itId = comp?.industryTypeId;
+    if (!itId) {
+      companyFields.value = [];
+      return;
+    }
+    const fields: any[] = (await industryTypesApi.listFields(itId)) || [];
+    companyFields.value = fields;
   } catch (e) {
     companyFields.value = [];
   }
