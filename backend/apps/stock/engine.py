@@ -218,12 +218,17 @@ def build_candle(
     limit_pct: float = 0.1,
     upper_pct: float | None = None,
     lower_pct: float | None = None,
+    trade_high: float | None = None,
+    trade_low: float | None = None,
 ) -> dict:
     """构建 K 线数据。
 
     内部保持 float 运算（影线是图形指标，精度足够），
     仅在最后用 round2 截断到 0.01。
     upper_pct / lower_pct：非对称限幅（防连板 S10），缺省回落 limit_pct。
+    trade_high / trade_low：本轮实际成交价的最高/最低——真实挂单成交
+    可能超出「body + 理论价 + 噪声影线」的合成范围（如买卖单挂价贴限价），
+    K 线必须如实反映（仍夹在涨跌停限幅内）。
     """
     up_pct = upper_pct if upper_pct is not None else limit_pct
     dn_pct = lower_pct if lower_pct is not None else limit_pct
@@ -241,6 +246,11 @@ def build_candle(
         t = float(min(max(theoretical, lower), upper))
         high = max(high, t)
         low = min(low, t)
+    # 实际成交价并入影线（夹在限幅内）
+    if trade_high is not None and math.isfinite(trade_high):
+        high = max(high, float(min(max(trade_high, lower), upper)))
+    if trade_low is not None and math.isfinite(trade_low):
+        low = min(low, float(min(max(trade_low, lower), upper)))
 
     wick = range_ * 0.12
     up_wick = wick * candle_noise(round_, open_)
@@ -1082,6 +1092,7 @@ def advance_one_stock(
 
         bi = 0
         si = 0
+        trade_prices: list[Decimal] = []
         while bi < len(buys) and si < len(sells):
             buy = buys[bi]
             sell = sells[si]
@@ -1113,6 +1124,7 @@ def advance_one_stock(
                     continue
             # 6 位小数微调（保留买卖双方分摊精度，不入账）
             qty = (qty * Decimal("1000000")).quantize(Decimal("1"), rounding=ROUND_HALF_UP) / Decimal("1000000")
+            trade_prices.append(pair_price)
 
             # 买入方：现金减少，持仓增加（加权成本）
             cash_map[buy.funds_account_id] = cash_map[buy.funds_account_id] - qty * pair_price
@@ -1147,6 +1159,8 @@ def advance_one_stock(
         candle = build_candle(
             stock.current_price, price["final"], stock.round + 1,
             price["theoretical"], cfg["limitPct"], upper_pct, lower_pct,
+            trade_high=float(max(trade_prices)) if trade_prices else None,
+            trade_low=float(min(trade_prices)) if trade_prices else None,
         )
         new_round = stock.round + 1
 
