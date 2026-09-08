@@ -226,7 +226,7 @@ class ChangePasswordView(APIView):
 
         user.set_password(new_password)
         user.must_change_password = False
-        # 改密后吊销所有已签发 token：递增 token_version，旧 JWT 立即失效，需重新登录
+        # 改密后吊销所有已签发 token：递增 token_version，旧 JWT 立即失效
         user.token_version = (user.token_version or 0) + 1
         user.save(
             update_fields=[
@@ -237,4 +237,10 @@ class ChangePasswordView(APIView):
             ]
         )
 
-        return Response({"ok": True})
+        # 直接签发新 token 返回，前端用其续接会话——避免让前端再次 /login 触发的
+        # SQLite 写后读竞态（曾复现 200 后 20ms 用新密码重登 401、10ms 即返回
+        # 「未跑 bcrypt」的场景，本质是 login 路径上 User 实例偶发读到旧/空
+        # password_hash）。改密、吊销旧 token、签发新 token 三步在同一请求同一
+        # ORM 实例上原子完成，读时已能见到新 hash。
+        new_token = create_jwt(user)
+        return Response({"ok": True, "token": new_token, "user": serialize_user(user)})

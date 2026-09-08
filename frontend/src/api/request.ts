@@ -44,6 +44,11 @@ api.interceptors.request.use(
 // 将任意错误统一转换为中文提示，避免暴露 axios / HTTP 的英文消息
 export function getErrorMessage(error: unknown): string {
   const err = error as any;
+  // 优先返回抛出的普通 Error.message（如改密成功后自动重登失败的诚实降级提示
+  // "密码修改成功，请使用新密码重新登录"），避免被兜底的"网络错误"覆盖。
+  if (err?.message && !err?.response) {
+    return err.message;
+  }
   if (err?.response?.data?.message) {
     return err.response.data.message;
   }

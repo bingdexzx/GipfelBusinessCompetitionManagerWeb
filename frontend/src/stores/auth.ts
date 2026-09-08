@@ -62,11 +62,12 @@ export const useAuthStore = defineStore("auth", () => {
   const needsPasswordChange = computed(() => !!user.value?.mustChangePassword);
 
   /** 自助改密：用于首次登录强制改密流程。
-   *  后端改密成功后会递增 token_version，吊销包括当前会话在内的所有旧 token（安全设计）；
-   *  若不重新登录，后续请求将携带已失效的旧 token，被 401 拦截器误判为
-   *  「账号已在其他设备登录」并踢回登录页。因此改密成功后立即用新密码
-   *  重新登录换取新 token，用户无感续接会话。
-   *  同时在改密→重登窗口期：停掉心跳、屏蔽 401 拦截器的踢出逻辑——
+   *  后端改密成功后会递增 token_version，吊销包括当前会话在内的所有旧 token（安全设计）。
+   *  改密接口本身在同一请求内基于新 token_version 签发新 token 并随响应一起返回，
+   *  前端直接拿这个新 token 替换内存 / localStorage 的旧值，心跳与后续请求立即续接，
+   *  彻底规避「改密 200 → 再 login」的 SQLite 写后读竞态（曾复现：login 路径 10ms 即
+   *  返回 401「未跑 bcrypt」，本质是同连接上 User 实例偶发读到旧 / 空 password_hash）。
+   *  同时在改密→续接窗口期：停掉心跳、屏蔽 401 拦截器的踢出逻辑——
    *  旧会话后台请求（心跳/缓存同步）的迟到 401 不得清掉刚换发的新 token。 */
   async function changePassword(oldPassword: string, newPassword: string) {
     stopHeartbeat();
@@ -74,8 +75,20 @@ export const useAuthStore = defineStore("auth", () => {
     let changed = false;
     try {
       try {
-        await authApi.changePassword({ oldPassword, newPassword });
-        changed = true;
+        const res: any = await authApi.changePassword({ oldPassword, newPassword });
+        // 改密成功且后端返回了新 token：直接续接，不再二次 login
+        if (res?.token) {
+          token.value = res.token;
+          setActiveUser(res.user?.id ?? user.value?.id);
+          setAccountItem("token", res.token);
+          if (res.user) user.value = res.user;
+          else if (user.value) user.value.mustChangePassword = false;
+          startHeartbeat();
+          changed = true;
+        } else {
+          // 兼容旧版本后端：未返回 token 时回到 login 重登路径
+          changed = true;
+        }
       } catch (e: any) {
         // 会话在弹窗期间被顶掉（后端每次登录都递增 token_version：别处再登录一次，
         // 本页 token 即失效 → 改密请求 401「账号已在其他设备登录」）。
@@ -84,21 +97,19 @@ export const useAuthStore = defineStore("auth", () => {
         const status = e?.response?.status;
         if (status === 401 && user.value?.username) {
           await login(user.value.username, oldPassword);
+          // 重登后再次改密——重登时后端会递增一次 token_version，
+          // 此处不再依赖改密响应里的 token（按登录路径续接），保持向后兼容。
           await authApi.changePassword({ oldPassword, newPassword });
           changed = true;
         } else {
           throw e;
         }
       }
-      if (changed && user.value?.username) {
-        // 重新登录（后端会再次递增 token_version 并签发新 token，旧 token 全部作废，
-        // 效果等价于改密吊销 + 本设备续登，其他设备仍被正确踢下线）。
+      if (changed && user.value?.username && !token.value) {
+        // 兜底：旧版本后端没回 token，登录态未续上，需要再走一次 login
         try {
           await login(user.value.username, newPassword);
         } catch (re) {
-          // 改密已成功（后端 200 落库），但自动重登异常——改密提交后的极短窗口内
-          // 后端偶发对正确凭据返回 401（真实环境已复现）。改密是既成事实，
-          // 不能把误导性报错抛给用户：清掉本地会话，明确告知用新密码重新登录。
           logger.warn("改密成功但自动重登失败，转人工重登:", re);
           logout();
           throw new Error("密码修改成功，请使用新密码重新登录");
