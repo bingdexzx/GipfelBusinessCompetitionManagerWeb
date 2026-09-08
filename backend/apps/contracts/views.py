@@ -224,6 +224,18 @@ class ContractCollectionAPIView(APIView):
             if cid != getattr(request.user, "competition_id", None):
                 raise BusinessError("无权限在该比赛下创建合同", code=403, status_code=403)
         contract = serializer.create(serializer.validated_data)
+        # 单方合同（及创建时一次填齐编号的多方合同）：若全部非主办方参与方编号已填写，
+        # 直接进入待执行状态——与 PATCH party-numbers 的自动升降规则一致；
+        # 否则单方合同创建后无人再触发编号补全，会永远停留在草稿。
+        parties = parse_json_array(contract.parties)
+        selectable = [p for p in parties if isinstance(p, dict) and not p.get("isHost")]
+        all_filled = bool(selectable) and all(
+            p.get("contractNumber") is not None and str(p["contractNumber"]).strip() != ""
+            for p in selectable
+        )
+        if all_filled and contract.status == "DRAFT":
+            contract.status = "PENDING_EXEC"
+            contract.save(update_fields=["status", "updated_at"])
         # 无需显式广播：serializer.create 内部 Contract.objects.create 触发 post_save 信号，
         # signals.py 已按 MODEL_TO_RESOURCE 广播 "contracts"（created）。原单数 "contract" 为误配冗余。
         return Response(_serialize_contract(contract))

@@ -1392,14 +1392,18 @@ async function handleCreate() {
     for (const f of inputSchemaFields.value) {
       if (isFieldVisible(f)) inputsToSubmit[f.key] = createForm.inputs[f.key];
     }
-    // 后端：仅建草稿（DRAFT），不执行；编号可分步补全后再执行
-    await contractsApi.create({
+    // 后端：建草稿；若创建时已填齐全部非主办方编号（如单方合同），后端直接置为待执行
+    const created: any = await contractsApi.create({
       competitionId: compStore.competitionId,
       contractTypeId: createForm.contractTypeId,
       parties: partiesArr,
       inputs: inputsToSubmit,
     });
-    ElMessage.success("合同已创建（草稿），请在详情页补全其余各方编号后执行");
+    ElMessage.success(
+      created?.status === "PENDING_EXEC"
+        ? "合同已创建，编号已齐备，进入待执行状态"
+        : "合同已创建（草稿），请在详情页补全其余各方编号后执行",
+    );
     showCreate.value = false;
     loadContracts();
   } catch (e: any) {
