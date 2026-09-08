@@ -262,6 +262,8 @@ export const companiesApi = {
   remove: (id: number, competitionId?: number | null) =>
     api.delete(`/companies/${id}`, competitionId != null ? { params: { competitionId } } : undefined),
   impact: (id: number) => api.get(`/companies/${id}/impact`, { cache: false }),
+  // 全量重算某比赛所有公司的计算字段（仅超级管理员）
+  recomputeAll: (competitionId: number) => api.post("/companies/recompute-all", { competitionId }),
 };
 
 export const regionsApi = {

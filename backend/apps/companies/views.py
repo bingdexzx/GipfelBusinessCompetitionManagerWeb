@@ -134,6 +134,63 @@ class ItemAPIView(APIView):
         return Response({"ok": True})
 
 
+class RecomputeAllAPIView(APIView):
+    """POST /api/companies/recompute-all —— 全量重算某比赛所有公司的计算字段。
+
+    仅超级管理员可用。逐公司走 calc.recompute_calc_fields（按依赖拓扑序），
+    成功后逐公司 emit_resource_changed("company-field", ..., "updated")
+    让前端实时刷新字段值。
+    """
+
+    permission_classes = _PERM_CLASSES
+
+    def post(self, request):
+        import logging
+
+        from apps.common.guards import _normalize_competition_id
+
+        if getattr(request.user, "role", None) != "SUPER_ADMIN":
+            raise BusinessError("仅超级管理员可执行全量重算", code=403, status_code=403)
+
+        competition_id = _normalize_competition_id(
+            (request.data or {}).get("competitionId")
+            if isinstance(request.data, dict)
+            else request.query_params.get("competitionId")
+        )
+        if competition_id is None:
+            raise BusinessError("缺少比赛上下文，请先选择比赛")
+
+        company_ids = list(
+            Company.objects.filter(competition_id=competition_id).values_list("id", flat=True)
+        )
+
+        from apps.company_fields.calc import recompute_calc_fields
+        from apps.realtime.emit import emit_resource_changed
+
+        logger = logging.getLogger("gipfel")
+        ok_count = 0
+        failed: list[int] = []
+        for cid in company_ids:
+            try:
+                recompute_calc_fields(cid)
+            except Exception as e:  # noqa: BLE001 单公司失败不中断整体
+                logger.warning(
+                    "[companies] 全量重算：公司 #%s 失败：%s", cid, getattr(e, "message", e)
+                )
+                failed.append(cid)
+                continue
+            ok_count += 1
+            emit_resource_changed("company-field", cid, competition_id, "updated")
+
+        logger.info(
+            "[companies] 全量重算完成：比赛 #%s 共 %s 家，成功 %s，失败 %s",
+            competition_id, len(company_ids), ok_count, len(failed),
+        )
+        return Response(
+            {"ok": True, "recomputed": ok_count, "total": len(company_ids), "failed": failed}
+        )
+
+
 class ImpactView(APIView):
     """GET /api/companies/:id/impact —— 删除影响（公司产业字段值数）。"""
 

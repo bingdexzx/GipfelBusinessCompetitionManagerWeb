@@ -4,6 +4,12 @@
       <h2 class="mm-title">{{ authStore.can("company:manage") ? "公司管理" : "公司" }}</h2>
       <div class="mm-actions">
         <el-button
+          v-if="isSuperAdmin"
+          :loading="recomputing"
+          @click="onRecomputeAll"
+          >全量重算</el-button
+        >
+        <el-button
           v-if="authStore.can('company:manage')"
           type="primary"
           @click="openCreate"
@@ -106,6 +112,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { useCompetitionStore } from "@/stores/competition";
 import { useAuthStore } from "@/stores/auth";
 import api from "@/api/request";
+import { companiesApi } from "@/api";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
 import { useBreakpoint } from "@/composables/useBreakpoint";
@@ -124,6 +131,39 @@ const createRules = { name: [{ required: true, message: "请输入公司名称",
 const loading = ref(false);
 const dataLoading = ref(true);
 const form = reactive({ name: "", industryTypeId: null as number | null });
+
+// 全量重算（仅超管）：对当前比赛所有公司重算计算字段
+const isSuperAdmin = computed(() => authStore.user?.role === "SUPER_ADMIN");
+const recomputing = ref(false);
+async function onRecomputeAll() {
+  if (!compStore.competitionId) {
+    ElMessage.warning("请先在「比赛管理」中选择一个比赛");
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      "将对当前比赛的所有公司重新计算全部计算字段（按依赖拓扑序），完成后自动通知前端刷新。确认执行？",
+      "全量重算",
+      { type: "warning", confirmButtonText: "执行重算", cancelButtonText: "取消" },
+    );
+  } catch {
+    return; // 用户取消
+  }
+  recomputing.value = true;
+  try {
+    const res: any = await companiesApi.recomputeAll(compStore.competitionId);
+    const failed = Array.isArray(res?.failed) ? res.failed.length : 0;
+    if (failed > 0) {
+      ElMessage.warning(`重算完成：成功 ${res.recomputed} 家，失败 ${failed} 家（详见后端日志）`);
+    } else {
+      ElMessage.success(`重算完成：已重算 ${res?.recomputed ?? 0} 家公司的计算字段`);
+    }
+  } catch {
+    // 错误提示由全局响应拦截器统一弹出
+  } finally {
+    recomputing.value = false;
+  }
+}
 
 const companyColumns = [
   { prop: "name", label: "名称" },
