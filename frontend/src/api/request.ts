@@ -89,6 +89,13 @@ api.interceptors.response.use(
     return res.data;
   },
   (error) => {
+    // 安全加固：立即剥离 error 对象上的 Authorization 头——下游各视图的
+    // console.error(e) 会把整个 axios error 打进控制台，连带 Bearer token 泄露。
+    // 401「迟到判定」所需的原 token 在剥离前先取出。
+    const reqAuth = (error.config?.headers as Record<string, unknown> | undefined)
+      ?.Authorization;
+    if (error.config?.headers) delete (error.config.headers as Record<string, unknown>).Authorization;
+    if (error.headers) delete (error.headers as Record<string, unknown>).Authorization;
     // 后台静默同步请求（缓存增量轮询 / 离线降级）失败不弹提示，由缓存层自行降级。
     if (error.config?.silent && error.response?.status !== 401) {
       return Promise.reject(error);
@@ -101,8 +108,6 @@ api.interceptors.response.use(
       // 迟到 401 判定：触发 401 的请求所携带的 token 已不是当前登录态的 token
       // （改密/顶号后已换发新 token），说明这是旧会话的过期响应——静默忽略，
       // 不清新 token、不跳登录页、不弹「账号已在其他设备登录」。
-      const reqAuth = (error.config?.headers as Record<string, unknown> | undefined)
-        ?.Authorization;
       const reqToken = typeof reqAuth === "string" ? reqAuth.replace(/^Bearer\s+/i, "") : "";
       const curToken = getAccountItem("token") || "";
       // 本地已无登录态（此前已被踢出/已登出）：残留页面的请求 401 静默丢弃，
