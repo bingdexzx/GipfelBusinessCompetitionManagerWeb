@@ -45,7 +45,7 @@ export const PERMISSION_CATALOG: PermissionDomain[] = [
   { key: "data:warehouse", label: "仓库管理", group: "数据", actions: [ { key: "data:warehouse:view", action: "view", label: "查看" }, { key: "data:warehouse:edit", action: "edit", label: "编辑（增删改）" } ] },
   { key: "data:productionLine", label: "生产线管理", group: "数据", actions: [ { key: "data:productionLine:view", action: "view", label: "查看" }, { key: "data:productionLine:edit", action: "edit", label: "编辑（增删改）" } ] },
   { key: "data:region", label: "区域管理", group: "区域", actions: [ { key: "data:region:view", action: "view", label: "查看" }, { key: "data:region:edit", action: "edit", label: "编辑（增删改）" } ] },
-  { key: "consumer-demand", label: "消费者需求", group: "区域", actions: [ { key: "consumer-demand:view", action: "view", label: "查看" }, { key: "consumer-demand:edit", action: "edit", label: "编辑（增删改）" } ] },
+  // 消费者需求不再单设权限：与区域总览卡片同属「区域」数据，统一由 data:region:view/edit 管控。
   { key: "contractType", label: "合同类型管理", group: "合同", actions: [ { key: "contractType:view", action: "view", label: "查看" }, { key: "contractType:manage", action: "manage", label: "管理（增删改）" } ] },
   { key: "contract", label: "合同管理", group: "合同", actionRank: CONTRACT_ACTION_RANKS, actions: [ { key: "contract:view", action: "view", label: "查看" }, { key: "contract:audit", action: "audit", label: "审核（公司范围）" }, { key: "contract:execute", action: "execute", label: "执行（比赛级）" }, { key: "contract:manage", action: "manage", label: "管理（新建/删除）" } ] },
   { key: "industryType", label: "产业类型管理", group: "产业", actions: [ { key: "industryType:view", action: "view", label: "查看" }, { key: "industryType:manage", action: "manage", label: "管理（增删改）" } ] },

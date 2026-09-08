@@ -1,6 +1,9 @@
 """消费者需求视图。
 
-权限：读 consumer-demand:view，写 consumer-demand:edit。
+权限：读 data:region:view，写 data:region:edit——消费者需求与区域总览卡片
+同属「区域」数据，前端（区域总览页 / 仪表盘）统一按 data:region:* 闸门，
+且 data:region:* 在各角色模板默认集中，避免非超管账号 403。
+
 路由由 backend.urls 以 path("api/", include("apps.consumer_demands.urls")) 引入。
 
 前端契约（与 consumerDemandsApi 对齐）：
@@ -31,8 +34,8 @@ from .serializers import ConsumerDemandSerializer
 
 logger = logging.getLogger(__name__)
 
-_VIEW_PERM = "consumer-demand:view"
-_EDIT_PERM = "consumer-demand:edit"
+_VIEW_PERM = "data:region:view"
+_EDIT_PERM = "data:region:edit"
 _PERM_CLASSES = (IsAuthenticated, PermissionsPermission)
 
 

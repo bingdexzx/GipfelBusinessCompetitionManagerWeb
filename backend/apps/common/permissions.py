@@ -133,15 +133,8 @@ PERMISSION_CATALOG = [
             {"key": "data:region:edit", "action": "edit", "label": "编辑（增删改）"},
         ],
     },
-    {
-        "key": "consumer-demand",
-        "label": "消费者需求",
-        "group": "区域",
-        "actions": [
-            {"key": "consumer-demand:view", "action": "view", "label": "查看"},
-            {"key": "consumer-demand:edit", "action": "edit", "label": "编辑（增删改）"},
-        ],
-    },
+    # 消费者需求不再单设权限：与区域总览卡片同属「区域」数据，统一由
+    # data:region:view / data:region:edit 管控（见 apps/consumer_demands/views.py）。
     {
         "key": "contractType",
         "label": "合同类型管理",
