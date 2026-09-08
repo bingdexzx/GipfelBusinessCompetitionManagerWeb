@@ -22,7 +22,7 @@
           <div v-if="!getRowNodePrices(row).length" class="np-none">—</div>
           <div v-for="p in getRowNodePrices(row)" :key="p.nodeId" class="np-line">
             <span class="np-name">{{ p.nodeName }}</span>
-            <span class="np-val">{{ p.price }}</span>
+            <span class="np-val">{{ formatMoney(p.price) }}</span>
           </div>
         </template>
       </el-table-column>
@@ -67,7 +67,7 @@
         <div v-if="!getRowNodePrices(row).length" class="np-none">—</div>
         <div v-for="p in getRowNodePrices(row)" :key="p.nodeId" class="np-line">
           <span class="np-name">{{ p.nodeName }}</span>
-          <span class="np-val">{{ p.price }}</span>
+          <span class="np-val">{{ formatMoney(p.price) }}</span>
         </div>
       </template>
       <template #type="{ row }">
@@ -107,7 +107,7 @@
           <span v-if="!getRowNodePrices(detailRow).length">（无按地点价格）</span>
           <ul v-else class="np-detail">
             <li v-for="p in getRowNodePrices(detailRow)" :key="p.nodeId">
-              {{ p.nodeName }}：{{ p.price }}
+              {{ p.nodeName }}：{{ formatMoney(p.price) }}
             </li>
           </ul>
         </el-descriptions-item>
@@ -191,6 +191,7 @@ import api from "@/api/request";
 import { materialsApi } from "@/api";
 import { confirmDeleteWithImpact } from "@/utils/deleteConfirm";
 import { useAuthStore } from "@/stores/auth";
+import { formatMoney } from "@/utils/format";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
 import SearchToggle from "@/components/common/SearchToggle.vue";

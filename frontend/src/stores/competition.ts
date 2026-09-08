@@ -39,6 +39,10 @@ export const useCompetitionStore = defineStore("competition", () => {
   const competitionName = computed(() => selected.value?.name || "");
 
   function selectCompetition(comp: CompetitionSelection) {
+    // 切换比赛：先退订旧比赛房间，避免旧房间事件继续到达、触发无效重拉（socket 单例复用）
+    if (selected.value && selected.value.id !== comp.id) {
+      unsubscribeCompetition(selected.value.id);
+    }
     selected.value = comp;
     setAccountItem("currentCompetition", JSON.stringify(comp));
     // 切换比赛时先清空旧财年并进入加载态，避免残留上一个比赛的财年（跳变）。
