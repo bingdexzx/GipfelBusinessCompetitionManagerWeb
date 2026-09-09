@@ -481,6 +481,15 @@ if [[ $WITH_NGINX -eq 1 ]]; then
         -e "s|__DOMAIN__|${DOMAIN:-_}|g" \
         -e "s|__LOG_VIEWER_PORT__|${_lv_port}|g" \
         "$VHOST_TMPL" > "$VHOST_OUT"
+    # 防御：模板与脚本版本撕裂（服务器上 deploy/nginx-gipfel.conf 是新版带占位符，
+    # 但本脚本是旧版没替换逻辑）会留下字面量 __LOG_VIEWER_PORT__ 进了 nginx，nginx -t
+    # 会报 "host not found in __LOG_VIEWER_PORT__" → 整个部署中断。检测到残留就
+    # 用旧版兼容（占位符 → ${_lv_port}）兜底，并强烈告警让运维对齐脚本版本。
+    if grep -q '__LOG_VIEWER_PORT__' "$VHOST_OUT"; then
+        warn "vhost 残留 __LOG_VIEWER_PORT__（脚本与模板版本撕裂），fallback 用本脚本内联值 ${_lv_port} 兜底"
+        sed -i "s|__LOG_VIEWER_PORT__|${_lv_port}|g" "$VHOST_OUT"
+        warn "请将 scripts/update-from-github.sh 与 deploy/nginx-gipfel.conf 同步升级到同一 commit 后再跑（避免再触发）"
+    fi
     # 按是否传 --domain 保留日志查看器对应的 server 块（与 deploy-linux.sh 一致）：
     #   有域名 → 保留 log.<DOMAIN> 子域块，删除 8120 端口块；
     #   无域名（纯 IP）→ 保留 8120 端口块，删除子域块（server_name log._ 形同失效，移除避免歧义）。

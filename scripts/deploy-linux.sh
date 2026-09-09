@@ -478,6 +478,14 @@ if [[ $WITH_NGINX -eq 1 ]]; then
         -e "s|__DOMAIN__|${DOMAIN:-_}|g" \
         -e "s|__LOG_VIEWER_PORT__|${LV_PORT}|g" \
         "$PROJECT_ROOT/deploy/nginx-gipfel.conf" > "$_tmp_vhost"
+    # 防御：模板与脚本版本撕裂（同 update-from-github.sh：deploy/nginx-gipfel.conf 是新版
+    # 带占位符、但本脚本是旧版没替换逻辑）→ vhost 残留字面量 __LOG_VIEWER_PORT__，nginx -t
+    # 报 host not found。检测到残留就 fallback 兜底并强烈告警，让运维对齐版本。
+    if grep -q '__LOG_VIEWER_PORT__' "$_tmp_vhost"; then
+        warn "vhost 残留 __LOG_VIEWER_PORT__（脚本与模板版本撕裂），fallback 用本脚本内联值 ${LV_PORT} 兜底"
+        sed -i "s|__LOG_VIEWER_PORT__|${LV_PORT}|g" "$_tmp_vhost"
+        warn "请将 scripts/deploy-linux.sh 与 deploy/nginx-gipfel.conf 同步升级到同一 commit 后再跑"
+    fi
     VHOST_FILE="$_tmp_vhost"
 
     # 日志查看器 server 块二选一（模板含两块，按是否传 --domain 删除另一块）：
