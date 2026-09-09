@@ -29,8 +29,8 @@
               <div class="qh-stat"><span class="qh-stat-label">昨收</span><b>{{ fmt(quoteStats.prevClose) }}</b></div>
               <div class="qh-stat"><span class="qh-stat-label">最高</span><b class="up">{{ fmt(quoteStats.high) }}</b></div>
               <div class="qh-stat"><span class="qh-stat-label">最低</span><b class="down">{{ fmt(quoteStats.low) }}</b></div>
-              <div class="qh-stat"><span class="qh-stat-label">成交量</span><b>{{ fmt(quoteStats.volume) }}</b></div>
-              <div class="qh-stat"><span class="qh-stat-label">成交额</span><b>{{ fmt(quoteStats.amount) }}</b></div>
+              <div class="qh-stat"><span class="qh-stat-label">成交量</span><b>{{ quoteStats.volume != null ? fmt(quoteStats.volume) : '—' }}</b></div>
+              <div class="qh-stat"><span class="qh-stat-label">成交额</span><b>{{ quoteStats.amount != null ? fmt(quoteStats.amount) : '—' }}</b></div>
               <div class="qh-stat"><span class="qh-stat-label">振幅</span><b>{{ fmt(quoteStats.amplitude) }}%</b></div>
               <div class="qh-stat"><span class="qh-stat-label">市盈率</span><b>{{ fmt(quoteStats.pe) }}</b></div>
             </div>
@@ -161,7 +161,7 @@
           <el-divider>我的持仓</el-divider>
           <div v-if="loadingAccountData" class="empty-hint small">加载中…</div>
           <div v-else-if="holdings.length" class="holding-list">
-            <div v-for="(row, i) in holdings" :key="row.stockId ?? i" class="holding-row">
+            <div v-for="(row, i) in holdings" :key="row.stockId || row.stockCode || i" class="holding-row">
               <span class="holding-cell holding-name">{{ row.stockName || row.stockCode || '—' }}</span>
               <span class="holding-cell holding-shares">{{ fmt(row.shares) }}股</span>
               <span class="holding-cell holding-value">¥{{ fmt(row.marketValue) }}</span>
@@ -294,19 +294,17 @@ const quoteStats = computed(() => {
   const last = cs[cs.length - 1];
   const prev = cs.length > 1 ? cs[cs.length - 2] : last;
   const prevClose = prev.close;
-  const vol = cs.reduce((s, c) => s + (Math.abs(c.close - c.open) > 0 ? Math.round(c.close * 100) : 0), 0);
-  const amount = cs.reduce(
-    (s, c) => s + c.close * (Math.abs(c.close - c.open) > 0 ? Math.round(c.close * 100) : 0),
-    0,
-  );
-  const amplitude = prevClose > 0 ? ((last.high - last.low) / prevClose) * 100 : 0;
+  // P1-#8: 最高/最低取所有K线极值，成交量暂无真实数据显示"—"
+  const high = Math.max(...cs.map((c) => c.high));
+  const low = Math.min(...cs.map((c) => c.low));
+  const amplitude = prevClose > 0 ? ((high - low) / prevClose) * 100 : 0;
   return {
     open: last.open,
     prevClose,
-    high: last.high,
-    low: last.low,
-    volume: vol,
-    amount: Math.round(amount),
+    high,
+    low,
+    volume: null,   // 暂无真实成交量数据
+    amount: null,   // 暂无真实成交额数据
     amplitude: Math.round(amplitude * 100) / 100,
     pe: selectedStock.value.industryPE,
   };
@@ -330,9 +328,24 @@ const priceLimit = computed(() => {
 });
 // 预计金额：Number 相乘仅作预览——超大数（>2^53）时预览值可能失真，
 // 实际委托以字符串原样提交，由后端精确撮合
-const estAmount = computed(
-  () => Math.round(Number(trade.value.price || 0) * Number(trade.value.quantity || 0) * 100) / 100,
-);
+// P1-#9: 使用字符串化避免大数精度丢失，formatMoney 会处理格式化
+const estAmount = computed(() => {
+  const p = String(trade.value.price || 0);
+  const q = String(trade.value.quantity || 0);
+  // 将价格和数量转为整数运算再还原，避免浮点精度丢失
+  const pParts = p.split('.');
+  const qParts = q.split('.');
+  const pDecimals = pParts[1]?.length || 0;
+  const qDecimals = qParts[1]?.length || 0;
+  const pInt = BigInt(p.replace('.', ''));
+  const qInt = BigInt(q.replace('.', ''));
+  const result = pInt * qInt;
+  const totalDecimals = pDecimals + qDecimals;
+  const resultStr = result.toString().padStart(totalDecimals + 1, '0');
+  const intPart = resultStr.slice(0, -totalDecimals) || '0';
+  const decPart = resultStr.slice(-totalDecimals).slice(0, 2);
+  return Number(`${intPart}.${decPart}`);
+});
 const canTrade = computed(
   () =>
     !!selectedAccountId.value &&
@@ -359,23 +372,12 @@ async function reloadStocks() {
   loadingStocks.value = true;
   try {
     const res = await stockApi.list(1, 200, compStore.competitionId);
-    stocks.value = (Array.isArray(res) ? res : (res?.items ?? [])).map((s: any) => ({ ...s, changePct: 0, changePrice: 0 }) as Stock);
-    // 计算每只股票最近一轮涨跌幅与涨跌额（取最后一根 K 线的 close-open）
-    await Promise.all(
-      stocks.value.map(async (s) => {
-        try {
-          const c = await stockApi.candles(s.id);
-          const last = c.candles.length ? c.candles[c.candles.length - 1] : null;
-          if (last) {
-            s.changePct = last.changePct;
-            s.changePrice = Math.round((last.close - last.open) * 100) / 100;
-          }
-        } catch {
-          s.changePct = 0;
-          s.changePrice = 0;
-        }
-      }),
-    );
+    // P0-#7: 后端已返回 changePct/changePrice，无需逐个请求 K 线
+    stocks.value = (Array.isArray(res) ? res : (res?.items ?? [])).map((s: any) => ({
+      ...s,
+      changePct: s.changePct ?? 0,
+      changePrice: s.changePrice ?? 0,
+    }) as Stock);
     const current = stocks.value.find((s) => s.id === selectedStockId.value);
     if (!current && stocks.value.length) selectStock(stocks.value[0].id);
   } finally {
@@ -791,43 +793,22 @@ watch(selectedStock, (val) => {
   }
 });
 
-// 绑定产业字段的资金账户，现金余额实时等于字段值。
-// 公司产业字段被合同 / 财年定时器 / 计算图改写时，刷新账户列表以同步交易面板的现金余额。
-let accountReloadTimer: ReturnType<typeof setTimeout> | undefined;
-function scheduleAccountReload() {
-  if (accountReloadTimer) clearTimeout(accountReloadTimer);
-  accountReloadTimer = setTimeout(() => {
-    accountReloadTimer = undefined;
-    reloadAccounts();
-  }, 400);
-}
-useResourceChanged("company-field", scheduleAccountReload);
-
-// 行情实时刷新：此前仅订阅 company-field，推进轮次 / 他人下单成交后，
-// 股价、K 线、持仓、挂单全部停留旧值，必须手动刷新页面才能看到最新行情。
-// 后端在 advance_round 后广播 stocks bulk（resource:changed），下单/撤单/成交
-// 广播 stock-orders 与 stock-holdings；此处防抖合并刷新，避免事件风暴下连续重拉。
-let stocksReloadTimer: ReturnType<typeof setTimeout> | undefined;
-function scheduleStocksReload() {
-  if (stocksReloadTimer) clearTimeout(stocksReloadTimer);
-  stocksReloadTimer = setTimeout(() => {
-    stocksReloadTimer = undefined;
+// P2-#17: 统一防抖调度器 — 所有资源事件合并到同一个 800ms 窗口，避免重复刷新
+let unifiedReloadTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleUnifiedReload() {
+  if (unifiedReloadTimer) clearTimeout(unifiedReloadTimer);
+  unifiedReloadTimer = setTimeout(() => {
+    unifiedReloadTimer = undefined;
     reloadStocks();
-    // 当前选中股票的 K 线随轮次推进变化，一并刷新
-    if (selectedStockId.value) loadCandles(selectedStockId.value);
-  }, 400);
-}
-let accountDataTimer: ReturnType<typeof setTimeout> | undefined;
-function scheduleAccountDataReload() {
-  if (accountDataTimer) clearTimeout(accountDataTimer);
-  accountDataTimer = setTimeout(() => {
-    accountDataTimer = undefined;
+    reloadAccounts();
     reloadAccountData();
-  }, 400);
+    if (selectedStockId.value) loadCandles(selectedStockId.value);
+  }, 800);
 }
-useResourceChanged("stocks", scheduleStocksReload);
-useResourceChanged("stock-orders", scheduleAccountDataReload);
-useResourceChanged("stock-holdings", scheduleAccountDataReload);
+useResourceChanged("company-field", scheduleUnifiedReload);
+useResourceChanged("stocks", scheduleUnifiedReload);
+useResourceChanged("stock-orders", scheduleUnifiedReload);
+useResourceChanged("stock-holdings", scheduleUnifiedReload);
 
 onMounted(async () => {
   window.addEventListener("resize", onResize);
@@ -835,9 +816,7 @@ onMounted(async () => {
 });
 onBeforeUnmount(() => {
   window.removeEventListener("resize", onResize);
-  if (accountReloadTimer) clearTimeout(accountReloadTimer);
-  if (stocksReloadTimer) clearTimeout(stocksReloadTimer);
-  if (accountDataTimer) clearTimeout(accountDataTimer);
+  if (unifiedReloadTimer) clearTimeout(unifiedReloadTimer);
   if (chart) {
     chart.dispose();
     chart = null;
@@ -1044,12 +1023,13 @@ onBeforeUnmount(() => {
   color: var(--color-text-tertiary, #92969e);
   margin-top: 4px;
 }
+/* 红涨绿跌（中国股票惯例）— 统一设计 token */
 .up {
-  color: #ec0000;
+  color: #f5483b;
   font-weight: 600;
 }
 .down {
-  color: #00a800;
+  color: #16a34a;
   font-weight: 600;
 }
 .empty-hint {
