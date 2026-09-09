@@ -1011,6 +1011,8 @@ def generate_market_maker_orders(
         defaults={"owner_type": "COMPANY", "cash_balance": 1_000_000_000},
     )
 
+    current_round = stock.round
+
     # 问题4: 只取消做市商的旧轮订单（本轮订单保留，旧轮价格仍在范围内的也保留）
     # 跨轮有效的做市商旧单在 advance_one_stock 中统一按价格范围筛选
     StockOrder.objects.filter(
@@ -1047,7 +1049,6 @@ def generate_market_maker_orders(
     need_shares = total_sell_qty - current_shares
 
     orders: list[StockOrder] = []
-    current_round = stock.round
 
     # 持仓不足则先建仓
     if need_shares > 0:
