@@ -294,17 +294,25 @@ const quoteStats = computed(() => {
   const last = cs[cs.length - 1];
   const prev = cs.length > 1 ? cs[cs.length - 2] : last;
   const prevClose = prev.close;
-  // P1-#8: 最高/最低取所有K线极值，成交量暂无真实数据显示"—"
+  // P1-#8: 最高/最低取所有K线极值
   const high = Math.max(...cs.map((c) => c.high));
   const low = Math.min(...cs.map((c) => c.low));
   const amplitude = prevClose > 0 ? ((high - low) / prevClose) * 100 : 0;
+  
+  // 计算真实成交量和成交额
+  const totalVolume = cs.reduce((sum, c) => sum + (Number(c.volume) || 0), 0);
+  const totalAmount = cs.reduce((sum, c) => {
+    const vol = Number(c.volume) || 0;
+    return sum + (Number(c.close) * vol);
+  }, 0);
+  
   return {
     open: last.open,
     prevClose,
     high,
     low,
-    volume: null,   // 暂无真实成交量数据
-    amount: null,   // 暂无真实成交额数据
+    volume: totalVolume > 0 ? Math.round(totalVolume) : null,
+    amount: totalAmount > 0 ? Math.round(totalAmount) : null,
     amplitude: Math.round(amplitude * 100) / 100,
     pe: selectedStock.value.industryPE,
   };
@@ -425,6 +433,7 @@ async function loadCandles(id: number) {
       low: Number(c.low),
       close: Number(c.close),
       changePct: Number(c.changePct ?? 0),
+      volume: Number(c.volume ?? 0),
     }));
     await nextTick();
     drawChart();
@@ -538,7 +547,7 @@ function renderChart() {
   const ohlc = candles.value.map((c) => [c.open, c.close, c.low, c.high]);
   const volumes = candles.value.map((c) => ({
     value: c.close,
-    volume: Math.abs(c.close - c.open) > 0 ? Math.round(c.close * 100) : 0, // 模拟成交量
+    volume: Number(c.volume) || 0, // 使用真实成交量
     isUp: c.close >= c.open,
   }));
   const roundLabels = candles.value.map((c) => `R${c.round}`);
