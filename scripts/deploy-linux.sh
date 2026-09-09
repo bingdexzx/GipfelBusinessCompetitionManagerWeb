@@ -42,7 +42,7 @@ usage() {
 Usage: $0 [options]
   --domain DOMAIN              公网域名（写入 nginx server_name + 建议 HTTPS）
   --install-dir PATH           安装目录，默认 /opt/gipfel
-  --public-ip IP               公网 IP（无 --domain 部署时日志查看器使用 http://<IP>:8120/）；
+  --public-ip IP               公网 IP（无 --domain 部署时日志查看器使用 http://<IP>:${LV_PORT:-8120}/）；
                               显式传入可跳过自动探测与交互填写，避免受限网络/非交互环境卡住
   --with-nginx                 配置 nginx 虚拟主机
   --skip-install-deps          跳过 apt install（已知环境已装好）
@@ -95,6 +95,24 @@ normalize_ip() {
         fi
     fi
     printf '%s' "$s"
+}
+
+# 解析日志查看器 nginx 公网监听端口：取 .env 的 LOG_VIEWER_PORT（默认 8120），
+# 缺失/非数字/越界（1-65535）一律兜底 8120 并告警。该端口是 nginx 监听 0.0.0.0:<port>，
+# 跟 daphne 内部 127.0.0.1:8121 是两个端口（前者 .env 控制、后者 service 模板硬编码），
+# 故意不等，避免同机抢端口。
+_log_viewer_port() {
+    local _env="${1:-$INSTALL_DIR/backend/.env}"
+    local _p="8120"
+    if [[ -f "$_env" ]] && grep -qE '^[[:space:]]*LOG_VIEWER_PORT=' "$_env"; then
+        _p=$(grep -E '^[[:space:]]*LOG_VIEWER_PORT=' "$_env" | head -1 | cut -d= -f2- \
+            | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]$//")
+        if ! [[ "$_p" =~ ^[0-9]+$ ]] || (( _p < 1 || _p > 65535 )); then
+            warn "LOG_VIEWER_PORT=$_p 非法（需 1-65535 整数），回退默认 8120"
+            _p="8120"
+        fi
+    fi
+    printf '%s' "$_p"
 }
 
 # 多服务兜底探测公网 IP：任一可达即返回；用 timeout 硬包裹 curl，连 DNS 解析超时一并杀掉，
@@ -212,8 +230,9 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
         grep -q '^DJANGO_CSRF_TRUSTED_ORIGINS=' "$INSTALL_DIR/backend/.env" || \
             echo "DJANGO_CSRF_TRUSTED_ORIGINS=https://${DOMAIN},http://${DOMAIN}" >> "$INSTALL_DIR/backend/.env"
     else
-        # 无域名（纯 IP）部署：日志查看器走 8120 端口，显式下发【公网】地址，
-        # 避免前端 /api/version 把 Host 推导成错误的 https://log.<IP>/ 或误用内网 IP。
+        # 无域名（纯 IP）部署：日志查看器走 nginx 公网 LOG_VIEWER_PORT 端口（默认 8120，
+        # 见 _log_viewer_port），显式下发【公网】地址，避免前端 /api/version 把 Host
+        # 推导成错误的 https://log.<IP>/ 或误用内网 IP。
         # 重要：必须用公网 IP（用户从公网访问），不能用 hostname -I 首地址（通常为内网/私网 IP）。
         #
         # 优先顺序：--public-ip 显式传入 > 多服务探测（任何一步成功都不进入下一步，
@@ -229,13 +248,13 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
         fi
         if [[ -n "$LV_PUBLIC_IP" ]]; then
             LV_PUBLIC_IP="$(normalize_ip "$LV_PUBLIC_IP")"
-            # IPv6 需加方括号：http://[IPv6]:8120/
+            # IPv6 需加方括号：http://[IPv6]:${LV_PORT}/
             if [[ "$LV_PUBLIC_IP" == *:* && "$LV_PUBLIC_IP" != \[* ]]; then
-                echo "LOG_VIEWER_PUBLIC_URL=http://[${LV_PUBLIC_IP}]:8120/" >> "$INSTALL_DIR/backend/.env"
+                echo "LOG_VIEWER_PUBLIC_URL=http://[${LV_PUBLIC_IP}]:${LV_PORT}/" >> "$INSTALL_DIR/backend/.env"
             else
-                echo "LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/" >> "$INSTALL_DIR/backend/.env"
+                echo "LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:${LV_PORT}/" >> "$INSTALL_DIR/backend/.env"
             fi
-            ok "日志查看器地址已写入 LOG_VIEWER_PUBLIC_URL（公网 IP：${LV_PUBLIC_IP}）。"
+            ok "日志查看器地址已写入 LOG_VIEWER_PUBLIC_URL（公网 IP：${LV_PUBLIC_IP}，端口：${LV_PORT}）。"
         else
             warn "未能自动获取公网 IP（探测失败），未写入 LOG_VIEWER_PUBLIC_URL；日志查看器地址将由后端按请求 Host 推导（请确保经公网 IP 访问）。"
         fi
@@ -251,6 +270,12 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
     echo "[DIAG] LOGVIEWER_SECRET_KEY 已生成并写入（$(date +%T)）" >&2
     echo "[DIAG] 首次部署 .env 生成完毕（$(date +%T)），JWT_SECRET/LOGVIEWER_SECRET_KEY 已就绪" >&2
 fi
+
+# 解析日志查看器 nginx 公网监听端口（.env 已就绪，vhost/URL/防火墙/输出提示全流程共用），
+# 缺失/非法一律兜底 8120（见 _log_viewer_port 函数注释）。这里是 vhost 渲染前的最早
+# 可用点，必须在 vhost 渲染与 ufw 放行之前完成。
+LV_PORT="$(_log_viewer_port "$INSTALL_DIR/backend/.env")"
+log "日志查看器公网监听端口：${LV_PORT}（daphne 内部仍绑 8121，两者解耦避免同机抢端口）"
 
 # 自愈：无域名部署且 .env 已存在时，纠正/补全 LOG_VIEWER_PUBLIC_URL。
 #   - 显式 --public-ip：无论当前有无/对错，都以它为准写入（覆盖内网 IP 或缺失该行）
@@ -277,28 +302,29 @@ if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
             LV_PUBLIC_IP="$(normalize_ip "$PUBLIC_IP")"
             if grep -q '^LOG_VIEWER_PUBLIC_URL=' "$INSTALL_DIR/backend/.env"; then
                 if [[ "$LV_PUBLIC_IP" == *:* && "$LV_PUBLIC_IP" != \[* ]]; then
-                    sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://[${LV_PUBLIC_IP}]:8120/|" "$INSTALL_DIR/backend/.env"
+                    sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://[${LV_PUBLIC_IP}]:${LV_PORT}/|" "$INSTALL_DIR/backend/.env"
                 else
-                    sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/|" "$INSTALL_DIR/backend/.env"
+                    sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:${LV_PORT}/|" "$INSTALL_DIR/backend/.env"
                 fi
             else
-                echo "LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/" >> "$INSTALL_DIR/backend/.env"
+                echo "LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:${LV_PORT}/" >> "$INSTALL_DIR/backend/.env"
             fi
-            warn "已按 --public-ip 写入 LOG_VIEWER_PUBLIC_URL=${LV_PUBLIC_IP}（原值：${LV_CUR:-无}）。"
+            warn "已按 --public-ip 写入 LOG_VIEWER_PUBLIC_URL=${LV_PUBLIC_IP}:${LV_PORT}（原值：${LV_CUR:-无}）。"
         else
             # 多服务兜底探测公网 IP（任一可达即可）；均失败则回退「移除该行，交给后端按 Host 推导」
             LV_PUBLIC_IP="$(_probe_public_ip)" || true
             if [[ -n "$LV_PUBLIC_IP" && "$LV_PUBLIC_IP" != "$LV_CUR" ]]; then
                 LV_PUBLIC_IP="$(normalize_ip "$LV_PUBLIC_IP")"
                 if [[ "$LV_PUBLIC_IP" == *:* && "$LV_PUBLIC_IP" != \[* ]]; then
-                    sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://[${LV_PUBLIC_IP}]:8120/|" "$INSTALL_DIR/backend/.env"
+                    sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://[${LV_PUBLIC_IP}]:${LV_PORT}/|" "$INSTALL_DIR/backend/.env"
                 else
-                    sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/|" "$INSTALL_DIR/backend/.env"
+                    sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:${LV_PORT}/|" "$INSTALL_DIR/backend/.env"
                 fi
                 warn "检测到 LOG_VIEWER_PUBLIC_URL 指向内网 IP(${LV_CUR})，已自动纠正为公网 IP(${LV_PUBLIC_IP})。"
             else
                 # 公网 IP 探测全部失败：直接移除该行，避免内网 IP 继续生效；
-                # 后端 VersionView 会按请求 Host（nginx 透传 $host=公网 IP）推导为 http://<公网IP>:8120/
+                # 后端 VersionView 会按请求 Host（nginx 透传 $host=公网 IP）推导为
+                # http://<公网IP>:${LV_PORT}/（端口取 .env 的 LOG_VIEWER_PORT）
                 sed -i -E "/^LOG_VIEWER_PUBLIC_URL=/d" "$INSTALL_DIR/backend/.env"
                 warn "公网 IP 探测失败，已移除 .env 中指向内网 IP(${LV_CUR}) 的 LOG_VIEWER_PUBLIC_URL，改由后端按请求 Host 推导公网地址。"
             fi
@@ -446,8 +472,11 @@ if [[ $WITH_NGINX -eq 1 ]]; then
     # 直接 > 到 deploy/ 下的目标会先清空模板、sed 读到空内容——模板与产物一起作废（与 unit 同款事故）。
     VHOST_OUT="/etc/nginx/sites-available/gipfel.conf"
     _tmp_vhost="$(mktemp /tmp/gipfel.vhost.XXXXXX)"
+    LV_PORT="$(_log_viewer_port "$INSTALL_DIR/backend/.env")"
+    log "日志查看器公网监听端口：${LV_PORT}（来源：.env LOG_VIEWER_PORT；daphne 内部仍绑 8121）"
     sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" \
         -e "s|__DOMAIN__|${DOMAIN:-_}|g" \
+        -e "s|__LOG_VIEWER_PORT__|${LV_PORT}|g" \
         "$PROJECT_ROOT/deploy/nginx-gipfel.conf" > "$_tmp_vhost"
     VHOST_FILE="$_tmp_vhost"
 
@@ -527,12 +556,15 @@ if [[ $WITH_NGINX -eq 1 ]]; then
         fi
         warn "另需：将 log.$DOMAIN 的 DNS A 记录指向本服务器（日志查看器子域代理前置条件）。"
     else
-        # 无域名：日志查看器经 8120 端口暴露公网，需放行防火墙
+        # 无域名：日志查看器经 ${LV_PORT} 端口暴露公网（取自 .env LOG_VIEWER_PORT），
+        # 需放行防火墙
         if command -v ufw >/dev/null 2>&1; then
-            ufw allow 8120/tcp >/dev/null 2>&1 || true
-            ok "已放行防火墙 8120 端口（ufw 规则已添加；若 ufw 未启用则该规则暂未生效）"
+            # 先清理旧 8120 规则（防改端口后旧规则残留），再加新规则
+            ufw delete allow 8120/tcp >/dev/null 2>&1 || true
+            ufw allow "${LV_PORT}/tcp" >/dev/null 2>&1 || true
+            ok "已放行防火墙 ${LV_PORT} 端口（ufw 规则已添加；旧 8120 规则已清理；若 ufw 未启用则该规则暂未生效）"
         else
-            warn "无域名部署：请确认云/系统防火墙放行 TCP 8120，否则 http://<IP>:8120/ 不可达。"
+            warn "无域名部署：请确认云/系统防火墙放行 TCP ${LV_PORT}，否则 http://<IP>:${LV_PORT}/ 不可达。"
         fi
     fi
 fi
@@ -566,9 +598,9 @@ if [[ $WITH_NGINX -eq 1 ]]; then
     else
         echo "  网站(内网)：   http://${SERVER_IP}/"
         echo "  网站(公网)：   http://${PUBLIC_IP}/"
-        echo "  日志查看器(内)： http://${SERVER_IP}:8120/"
-        echo "  日志查看器(公)： http://${PUBLIC_IP}:8120/"
-        echo "                 （需放行防火墙 8120；前端「系统设置 → 日志查看器」按钮跳转）"
+        echo "  日志查看器(内)： http://${SERVER_IP}:${LV_PORT}/"
+        echo "  日志查看器(公)： http://${PUBLIC_IP}:${LV_PORT}/"
+        echo "                 （需放行防火墙 ${LV_PORT}；前端「系统设置 → 日志查看器」按钮跳转）"
     fi
     echo "  Nginx 状态：  systemctl status nginx"
 fi

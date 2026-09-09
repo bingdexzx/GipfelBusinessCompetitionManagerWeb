@@ -464,8 +464,22 @@ if [[ $WITH_NGINX -eq 1 ]]; then
     fi
     VHOST_OUT="/etc/nginx/sites-available/gipfel.conf"
     log "重新生成 nginx 虚拟主机"
+    # 解析 .env 的 LOG_VIEWER_PORT（默认 8120；缺失/非法/越界一律兜底），与 deploy-linux.sh 的
+    # _log_viewer_port 同语义。nginx 模板里 listen 端口是 __LOG_VIEWER_PORT__ 占位符，daphne
+    # 内部 8121 不受其影响（避免同机抢端口）。
+    _lv_port="8120"
+    if [[ -f "$INSTALL_DIR/backend/.env" ]] && grep -qE '^[[:space:]]*LOG_VIEWER_PORT=' "$INSTALL_DIR/backend/.env"; then
+        _lv_port=$(grep -E '^[[:space:]]*LOG_VIEWER_PORT=' "$INSTALL_DIR/backend/.env" | head -1 | cut -d= -f2- \
+            | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]$//")
+        if ! [[ "$_lv_port" =~ ^[0-9]+$ ]] || (( _lv_port < 1 || _lv_port > 65535 )); then
+            warn "LOG_VIEWER_PORT=$_lv_port 非法（需 1-65535 整数），回退默认 8120"
+            _lv_port="8120"
+        fi
+    fi
+    log "日志查看器公网监听端口：${_lv_port}（daphne 内部仍绑 8121）"
     sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" \
         -e "s|__DOMAIN__|${DOMAIN:-_}|g" \
+        -e "s|__LOG_VIEWER_PORT__|${_lv_port}|g" \
         "$VHOST_TMPL" > "$VHOST_OUT"
     # 按是否传 --domain 保留日志查看器对应的 server 块（与 deploy-linux.sh 一致）：
     #   有域名 → 保留 log.<DOMAIN> 子域块，删除 8120 端口块；

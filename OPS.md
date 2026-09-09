@@ -10,9 +10,9 @@
 | --- | --- | --- |
 | 前端（Vite / 生产 nginx 静态） | `:5173`（开发）/ 80·443（生产） | 浏览器访问入口 |
 | 后端（Django 5 + daphne ASGI） | `:8000` | HTTP REST + Socket.IO WebSocket 同源同端口；`/admin` 管理后台仅前端按钮携带一次性令牌可进，直连 302 回前端 |
-| 日志查看器（独立 Django 站点） | `:8121`（daphne 内部，仅绑 127.0.0.1）/ `:8120`（nginx 公网监听反代） | 在线查看 `backend/logs/`，**共享主后端 `db.sqlite3`**；公网整站代理到 `127.0.0.1:8121`，且**仅前端按钮点击（携带一次性令牌）可进入**，直接输入网址被 403 拒绝。有域名经 nginx 子域 `log.<DOMAIN>`（端口 80）；无域名（纯 IP）经 nginx `:8120` 端口（`server_name _`）访问 `http://<IP>:8120/`（详见 deploy/README.md「无域名纯 IP 部署」） |
+| 日志查看器（独立 Django 站点） | `:8121`（daphne 内部，仅绑 127.0.0.1，service 模板硬编码）/ `.env` 的 `LOG_VIEWER_PORT` 决定 nginx 公网监听端口（默认 `:8120`） | 在线查看 `backend/logs/`，**共享主后端 `db.sqlite3`**；公网整站代理到 `127.0.0.1:8121`，且**仅前端按钮点击（携带一次性令牌）可进入**，直接输入网址被 403 拒绝。有域名经 nginx 子域 `log.<DOMAIN>`（端口 80）；无域名（纯 IP）经 nginx `LOG_VIEWER_PORT` 端口（`server_name _`，默认 8120）访问 `http://<IP>:8120/`（详见 deploy/README.md「无域名纯 IP 部署」） |
 
-> 后端 `:8000` 由 `start-dev.bat` 固定，不读 `.env` 的 `PORT`；`PORT` 仅被 `manage.py rundaphne` 与 `/api/version` 下发的跳转按钮使用。日志查看器 `.env` 的 `LOG_VIEWER_PORT`（默认 8120）**仅**供主后端 `/api/version` 下发（前端按钮拼 `log_viewer_url` 用），**不控制**日志查看器进程实际绑定端口——daphne 启动端口由 `deploy/logviewer.service` 模板硬编码为 8121（公网 8120 由 nginx 监听反代），改这个变量要同步改 service 模板与 nginx vhost，详见 deploy/README.md「无域名纯 IP 部署」。
+> 后端 `:8000` 由 `start-dev.bat` 固定，不读 `.env` 的 `PORT`；`PORT` 仅被 `manage.py rundaphne` 与 `/api/version` 下发的跳转按钮使用。`.env` 的 `LOG_VIEWER_PORT`（默认 8120）**真正控制** nginx 公网监听端口（deploy 脚本渲染 vhost 时替换 `__LOG_VIEWER_PORT__` 占位符），并随 `/api/version` 下发给前端按钮拼 `log_viewer_url`。**daphne 实际绑定的内部端口是 127.0.0.1:8121**（`deploy/logviewer.service` 模板硬编码）——与 `LOG_VIEWER_PORT` **故意解耦**，避免 nginx 与 daphne 同机抢端口。改 `LOG_VIEWER_PORT` 改的是公网端口，8121 内部端口不变；防火墙 ufw 规则随新值自动清理/重建。
 
 ## 2. 环境要求
 

@@ -242,7 +242,7 @@ Windows 不提供独立生产部署脚本；生产部署请使用方案一的 Li
 
 - Django `:8000`（runserver）
 - Vite `:5173`（前端开发服务器）
-- 日志查看器：开发态 Windows `http://127.0.0.1:8120/`（daphne 绑 8120）、生产 `http://<IP>:8120/` 或 `https://log.<DOMAIN>/`（daphne 绑内网 8121，公网 8120 / 80 由 nginx 监听反代；`backend/.env` 的 `LOG_VIEWER_PORT` 仅供主后端 `/api/version` 下发前端按钮拼地址用，不控制 daphne 实际绑定端口），登录账号使用 Django 后台超级管理员凭据
+- 日志查看器：开发态 Windows `http://127.0.0.1:8120/`（daphne 绑 8120）、生产 `http://<IP>:8120/` 或 `https://log.<DOMAIN>/`（daphne 绑内网 8121，nginx 公网监听 `.env` 的 `LOG_VIEWER_PORT` 默认 8120 → 反代 8121；改 `LOG_VIEWER_PORT` 改的是 nginx 公网端口与防火墙放行，daphne 内部 8121 不变），登录账号使用 Django 后台超级管理员凭据
 
 ---
 
