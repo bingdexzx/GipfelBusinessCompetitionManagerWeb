@@ -68,6 +68,14 @@ def clamp(v: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, v))
 
 
+def add_fluctuation(value: float, fluctuation_pct: float = 0.2) -> float:
+    """给参数添加随机波动（±fluctuation_pct）。
+    
+    提取为模块级函数，避免每次调用做市商时重新定义。
+    """
+    return value * (1 + random.uniform(-fluctuation_pct, fluctuation_pct))
+
+
 def candle_noise(seed_a: float, seed_b: float) -> float:
     """确定性伪随机：由两个种子派生 [0,1) 的伪随机数（正弦哈希，可复现）。
 
@@ -817,8 +825,6 @@ def calculate_relative_fundamental_score(stock, all_stocks: list) -> float:
     关键改进：通过横向比较所有股票，避免同涨同跌。
     只有基本面排名靠前的股票才能获得正面评分。
     """
-    import random
-    
     # 当股票数量太少时，使用绝对评分兜底
     if not all_stocks or len(all_stocks) <= 2:
         raw_score = calculate_raw_fundamental_score(stock)
@@ -894,7 +900,6 @@ def generate_market_maker_orders(
     返回 (生成订单数, 是否干预)。
     """
     from .models import StockFundsAccount, StockHolding, StockOrder
-    import random
 
     enabled = (mm_override or {}).get("enabled", True)
     if not enabled:
@@ -910,17 +915,11 @@ def generate_market_maker_orders(
     base_skew_pct = stock_config.get("mmSkewPct", 0.02)
     base_depth_pct = stock_config.get("mmDepthPct", 0.001)
     
-    # 添加随机波动（±20%）
-    def add_fluctuation(value, fluctuation_pct=0.2):
-        """给参数添加随机波动"""
-        fluctuation = random.uniform(-fluctuation_pct, fluctuation_pct)
-        return value * (1 + fluctuation)
-    
-    # 应用波动
-    spread_pct = add_fluctuation(base_spread_pct, 0.15)  # 点差波动±15%
-    levels = max(1, min(10, int(round(add_fluctuation(base_levels, 0.1)))))  # 档数波动±10%，限制在1-10
-    skew_pct = add_fluctuation(base_skew_pct, 0.2)  # 偏置波动±20%
-    depth_pct = add_fluctuation(base_depth_pct, 0.25)  # 深度波动±25%
+    # 问题10: 应用波动并 clamp 到合理范围（防止多次叠加后偏离过大）
+    spread_pct = clamp(add_fluctuation(base_spread_pct, 0.15), base_spread_pct * 0.7, base_spread_pct * 1.3)
+    levels = max(1, min(10, int(round(add_fluctuation(base_levels, 0.1)))))
+    skew_pct = clamp(add_fluctuation(base_skew_pct, 0.2), base_skew_pct * 0.7, base_skew_pct * 1.3)
+    depth_pct = clamp(add_fluctuation(base_depth_pct, 0.25), base_depth_pct * 0.7, base_depth_pct * 1.3)
     
     # 计算基础数量（带波动）
     override_base = (mm_override or {}).get("baseQuantity")
@@ -985,8 +984,6 @@ def generate_market_maker_orders(
     skew = clamp(skew, -skew_pct * 1.2, skew_pct * 1.2)  # 减小偏置限制：从1.5降到1.2
     
     # 4. 随机利空因素：模拟真实市场的不确定性
-    import random
-    
     # 从配置获取参数
     bad_news_prob = stock_config.get("mmBadNewsProb", 0.03)
     good_news_prob = stock_config.get("mmGoodNewsProb", 0.02)
@@ -1014,12 +1011,14 @@ def generate_market_maker_orders(
         defaults={"owner_type": "COMPANY", "cash_balance": 1_000_000_000},
     )
 
-    # 取消上一轮未成交的做市商订单（仅当轮有效）
+    # 问题4: 只取消做市商的旧轮订单（本轮订单保留，旧轮价格仍在范围内的也保留）
+    # 跨轮有效的做市商旧单在 advance_one_stock 中统一按价格范围筛选
     StockOrder.objects.filter(
         stock_id=stock.id,
         competition_id=competition_id,
         status="PENDING",
         funds_account_id=mm_account.id,
+        round__lt=current_round,
     ).update(status="CANCELLED")
 
     # 回归锚干预（连续封板 ≥ 3 轮）：挂大单对冲，量随连续轮数放大
@@ -1098,6 +1097,16 @@ def generate_market_maker_orders(
 
     # 报价中心：按反向动量偏置整体平移（涨 → 下移，跌 → 上移）
     quote_center = round2(Decimal(str(base_price)) * (Decimal("1") - Decimal(str(skew))))
+    # 问题7: 防止 quote_center 极端值
+    min_center = round2(base_price * Decimal("0.5"))
+    max_center = round2(base_price * Decimal("2.0"))
+    quote_center = max(min_center, min(max_center, quote_center))
+
+    # 问题2: 跟踪做市商可用持仓，卖单不超持仓
+    mm_holding_refresh = StockHolding.objects.filter(
+        funds_account_id=mm_account.id, stock_id=stock.id
+    ).first()
+    available_shares = Decimal(str(mm_holding_refresh.shares)) if mm_holding_refresh else Decimal("0")
 
     # 根据干预强度因子调整做市商挂单数量
     adjusted_base_quantity = int(round(base_quantity * mm_intensity))
@@ -1125,93 +1134,80 @@ def generate_market_maker_orders(
                 round=current_round,
                 competition_id=competition_id,
             ))
-        orders.append(StockOrder(
-            stock_id=stock.id,
-            funds_account_id=mm_account.id,
-            side="SELL",
-            price=sell_price,
-            quantity=sell_qty,
-            amount=sell_amount,
-            status="PENDING",
-            round=current_round,
-            competition_id=competition_id,
-        ))
-
-    # 做市商自成交：当启用自成交且没有人工订单时，生成一对自成交订单制造价格波动
-    # 改进：自成交机制更平衡，避免单向推高价格
-    # 注意：只有在用户交易不活跃时才进行自成交
-    if self_trade_enabled and not need_intervene and mm_intensity > 0.5:
-        import random
-        
-        # 计算自成交数量（保持买卖平衡，根据干预强度调整）
-        base_self_qty = max(1, int(round(base_quantity * self_trade_qty_pct * mm_intensity)))
-        buy_qty = base_self_qty
-        sell_qty = base_self_qty
-        
-        # 价格偏移方向：基于动量而非基本面，避免单向推高
-        # 动量偏置：涨 → 价格下移，跌 → 价格上移（反向操作）
-        if last_change > 1.0:
-            # 上涨后：价格下移概率70%
-            direction = -1 if random.random() < 0.7 else 1
-        elif last_change < -1.0:
-            # 下跌后：价格上移概率70%
-            direction = 1 if random.random() < 0.7 else -1
-        else:
-            # 平盘：随机方向
-            direction = random.choice([-1, 1])
-        
-        # 价格偏移幅度：基于动量而非基本面
-        price_offset_pct = self_trade_pct * min(2.0, abs(last_change) / 5.0 + 0.5)
-        price_offset = direction * price_offset_pct
-        
-        # 计算自成交价格（确保类型转换正确）
-        self_trade_price = round2(Decimal(str(base_price)) * (Decimal("1") + Decimal(str(float(price_offset)))))
-        
-        # 生成自成交订单（买入价略高于卖出价，确保成交）
-        buy_price = round2(self_trade_price * (Decimal("1") + Decimal("0.001")))
-        sell_price = round2(self_trade_price * (Decimal("1") - Decimal("0.001")))
-        
-        # 生成买单
-        if buy_qty > 0:
-            orders.append(StockOrder(
-                stock_id=stock.id,
-                funds_account_id=mm_account.id,
-                side="BUY",
-                price=buy_price,
-                quantity=buy_qty,
-                amount=round2(buy_price * Decimal(str(buy_qty))),
-                status="PENDING",
-                round=current_round,
-                competition_id=competition_id,
-            ))
-        
-        # 生成卖单
-        if sell_qty > 0:
+        # 问题2: 卖单检查持仓是否足够，不够则缩减或跳过
+        actual_sell_qty = min(Decimal(str(sell_qty)), available_shares)
+        if actual_sell_qty > 0:
             orders.append(StockOrder(
                 stock_id=stock.id,
                 funds_account_id=mm_account.id,
                 side="SELL",
                 price=sell_price,
-                quantity=sell_qty,
-                amount=round2(sell_price * Decimal(str(sell_qty))),
+                quantity=actual_sell_qty,
+                amount=round2(sell_price * actual_sell_qty),
+                status="PENDING",
+                round=current_round,
+                competition_id=competition_id,
+            ))
+            available_shares -= actual_sell_qty
+
+    # 问题5: 自成交放在建仓和报价之后，确保持仓已补充
+    if self_trade_enabled and not need_intervene and mm_intensity > 0.5:
+        base_self_qty = max(1, int(round(base_quantity * self_trade_qty_pct * mm_intensity)))
+        self_sell_qty = min(base_self_qty, int(available_shares))
+        self_buy_qty = base_self_qty
+        
+        # 价格偏移方向：基于动量
+        if last_change > 1.0:
+            direction = -1 if random.random() < 0.7 else 1
+        elif last_change < -1.0:
+            direction = 1 if random.random() < 0.7 else -1
+        else:
+            direction = random.choice([-1, 1])
+        
+        price_offset_pct = self_trade_pct * min(2.0, abs(last_change) / 5.0 + 0.5)
+        price_offset = direction * price_offset_pct
+        
+        self_trade_price = round2(Decimal(str(base_price)) * (Decimal("1") + Decimal(str(float(price_offset)))))
+        st_buy_price = round2(self_trade_price * (Decimal("1") + Decimal("0.001")))
+        st_sell_price = round2(self_trade_price * (Decimal("1") - Decimal("0.001")))
+        
+        # 生成买单
+        if self_buy_qty > 0:
+            orders.append(StockOrder(
+                stock_id=stock.id,
+                funds_account_id=mm_account.id,
+                side="BUY",
+                price=st_buy_price,
+                quantity=self_buy_qty,
+                amount=round2(st_buy_price * Decimal(str(self_buy_qty))),
                 status="PENDING",
                 round=current_round,
                 competition_id=competition_id,
             ))
         
-        # 更新总卖量，确保有足够持仓支撑自成交
-        total_sell_qty += sell_qty
+        # 生成卖单（持仓不足时跳过）
+        if self_sell_qty > 0:
+            orders.append(StockOrder(
+                stock_id=stock.id,
+                funds_account_id=mm_account.id,
+                side="SELL",
+                price=st_sell_price,
+                quantity=self_sell_qty,
+                amount=round2(st_sell_price * Decimal(str(self_sell_qty))),
+                status="PENDING",
+                round=current_round,
+                competition_id=competition_id,
+            ))
+            available_shares -= Decimal(str(self_sell_qty))
     
     if orders:
         StockOrder.objects.bulk_create(orders)
         
-        # 记录自动生成的参数（用于调试和监控）
-        logger.info(f"[stock] 做市商参数自动生成: stock={stock.code}, "
-                   f"spread_pct={spread_pct:.4f}, levels={levels}, "
-                   f"skew_pct={skew_pct:.4f}, depth_pct={depth_pct:.6f}, "
-                   f"base_quantity={base_quantity}, "
-                   f"self_trade_pct={mm_self_trade_pct:.4f}, "
-                   f"self_trade_qty_pct={mm_self_trade_qty_pct:.4f}")
+        logger.info("[stock] 做市商参数自动生成: stock=%s, spread_pct=%.4f, levels=%s, "
+                    "skew_pct=%.4f, depth_pct=%.6f, base_quantity=%s, "
+                    "self_trade_pct=%.4f, self_trade_qty_pct=%.4f",
+                    stock.code, spread_pct, levels, skew_pct, depth_pct,
+                    base_quantity, mm_self_trade_pct, mm_self_trade_qty_pct)
     
     return len(orders), need_intervene
 
@@ -1440,7 +1436,6 @@ def advance_one_stock(
         price = compute_price(factors_dec, cfg)
         
         # 市场自然波动机制：模拟真实市场的随机性和趋势性
-        import random
         final_price = price["final"]
         
         # 从配置获取波动参数
@@ -1460,16 +1455,16 @@ def advance_one_stock(
                 recent_changes = [float(c.change_pct) for c in recent_candles[:5]]
                 avg_change = sum(recent_changes) / len(recent_changes)
                 
-                # 计算连续涨跌轮数
-                consecutive_up = 0
-                consecutive_down = 0
+                # 计算连续涨跌轮数（用局部变量，不覆盖外部传入的 consecutive_up/down）
+                candle_consec_up = 0
+                candle_consec_down = 0
                 for candle in recent_candles:
                     if candle.change_pct > 0:
-                        consecutive_up += 1
-                        consecutive_down = 0
+                        candle_consec_up += 1
+                        candle_consec_down = 0
                     elif candle.change_pct < 0:
-                        consecutive_down += 1
-                        consecutive_up = 0
+                        candle_consec_down += 1
+                        candle_consec_up = 0
                     else:
                         break
                 
@@ -1477,9 +1472,9 @@ def advance_one_stock(
                 base_prob = 0.05  # 基础回调概率5%
                 
                 # 因素1：连续上涨轮数（非线性）
-                if consecutive_up >= 3:
+                if candle_consec_up >= 3:
                     # 连续上涨3轮以上，概率增加
-                    up_factor = min(0.2, (consecutive_up - 2) * 0.05)
+                    up_factor = min(0.2, (candle_consec_up - 2) * 0.05)
                     base_prob += up_factor
                 
                 # 因素2：近期平均涨幅（涨幅越大，回调概率越大）
