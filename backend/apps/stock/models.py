@@ -190,6 +190,8 @@ class StockCandle(models.Model):
     low = models.DecimalField(max_digits=60, decimal_places=4)
     close = models.DecimalField(max_digits=60, decimal_places=4)
     change_pct = models.DecimalField(max_digits=60, decimal_places=4)
+    # 成交量：本轮实际成交的股票数量
+    volume = models.DecimalField(max_digits=60, decimal_places=4, default=0)
     competition = models.ForeignKey(
         "competitions.Competition",
         on_delete=models.CASCADE,

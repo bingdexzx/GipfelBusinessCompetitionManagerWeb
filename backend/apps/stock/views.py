@@ -436,6 +436,7 @@ class CandlesView(APIView):
                 "low": c.low,
                 "close": c.close,
                 "changePct": c.change_pct,
+                "volume": c.volume,
                 "competitionId": c.competition_id,
                 "createdAt": c.created_at,
                 "updatedAt": c.updated_at,

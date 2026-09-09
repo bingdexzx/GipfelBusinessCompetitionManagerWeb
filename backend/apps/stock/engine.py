@@ -1704,6 +1704,11 @@ def advance_one_stock(
                     )
 
         # K 线（snake_case 字段映射，build_candle 返回驼峰）
+        # 计算成交量：买单成交量总和（买卖配对，取买单侧即可）
+        total_volume = Decimal("0")
+        for buy_order in buys:
+            total_volume += filled.get(buy_order.id, Decimal("0"))
+        
         StockCandle.objects.create(
             stock_id=stock.id,
             competition_id=competition_id,
@@ -1713,6 +1718,7 @@ def advance_one_stock(
             close=candle["close"],
             change_pct=candle["changePct"],
             round=candle["round"],
+            volume=round2(total_volume),
         )
         # 股票价 / 轮次
         Stock.objects.filter(pk=stock.id).update(current_price=price["final"], round=new_round)
