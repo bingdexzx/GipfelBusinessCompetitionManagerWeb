@@ -115,7 +115,7 @@ export function useDashboardFields() {
               const ref: FieldRef = {
                 source: "company",
                 companyId: comp.id,
-                fieldId: f.id,
+                fieldId: f.industryFieldId,
                 fieldKey: f.fieldKey,
               };
               result.push({
