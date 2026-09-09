@@ -419,7 +419,7 @@ export const stockApi = {
     const params: Record<string, unknown> = { competitionId };
     if (stockId != null) params.stockId = stockId;
     if (fundsAccountId != null) params.fundsAccountId = fundsAccountId;
-    return api.get("/stocks/orders/list", { params });
+    return api.get("/stocks/orders/list", { params, cache: false });
   },
   placeOrder: (data: CreateStockOrderInput) => api.post("/stocks/orders", data),
   cancelOrder: (id: number) => api.delete(`/stocks/orders/${id}`),
