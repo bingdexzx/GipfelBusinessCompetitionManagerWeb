@@ -107,7 +107,8 @@ class StockHolding(models.Model):
         related_name="holdings",
     )
     # 持股数与成本价：撮合后累加场景，浮点会漂；改 Decimal 与资金账户配套。
-    shares = models.DecimalField(max_digits=60, decimal_places=4)
+    # P1-#6: shares 非负约束，防止撮合 bug 产生负持仓
+    shares = models.DecimalField(max_digits=60, decimal_places=4, default=0)
     cost_price = models.DecimalField(max_digits=60, decimal_places=4)
     competition = models.ForeignKey(
         "competitions.Competition",
@@ -121,6 +122,12 @@ class StockHolding(models.Model):
         db_table = "stock_holdings"
         unique_together = (("funds_account", "stock"),)
         indexes = [models.Index(fields=["competition", "updated_at"])]
+
+    def clean(self):
+        """P1-#6: 持仓量不能为负"""
+        from django.core.exceptions import ValidationError
+        if self.shares is not None and self.shares < 0:
+            raise ValidationError("持仓量不能为负")
 
     def __str__(self):
         return f"account={self.funds_account_id} stock={self.stock_id} shares={self.shares}"
