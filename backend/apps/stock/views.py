@@ -26,9 +26,12 @@
 """
 from __future__ import annotations
 
+import logging
 import math
 
 from decimal import Decimal
+
+logger = logging.getLogger("gipfel")
 
 from django.db.models import Q
 
@@ -153,8 +156,44 @@ def _assert_account_operable(account: StockFundsAccount, user) -> None:
         raise BusinessError("无权操作该资金账户", code=403, status_code=403)
 
 
-def _serialize_stock(stock, field_map: dict | None = None, pb_map: dict | None = None) -> dict:
-    """序列化股票并附加有效碳排/幸福度/行业碳排均值/有效 PE。"""
+def _build_candle_map(stocks: list, competition_id: int | None) -> dict:
+    """P0-#7: 批量获取每只股票的最后一根K线，返回 {stock_id: last_candle}。
+    
+    用于在 stocks 列表接口中一次性返回涨跌幅数据，消除前端逐个请求 K 线的 N+1 问题。
+    """
+    from .models import StockCandle
+    from django.db.models import Max
+
+    if not stocks or not competition_id:
+        return {}
+
+    stock_ids = [s.id for s in stocks]
+    # 子查询：每只股票的最大 round
+    max_rounds = (
+        StockCandle.objects.filter(
+            stock_id__in=stock_ids, competition_id=competition_id
+        )
+        .values("stock_id")
+        .annotate(max_round=Max("round"))
+    )
+    # 构建 {(stock_id, round): candle} 映射，一次查询取所有最后一根K线
+    candle_map = {}
+    for entry in max_rounds:
+        sid = entry["stock_id"]
+        mr = entry["max_round"]
+        candle = StockCandle.objects.filter(
+            stock_id=sid, competition_id=competition_id, round=mr
+        ).first()
+        if candle:
+            candle_map[sid] = candle
+    return candle_map
+
+
+def _serialize_stock(stock, field_map: dict | None = None, pb_map: dict | None = None, candle_map: dict | None = None) -> dict:
+    """序列化股票并附加有效碳排/幸福度/行业碳排均值/有效 PE/涨跌幅。
+    
+    P0-#7: candle_map 可选传入 {stock_id: last_candle}，用于批量返回涨跌幅，消除前端 N+1 请求。
+    """
     from .engine import (
         effective_carbon,
         effective_happiness,
@@ -163,6 +202,18 @@ def _serialize_stock(stock, field_map: dict | None = None, pb_map: dict | None =
 
     fm = field_map or {}
     pb = pb_map.get(stock.id, stock.industry_pe) if pb_map else stock.industry_pe
+
+    # P0-#7: 涨跌幅数据
+    change_pct = 0
+    change_price = 0
+    volume = 0
+    if candle_map and stock.id in candle_map:
+        last_candle = candle_map[stock.id]
+        if last_candle:
+            change_pct = float(last_candle.change_pct) if last_candle.change_pct else 0
+            change_price = _round2(float(last_candle.close) - float(last_candle.open))
+            volume = float(last_candle.volume) if hasattr(last_candle, 'volume') and last_candle.volume else 0
+
     return {
         "id": stock.id,
         "code": stock.code,
@@ -191,6 +242,8 @@ def _serialize_stock(stock, field_map: dict | None = None, pb_map: dict | None =
         "effectiveIndustryAvgCarbon": effective_industry_avg_carbon(stock, fm),
         "effectivePb": pb,
         "pbMode": "linked" if (stock.pb_company_id and stock.pb_field_id) else "random",
+        "changePct": change_pct,
+        "changePrice": change_price,
     }
 
 
@@ -225,7 +278,11 @@ class CollectionView(APIView):
 
         if incremental:
             updated_qs = qs.filter(**where).order_by("code")
-            items = [_serialize_stock(s, field_map, resolve_effective_pbs(list(updated_qs))) for s in updated_qs]
+            updated_list = list(updated_qs)
+            pb_map = resolve_effective_pbs(updated_list)
+            # P0-#7: 批量获取每只股票的最后一根K线（涨跌幅）
+            candle_map = _build_candle_map(updated_list, cid)
+            items = [_serialize_stock(s, field_map, pb_map, candle_map) for s in updated_list]
             all_current_ids = list(qs.values_list("pk", flat=True))
             previous_ids = _parse_previous_ids(request.query_params.get("previousIds"))
             if _truthy(request.query_params.get("requireExistingIds")):
@@ -236,8 +293,11 @@ class CollectionView(APIView):
 
         page, page_size, skip = parse_pagination(request.query_params)
         page_qs = qs.order_by("code")[skip : skip + page_size]
-        pb_map = resolve_effective_pbs(list(page_qs))
-        items = [_serialize_stock(s, field_map, pb_map) for s in page_qs]
+        page_list = list(page_qs)
+        pb_map = resolve_effective_pbs(page_list)
+        # P0-#7: 批量获取每只股票的最后一根K线（涨跌幅）
+        candle_map = _build_candle_map(page_list, cid)
+        items = [_serialize_stock(s, field_map, pb_map, candle_map) for s in page_list]
         total = qs.count()
         return Response(paginated_response(items, total, page, page_size))
 
@@ -308,8 +368,8 @@ class PbSourcesView(APIView):
                         "cardId": card.get("id"),
                         "displayName": card.get("displayName"),
                     })
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[stock] PbSourcesView 获取区域卡片失败 comp=%s: %s", cid, exc)
 
         return Response({"companies": companies, "regionCards": region_cards})
 
@@ -862,20 +922,24 @@ class OrderItemView(APIView):
 
     @require_permissions(_VIEW_PERM)
     def delete(self, request, pk):
-        try:
-            order = StockOrder.objects.get(pk=pk)
-        except StockOrder.DoesNotExist:
-            raise BusinessError("订单不存在", code=404, status_code=404)
-        try:
-            account = StockFundsAccount.objects.get(pk=order.funds_account_id)
-        except StockFundsAccount.DoesNotExist:
-            raise BusinessError("资金账户不存在", code=404, status_code=404)
-        if not _is_high_manager(request.user):
-            _assert_account_operable(account, request.user)
-        if order.status != "PENDING":
-            raise BusinessError("仅可撤销挂单", code=400, status_code=400)
-        order.status = "CANCELLED"
-        order.save(update_fields=["status"])
+        from django.db import transaction as db_transaction
+
+        with db_transaction.atomic():
+            # P0-#1: select_for_update 锁定订单行，防止撤单与撮合引擎并发竞态
+            try:
+                order = StockOrder.objects.select_for_update().get(pk=pk)
+            except StockOrder.DoesNotExist:
+                raise BusinessError("订单不存在", code=404, status_code=404)
+            try:
+                account = StockFundsAccount.objects.get(pk=order.funds_account_id)
+            except StockFundsAccount.DoesNotExist:
+                raise BusinessError("资金账户不存在", code=404, status_code=404)
+            if not _is_high_manager(request.user):
+                _assert_account_operable(account, request.user)
+            if order.status != "PENDING":
+                raise BusinessError("仅可撤销挂单", code=400, status_code=400)
+            order.status = "CANCELLED"
+            order.save(update_fields=["status"])
         # 撤单广播：否则其他端点挂单列表停留旧值
         emit_resource_changed("stock-orders", order.id, order.competition_id, "updated")
         return Response({
