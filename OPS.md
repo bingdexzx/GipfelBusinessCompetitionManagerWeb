@@ -10,9 +10,9 @@
 | --- | --- | --- |
 | 前端（Vite / 生产 nginx 静态） | `:5173`（开发）/ 80·443（生产） | 浏览器访问入口 |
 | 后端（Django 5 + daphne ASGI） | `:8000` | HTTP REST + Socket.IO WebSocket 同源同端口；`/admin` 管理后台仅前端按钮携带一次性令牌可进，直连 302 回前端 |
-| 日志查看器（独立 Django 站点） | `:8120`（内部，仅绑定 127.0.0.1） | 在线查看 `backend/logs/`，**共享主后端 `db.sqlite3`**；公网整站代理到 `127.0.0.1:8120`，且**仅前端按钮点击（携带一次性令牌）可进入**，直接输入网址被 403 拒绝。有域名经 nginx 子域 `log.<DOMAIN>`（端口 80）；无域名（纯 IP）经 nginx `:8120` 端口（`server_name _`）访问 `http://<IP>:8120/`（详见 deploy/README.md「无域名纯 IP 部署」） |
+| 日志查看器（独立 Django 站点） | `:8121`（daphne 内部，仅绑 127.0.0.1）/ `:8120`（nginx 公网监听反代） | 在线查看 `backend/logs/`，**共享主后端 `db.sqlite3`**；公网整站代理到 `127.0.0.1:8121`，且**仅前端按钮点击（携带一次性令牌）可进入**，直接输入网址被 403 拒绝。有域名经 nginx 子域 `log.<DOMAIN>`（端口 80）；无域名（纯 IP）经 nginx `:8120` 端口（`server_name _`）访问 `http://<IP>:8120/`（详见 deploy/README.md「无域名纯 IP 部署」） |
 
-> 后端 `:8000` 由 `start-dev.bat` 固定，不读 `.env` 的 `PORT`；`PORT` 仅被 `manage.py rundaphne` 与 `/api/version` 下发的跳转按钮使用。日志查看器端口读 `.env` 的 `LOG_VIEWER_PORT`（默认 8120）。
+> 后端 `:8000` 由 `start-dev.bat` 固定，不读 `.env` 的 `PORT`；`PORT` 仅被 `manage.py rundaphne` 与 `/api/version` 下发的跳转按钮使用。日志查看器 `.env` 的 `LOG_VIEWER_PORT`（默认 8120）**仅**供主后端 `/api/version` 下发（前端按钮拼 `log_viewer_url` 用），**不控制**日志查看器进程实际绑定端口——daphne 启动端口由 `deploy/logviewer.service` 模板硬编码为 8121（公网 8120 由 nginx 监听反代），改这个变量要同步改 service 模板与 nginx vhost，详见 deploy/README.md「无域名纯 IP 部署」。
 
 ## 2. 环境要求
 
@@ -211,7 +211,7 @@ npm run typecheck    # 类型检查（CI 必跑）
 ## 10. 安全与合规速览
 
 - **JWT**：HS256，`JWT_SECRET` 必填（未配置进程 fail-fast 拒绝启动），默认 24h，`tokenVersion` 顶号立即失效。Django 自身 `SECRET_KEY` 支持经 `DJANGO_SECRET_KEY` 独立配置（未配置回退 `JWT_SECRET`；更换会使 session/CSRF cookie 失效，择机轮换）。
-- **改密吊销会话**：改密成功后端递增 `token_version` 吊销**所有**旧 token（含当前会话，防止旧凭据残留）；前端随后自动用新密码重新登录换发新 token，本设备会话无感续接，其他设备被正确踢下线。若看到「账号已在其他设备登录」误报，说明前端版本过旧（未带自动重登逻辑），更新前端即可。
+- **改密吊销会话**：改密成功后端递增 `token_version` 吊销**所有**旧 token（含当前会话，防止旧凭据残留）；**后端在同一次请求内直接签发新 token 并随响应返回**（[ChangePasswordView](backend/apps/auth/views.py) 改密、递增 token_version、签发新 token 三步在同一 ORM 实例上原子完成，规避 SQLite 写后读竞态），前端用响应里的 `token` 字段直接替换旧 token 即可，本设备会话无感续接，其他设备被正确踢下线。脚本/SDK 调用方须从 `change-password` 响应里取 `token` 续接。
 - **RBAC**：41 个权限键、20 个权限域；5 级动作等级蕴含（`view<edit<manage<execute<audit`，合同域自定义）。`can(action, resource)` 前后端一致。
 - **比赛隔离**：读查询按 `competition_id` 自动域过滤（`apply_competition_scope`）；写操作 `create_competition_id` 强制归属（非超管忽略请求体 competitionId）；`CompetitionScopePermission` 挂载 DRF 全局默认兜底。
 - **客户端 IP 信任链**：`client_ip()` 仅对可信代理（默认回环，`TRUSTED_PROXIES` 可扩展）信任 `X-Real-IP`，直连后端无法伪造该头绕过登录限速。

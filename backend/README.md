@@ -14,9 +14,8 @@ python manage.py migrate
 
 # 3. 启动 daphne（HTTP + Socket.IO 同源同端口，端口来自 .env 的 PORT，默认 8000）
 #    daphne 已在 INSTALLED_APPS 首位并接管 Django 自带的 runserver 命令，因此
-#    `manage.py runserver` 实际即以 ASGI/daphne 运行，HTTP + Socket.IO WebSocket 同源同端口；
-#    生产推荐用项目自带 rundaphne 命令（端口自动取 .env 的 PORT，前端跳转按钮跟随）：
-#    推荐用自带的 rundaphne 命令，端口自动取 .env 的 PORT（前端后台跳转按钮也会跟随该端口）：
+#    `manage.py runserver` 实际即以 ASGI/daphne 运行，HTTP + Socket.IO WebSocket 同源同端口。
+#    生产推荐用项目自带的 rundaphne 命令，端口自动取 .env 的 PORT（前端跳转按钮也会跟随该端口）：
 python manage.py rundaphne
 #    如需局域网/容器访问（绑定所有网卡）：
 python manage.py rundaphne --bind 0.0.0.0
@@ -56,14 +55,14 @@ TOKEN=$(curl -s -X POST http://127.0.0.1:8000/api/auth/login \
   -d '{"username":"admin","password":"admin23"}' | jq -r .data.token)
 
 # 此时若直接访问受保护接口会 401 initial_password_must_be_changed
-# 先改密:
+# 先改密（响应里会带回新 token + user，直接续接；详见 [apps/auth/views.py](../apps/auth/views.py)）：
 curl -s -X POST http://127.0.0.1:8000/api/auth/change-password \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"oldPassword":"admin23","newPassword":"Admin@2026"}'
-# 改密成功后旧 TOKEN 已失效（token_version 递增吊销所有旧 token）：
-# 须用新密码重新登录换发新 token 才能继续调用受保护接口。
-# 前端已内置该流程（改密后自动重登，用户无感）；脚本/API 调用方需自行重登。
+# 改密成功后端递增 token_version 吊销所有旧 token（含当前 TOKEN），并在同一请求
+# 内签发新 token 随响应返回（规避 SQLite 写后读竞态，避免二次 /login 触发偶发 401）。
+# 脚本/SDK 调用方须用响应里的 .data.token 续接，不能继续用旧 $TOKEN。
 ```
 
 ## 环境变量

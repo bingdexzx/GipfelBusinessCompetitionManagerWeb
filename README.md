@@ -22,7 +22,7 @@
 └─────────────────────────────────────────────────────────────┘
 ```
 
-- **前端端口**：开发 `:5173`（Vite，自动代理 `/api` `/socket.io` `/uploads` 到 `:8000`），生产由 nginx 或 Django `STATICFILES_DIRS` 托管
+- **前端端口**：开发 `:5173`（Vite，自动代理 `/api` `/socket.io` `/uploads` 到 `:8000`），生产由 nginx 托管 `frontend-dist/`（或开发态 Django `STATIC_ROOT` 兜底）
 - **后端端口**：Daphne 默认 `:8000`
 - **上传目录**：`backend/uploads/`（环境变量 `UPLOAD_DIR`）
 - **数据库**：`backend/db.sqlite3`（默认，环境变量 `DATABASE_URL` 可切换）
@@ -180,7 +180,7 @@ scripts\start-dev.bat
 
 ## 6. 安全与合规
 
-- **JWT**：HS256，`JWT_SECRET`（必填，未配置进程 fail-fast 拒绝启动），默认 24h，`tokenVersion` 顶号立即失效（改密同样递增吊销所有旧 token，前端自动重登续接）；Django 自身 `SECRET_KEY` 支持经 `DJANGO_SECRET_KEY` 独立配置（未配置回退 `JWT_SECRET`，生产建议分离）
+- **JWT**：HS256，`JWT_SECRET`（必填，未配置进程 fail-fast 拒绝启动），默认 24h，`tokenVersion` 顶号立即失效（改密同样递增吊销所有旧 token）；**改密时后端直接签发新 token 返回**，前端拿到后**替换旧 token 即可**（[ChangePasswordView](backend/apps/auth/views.py) 改密、递增 `token_version` 吊销旧 token、签发新 token 三步在同一 ORM 实例上原子完成，避免二次 `/login` 触发的 SQLite 写后读竞态）；Django 自身 `SECRET_KEY` 支持经 `DJANGO_SECRET_KEY` 独立配置（未配置回退 `JWT_SECRET`，生产建议分离）
 - **RBAC**：41 个权限键、20 个权限域；5 级动作等级蕴含（`view(10) < edit(20) < manage(30) < execute(40) < audit(50)`），合同域自定义为 `view(10) < audit(20) < execute(30) < manage(40)`；`can(action, resource)` 前后端一致
 - **比赛隔离**：读查询自动按 `competition_id` 域过滤（`apply_competition_scope`）；写操作由 `create_competition_id` 强制归属（非超管忽略请求体的 competitionId，杜绝跨比赛写入）；`CompetitionScopePermission` 挂载在 DRF 全局默认权限做兜底（非超管写操作必须有比赛上下文）
 - **客户端 IP 信任链**：`client_ip()` 仅当请求来自可信代理（默认回环，可经 `TRUSTED_PROXIES` 扩展）才信任 `X-Real-IP`，绕过 nginx 直连后端无法伪造 IP 使登录限速失效
@@ -203,7 +203,7 @@ scripts\start-dev.bat
 
 > 同一套凭据也会在 `migrate` 时一并创建 Django 后台（`/admin`）超级管理员（见下方「Django 管理后台」一节）。
 
-**强制改密**：首次登录成功后返回的 JWT 仍能通过鉴权，但调用受 `must_change_password` 守卫的接口（如 `/auth/me`、全部业务接口）会返回 **401 `initial_password_must_be_changed`**，前端立即跳转到改密页。改密成功后 `must_change_password` 置为 False，同时**递增 `token_version` 吊销所有旧 token**（安全设计，防旧凭据残留）；前端随即自动用新密码重新登录换发新 token，本设备会话无感续接，其他设备被正确踢下线。
+**强制改密**：首次登录成功后返回的 JWT 仍能通过鉴权，但调用受 `must_change_password` 守卫的接口（如 `/auth/me`、全部业务接口）会返回 **401 `initial_password_must_be_changed`**，前端立即跳转到改密页。改密成功后 `must_change_password` 置为 False，同时**递增 `token_version` 吊销所有旧 token**（安全设计，防旧凭据残留）；**后端直接签发新 token 与最新 user 资料返回**（[ChangePasswordView](backend/apps/auth/views.py)），前端替换内存与 localStorage 里的旧 token、重启心跳即可完成本设备会话无感续接，其他设备被正确踢下线。脚本/SDK 调用方需从 `change-password` 响应里取 `token` 字段续接。
 
 ### 新建比赛管理员
 
