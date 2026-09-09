@@ -514,6 +514,7 @@ export interface StockCandle {
   low: number;
   close: number;
   changePct: number;
+  volume: number;
   competitionId: number | null;
   createdAt: string;
   updatedAt: string;
