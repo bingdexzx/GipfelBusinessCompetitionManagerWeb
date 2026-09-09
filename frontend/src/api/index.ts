@@ -67,7 +67,7 @@ export const usersApi = {
 };
 
 export const materialsApi = {
-  list: (page = 1, pageSize = 50) => api.get("/materials", { params: { page, pageSize } }),
+  list: (page = 1, pageSize = 50) => api.get("/materials", { params: { page, pageSize }, cache: false }),
   get: (id: number) => api.get(`/materials/${id}`),
   create: (data: CreateMaterialInput) => api.post("/materials", data),
   update: (id: number, data: UpdateMaterialInput) => api.patch(`/materials/${id}`, data),
@@ -77,7 +77,7 @@ export const materialsApi = {
 };
 
 export const partsApi = {
-  list: (page = 1, pageSize = 50) => api.get("/parts", { params: { page, pageSize } }),
+  list: (page = 1, pageSize = 50) => api.get("/parts", { params: { page, pageSize }, cache: false }),
   get: (id: number) => api.get(`/parts/${id}`),
   create: (data: CreatePartInput) => api.post("/parts", data),
   update: (id: number, data: UpdatePartInput) => api.patch(`/parts/${id}`, data),
@@ -87,7 +87,7 @@ export const partsApi = {
 };
 
 export const productsApi = {
-  list: (page = 1, pageSize = 50) => api.get("/products", { params: { page, pageSize } }),
+  list: (page = 1, pageSize = 50) => api.get("/products", { params: { page, pageSize }, cache: false }),
   get: (id: number) => api.get(`/products/${id}`),
   create: (data: CreateProductInput) => api.post("/products", data),
   update: (id: number, data: UpdateProductInput) => api.patch(`/products/${id}`, data),
@@ -443,6 +443,8 @@ export const stockApi = {
         happinessImpact?: number;
         carbonImpact?: number;
         mmDepthPct?: number;
+        mmMinQty?: number;
+        mmMaxQty?: number;
         mmSpreadPct?: number;
         interventionMode?: "regression" | "expand-limit";
         regressionPct?: number;

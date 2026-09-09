@@ -94,7 +94,7 @@ def compute_pb_data(item: Stock | None, dto: dict) -> dict:
 # ==================== 股票 ====================
 class StockSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)
-    code = serializers.CharField(max_length=64, trim_whitespace=True)
+    code = serializers.CharField(max_length=64, trim_whitespace=True, read_only=True)
     name = serializers.CharField(max_length=255, trim_whitespace=True)
     # 总股本 / 初始净利润 / 价格：精确到 4 位（与 model 对齐）。
     # 用 DecimalField 是因为：浮点会累计误差，玩家账户不平就源于此。
@@ -131,6 +131,19 @@ class StockSerializer(serializers.Serializer):
             raise serializers.ValidationError("股票名称不能为空")
         return value
 
+    def validate_competitionId(self, value):
+        from apps.competitions.models import Competition
+        if not Competition.objects.filter(pk=value).exists():
+            raise serializers.ValidationError("比赛不存在")
+        return value
+
+    def validate_companyId(self, value):
+        if value is not None:
+            from apps.companies.models import Company
+            if not Company.objects.filter(pk=value).exists():
+                raise serializers.ValidationError("公司不存在")
+        return value
+
     def create(self, validated_data: dict) -> Stock:
         from .engine import compute_init_price
 
@@ -141,22 +154,24 @@ class StockSerializer(serializers.Serializer):
 
             raise BusinessError("股票代码已存在", code=409, status_code=409)
 
-        pb = compute_pb_data(None, validated_data)
-        init_price = compute_init_price(
-            validated_data["initNetProfit"], validated_data["totalShares"], pb["industryPE"]
-        )
-        # 边界校验
+        # 边界校验（必须在计算之前）
         from apps.common.exceptions import BusinessError
 
         if not (validated_data["totalShares"] > 0):
             raise BusinessError("总股本必须大于 0", code=400, status_code=400)
         if not (validated_data["initNetProfit"] > 0):
             raise BusinessError("初始净利润必须大于 0", code=400, status_code=400)
+
+        pb = compute_pb_data(None, validated_data)
         if not (pb["industryPE"] > 0):
             raise BusinessError(
                 "有效行业 PE 必须大于 0（联动模式字段值或随机源须为正）",
                 code=400, status_code=400,
             )
+
+        init_price = compute_init_price(
+            validated_data["initNetProfit"], validated_data["totalShares"], pb["industryPE"]
+        )
         if not (init_price > 0 and init_price <= 10000):
             raise BusinessError(
                 f"初始价 {init_price} 异常，请检查净利润/股本/PE 量纲（应 ∈ (0, 10000]）",
@@ -187,12 +202,13 @@ class StockSerializer(serializers.Serializer):
 
     def update(self, instance: Stock, validated_data: dict) -> Stock:
         from .engine import compute_init_price
+        from apps.common.exceptions import BusinessError
 
-        # 边界校验：修改股本必须为正，否则会产生 0 价股（原 update 缺失该校验）
+        # 边界校验：修改股本必须为正，否则会产生 0 价股
         if "totalShares" in validated_data and not (validated_data["totalShares"] > 0):
-            from apps.common.exceptions import BusinessError
-
             raise BusinessError("总股本必须大于 0", code=400, status_code=400)
+        if "initNetProfit" in validated_data and not (validated_data["initNetProfit"] > 0):
+            raise BusinessError("初始净利润必须大于 0", code=400, status_code=400)
 
         if "name" in validated_data:
             instance.name = validated_data["name"]
@@ -220,6 +236,11 @@ class StockSerializer(serializers.Serializer):
         effective_pe = instance.industry_pe
         if pb_changed:
             pb = compute_pb_data(instance, validated_data)
+            if not (pb["industryPE"] > 0):
+                raise BusinessError(
+                    "有效行业 PE 必须大于 0（联动模式字段值或随机源须为正）",
+                    code=400, status_code=400,
+                )
             instance.pb_company_id = pb["pbCompanyId"]
             instance.pb_field_id = pb["pbFieldId"]
             instance.pb_random = pb["pbRandom"]
@@ -230,7 +251,13 @@ class StockSerializer(serializers.Serializer):
         if "totalShares" in validated_data or "initNetProfit" in validated_data:
             total_shares = validated_data.get("totalShares", instance.total_shares)
             init_net_profit = validated_data.get("initNetProfit", instance.init_net_profit)
-            instance.init_price = compute_init_price(init_net_profit, total_shares, effective_pe)
+            new_init_price = compute_init_price(init_net_profit, total_shares, effective_pe)
+            if not (new_init_price > 0 and new_init_price <= 10000):
+                raise BusinessError(
+                    f"初始价 {new_init_price} 异常，请检查净利润/股本/PE 量纲（应 ∈ (0, 10000]）",
+                    code=400, status_code=400,
+                )
+            instance.init_price = new_init_price
         if "totalShares" in validated_data:
             instance.total_shares = validated_data["totalShares"]
         if "initNetProfit" in validated_data:
@@ -260,6 +287,22 @@ class StockFundsAccountSerializer(serializers.Serializer):
         if not value:
             raise serializers.ValidationError("账户名不能为空")
         return value
+
+    def validate(self, attrs):
+        """交叉字段校验：ownerType 与 companyId/userId 的一致性"""
+        owner_type = attrs.get("ownerType")
+        company_id = attrs.get("companyId")
+        user_id = attrs.get("userId")
+        
+        if owner_type == "COMPANY":
+            if not company_id:
+                raise serializers.ValidationError({"companyId": "公司账户必须指定 companyId"})
+        elif owner_type == "USER":
+            if not user_id:
+                # 默认为当前用户（在视图层处理）
+                pass
+        
+        return attrs
 
     def to_representation(self, instance: StockFundsAccount) -> dict:
         return {

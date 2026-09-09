@@ -160,32 +160,33 @@ def _build_candle_map(stocks: list, competition_id: int | None) -> dict:
     """P0-#7: 批量获取每只股票的最后一根K线，返回 {stock_id: last_candle}。
     
     用于在 stocks 列表接口中一次性返回涨跌幅数据，消除前端逐个请求 K 线的 N+1 问题。
+    使用 Subquery 一次查询完成，避免 N+1。
     """
     from .models import StockCandle
-    from django.db.models import Max
+    from django.db.models import OuterRef, Subquery
 
     if not stocks or not competition_id:
         return {}
 
     stock_ids = [s.id for s in stocks]
-    # 子查询：每只股票的最大 round
-    max_rounds = (
-        StockCandle.objects.filter(
-            stock_id__in=stock_ids, competition_id=competition_id
+    
+    # 使用 Subquery 一次查询获取每只股票的最后一根K线
+    last_candle_ids = StockCandle.objects.filter(
+        stock_id__in=stock_ids,
+        competition_id=competition_id,
+        round=Subquery(
+            StockCandle.objects.filter(
+                stock_id=OuterRef('stock_id'),
+                competition_id=competition_id
+            ).order_by('-round').values('round')[:1]
         )
-        .values("stock_id")
-        .annotate(max_round=Max("round"))
-    )
-    # 构建 {(stock_id, round): candle} 映射，一次查询取所有最后一根K线
+    ).select_related()
+    
+    # 构建映射
     candle_map = {}
-    for entry in max_rounds:
-        sid = entry["stock_id"]
-        mr = entry["max_round"]
-        candle = StockCandle.objects.filter(
-            stock_id=sid, competition_id=competition_id, round=mr
-        ).first()
-        if candle:
-            candle_map[sid] = candle
+    for candle in last_candle_ids:
+        candle_map[candle.stock_id] = candle
+    
     return candle_map
 
 
@@ -244,13 +245,14 @@ def _serialize_stock(stock, field_map: dict | None = None, pb_map: dict | None =
         "pbMode": "linked" if (stock.pb_company_id and stock.pb_field_id) else "random",
         "changePct": change_pct,
         "changePrice": change_price,
+        "volume": volume,
     }
 
 
 def _serialize_account(account, with_field_balance: bool = False) -> dict:
     data = StockFundsAccountSerializer(account).data
     if with_field_balance:
-        if account.bind_field_id and account.company_id:
+        if account.bind_field_id is not None and account.company_id is not None:
             v = _resolve_field_value_or_default(account.company_id, account.bind_field_id)
             data["fieldBalance"] = v
         else:
@@ -313,7 +315,11 @@ class CollectionView(APIView):
         serializer.is_valid(raise_exception=True)
         stock = serializer.create(serializer.validated_data)
         emit_resource_changed("stocks", stock.id, stock.competition_id, "created")
-        return Response(_serialize_stock(stock))
+        # 返回完整的序列化数据（包含衍生字段）
+        from .engine import resolve_effective_pbs, resolve_field_value_map
+        field_map = resolve_field_value_map(cid)
+        pb_map = resolve_effective_pbs([stock])
+        return Response(_serialize_stock(stock, field_map, pb_map))
 
 
 class PbSourcesView(APIView):
@@ -574,6 +580,8 @@ class AccountCollectionView(APIView):
             raise BusinessError("资金账户名已存在", code=409, status_code=409)
 
         owner_type = request.data.get("ownerType")
+        if owner_type not in ("COMPANY", "USER"):
+            raise BusinessError("ownerType 必须是 COMPANY 或 USER", code=400, status_code=400)
         company_id = request.data.get("companyId")
         user_id = request.data.get("userId")
         bind_field_id = request.data.get("bindFieldId")
@@ -648,7 +656,15 @@ class AccountItemView(APIView):
         high = _is_high_manager(request.user)
         update_fields = []
         if "name" in data:
-            account.name = data["name"]
+            # 检查名称唯一性（同一比赛内）
+            new_name = data["name"]
+            if new_name != account.name:
+                exists = StockFundsAccount.objects.filter(
+                    competition_id=account.competition_id, name=new_name
+                ).exclude(pk=account.pk).exists()
+                if exists:
+                    raise BusinessError("同名资金账户已存在", code=409, status_code=409)
+            account.name = new_name
             update_fields.append("name")
         if "cashBalance" in data:
             if not high:
@@ -701,6 +717,10 @@ class AccountHoldingsView(APIView):
             account = StockFundsAccount.objects.get(pk=pk)
         except StockFundsAccount.DoesNotExist:
             raise BusinessError("资金账户不存在", code=404, status_code=404)
+        # 比赛隔离检查
+        if not _is_super(request.user):
+            if account.competition_id != getattr(request.user, "competition_id", None):
+                raise BusinessError("资金账户不存在", code=404, status_code=404)
         if not _is_high_manager(request.user):
             _assert_account_operable(account, request.user)
         holdings_qs = StockHolding.objects.select_related("stock").filter(
@@ -865,12 +885,12 @@ class OrderCollectionView(APIView):
                 funds_account_id=locked_account.id, stock_id=stock.id, status="PENDING"
             )
             pending_buy_cost = Decimal("0")
-            pending_sell_shares = 0
+            pending_sell_shares = Decimal("0")
             for o in pending:
                 if o.side == "BUY":
                     pending_buy_cost += Decimal(str(o.price)) * Decimal(str(o.quantity))
                 else:
-                    pending_sell_shares += int(o.quantity)
+                    pending_sell_shares += Decimal(str(o.quantity))
 
             if data["side"] == "BUY":
                 need = data["price"] * data["quantity"]
@@ -1019,7 +1039,10 @@ class AdvanceRoundView(APIView):
         # 非超管：强制使用令牌归属比赛；超管可指定
         raw_cid = request.query_params.get("competitionId")
         if _is_super(request.user):
-            cid = int(raw_cid) if raw_cid else getattr(request.user, "competition_id", None)
+            try:
+                cid = int(raw_cid) if raw_cid else getattr(request.user, "competition_id", None)
+            except (TypeError, ValueError):
+                raise BusinessError("无效的比赛ID", code=400, status_code=400)
         else:
             cid = getattr(request.user, "competition_id", None)
         if cid is None:

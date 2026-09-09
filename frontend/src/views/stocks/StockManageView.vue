@@ -796,6 +796,8 @@ function openStockDialog(row?: any) {
 async function saveStock() {
   const f = stockForm.value;
   if (!f.code || !f.name) return ElMessage.warning("请填写代码与股票名称");
+  // PE关联校验：选择关联公司时必须选择绑定字段
+  if (f.pbCompanyId && !f.pbFieldId) return ElMessage.warning("请选择 PE 绑定字段");
   const payload = {
     code: f.code,
     name: f.name,
@@ -942,6 +944,8 @@ function scheduleAccountReload() {
       reloadAccounts();
       reloadStocks();
       if (canSuper.value) reloadOverview();
+      // 刷新区域总览数据（碳排/幸福度绑定字段可能变化）
+      loadRegionOverview();
     }
   }, 400);
 }

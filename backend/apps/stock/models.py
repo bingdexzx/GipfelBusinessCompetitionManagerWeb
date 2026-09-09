@@ -122,6 +122,12 @@ class StockHolding(models.Model):
         db_table = "stock_holdings"
         unique_together = (("funds_account", "stock"),)
         indexes = [models.Index(fields=["competition", "updated_at"])]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(shares__gte=0),
+                name="stock_holding_shares_non_negative"
+            )
+        ]
 
     def clean(self):
         """P1-#6: 持仓量不能为负"""

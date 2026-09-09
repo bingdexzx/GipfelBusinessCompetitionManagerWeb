@@ -837,9 +837,11 @@ def calculate_relative_fundamental_score(stock, all_stocks: list) -> float:
         raw_scores.append(calculate_raw_fundamental_score(s))
     
     # 计算当前股票的排名（百分位）
+    # 使用 (rank + 0.5) / len 避免所有股票基本面相同时全部得最低分
     current_score = calculate_raw_fundamental_score(stock)
     rank = sum(1 for s in raw_scores if s < current_score)
-    percentile = rank / len(raw_scores)  # 0到1之间
+    # 使用标准百分位公式：比当前分数低的个数 + 0.5（处理并列情况）
+    percentile = (rank + 0.5) / len(raw_scores)  # 0到1之间
     
     # 将百分位转换为评分：只有前30%得正分，后30%得负分
     if percentile >= 0.7:
@@ -990,16 +992,14 @@ def generate_market_maker_orders(
     bad_news_impact = stock_config.get("mmBadNewsImpact", 0.06)
     good_news_impact = stock_config.get("mmGoodNewsImpact", 0.04)
     
-    # 利空事件
+    # 利空事件（独立概率）
     if random.random() < bad_news_prob:
-        # 利空事件：报价下移
         impact = random.uniform(bad_news_impact * 0.3, bad_news_impact * 1.2)
         skew -= impact * skew_pct
         logger.info(f"[stock] 做市商利空事件: stock={stock.code}, impact={impact:.3f}")
     
-    # 利好事件
-    elif random.random() < good_news_prob:
-        # 利好事件：报价上移
+    # 利好事件（独立概率，与利空不互斥）
+    if random.random() < good_news_prob:
         impact = random.uniform(good_news_impact * 0.3, good_news_impact * 1.2)
         skew += impact * skew_pct
         logger.info(f"[stock] 做市商利好事件: stock={stock.code}, impact={impact:.3f}")
@@ -1509,10 +1509,9 @@ def advance_one_stock(
                     logger.info(f"[stock] 技术性回调: stock={stock.code}, "
                                f"近期平均涨幅{avg_change:.1f}%, 回调{callback_pct*100:.1f}%")
         
-        # P0-#5: 市场波动后强制限制在涨跌停范围内
-        price_limit = Decimal(str(limit_pct))
-        upper_bound = last_close_dec * (Decimal("1") + price_limit)
-        lower_bound = last_close_dec * (Decimal("1") - price_limit)
+        # P0-#5: 市场波动后强制限制在涨跌停范围内（使用非对称限幅，防止防连板被绕过）
+        upper_bound = last_close_dec * (Decimal("1") + Decimal(str(cfg.get("upperLimitPct", limit_pct))))
+        lower_bound = last_close_dec * (Decimal("1") - Decimal(str(cfg.get("lowerLimitPct", limit_pct))))
         final_price = max(lower_bound, min(upper_bound, final_price))
 
         # 把 final 转 Decimal 用于后续 Decimal 化路径（candle 入库、K 线保存等）
@@ -1808,6 +1807,10 @@ def _release_advance_lock(competition_id: int) -> None:
     with _advance_locks_guard:
         lock = _advance_locks.get(competition_id)
         if lock is not None:
+            try:
+                lock.release()
+            except RuntimeError:
+                pass
             try:
                 lock.release()
             except RuntimeError:

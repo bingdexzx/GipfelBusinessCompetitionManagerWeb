@@ -226,6 +226,7 @@ interface Candle {
   low: number;
   close: number;
   changePct: number;
+  volume: number;
 }
 interface Account {
   id: number;
@@ -338,21 +339,28 @@ const priceLimit = computed(() => {
 // 实际委托以字符串原样提交，由后端精确撮合
 // P1-#9: 使用字符串化避免大数精度丢失，formatMoney 会处理格式化
 const estAmount = computed(() => {
-  const p = String(trade.value.price || 0);
-  const q = String(trade.value.quantity || 0);
-  // 将价格和数量转为整数运算再还原，避免浮点精度丢失
-  const pParts = p.split('.');
-  const qParts = q.split('.');
-  const pDecimals = pParts[1]?.length || 0;
-  const qDecimals = qParts[1]?.length || 0;
-  const pInt = BigInt(p.replace('.', ''));
-  const qInt = BigInt(q.replace('.', ''));
-  const result = pInt * qInt;
-  const totalDecimals = pDecimals + qDecimals;
-  const resultStr = result.toString().padStart(totalDecimals + 1, '0');
-  const intPart = resultStr.slice(0, -totalDecimals) || '0';
-  const decPart = resultStr.slice(-totalDecimals).slice(0, 2);
-  return Number(`${intPart}.${decPart}`);
+  try {
+    const p = String(trade.value.price || 0);
+    const q = String(trade.value.quantity || 0);
+    // 验证输入是否为合法数字
+    if (isNaN(Number(p)) || isNaN(Number(q))) return 0;
+    // 将价格和数量转为整数运算再还原，避免浮点精度丢失
+    const pParts = p.split('.');
+    const qParts = q.split('.');
+    const pDecimals = pParts[1]?.length || 0;
+    const qDecimals = qParts[1]?.length || 0;
+    const pInt = BigInt(p.replace('.', '').replace(/[^0-9]/g, '') || '0');
+    const qInt = BigInt(q.replace('.', '').replace(/[^0-9]/g, '') || '0');
+    const result = pInt * qInt;
+    const totalDecimals = pDecimals + qDecimals;
+    const resultStr = result.toString().padStart(totalDecimals + 1, '0');
+    const intPart = resultStr.slice(0, -totalDecimals) || '0';
+    const decPart = resultStr.slice(-totalDecimals).slice(0, 2);
+    return Number(`${intPart}.${decPart}`);
+  } catch {
+    // 降级到普通乘法
+    return Math.round(Number(trade.value.price || 0) * Number(trade.value.quantity || 0) * 100) / 100;
+  }
 });
 const canTrade = computed(
   () =>
@@ -420,10 +428,16 @@ async function reloadAccountData() {
   }
 }
 
+// 竞态保护：记录当前正在加载的股票ID
+let loadingCandlesForId: number | null = null;
+
 async function loadCandles(id: number) {
+  loadingCandlesForId = id;
   loadingCandles.value = true;
   try {
     const res = await stockApi.candles(id);
+    // 竞态检查：如果用户已经切换到其他股票，丢弃本次结果
+    if (loadingCandlesForId !== id) return;
     // 后端 Decimal 出站是字符串（大数精度保留），统一转数字：
     // 否则 calcMA 的 sum += 会字符串拼接 → NaN → MA5/MA10/MA20 全部断线
     candles.value = (res.candles || []).map((c: any) => ({
@@ -438,7 +452,9 @@ async function loadCandles(id: number) {
     await nextTick();
     drawChart();
   } finally {
-    loadingCandles.value = false;
+    if (loadingCandlesForId === id) {
+      loadingCandles.value = false;
+    }
   }
 }
 
@@ -522,6 +538,8 @@ function selectStock(id: number) {
   selectedStockId.value = id;
   const s = stocks.value.find((x) => x.id === id);
   if (s) trade.value.price = s.currentPrice;
+  // 清空旧K线数据，防止切换股票时quoteStats显示混合数据
+  candles.value = [];
   loadCandles(id);
   reloadAccountData();
 }
