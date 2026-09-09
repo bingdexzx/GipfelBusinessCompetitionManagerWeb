@@ -313,6 +313,10 @@ DEFAULT_STOCK_CONFIG: dict = {
     "regressionPct": 0.02,
     "tradePriceWeight": 0.7,
     "carbonSaturateRatio": 2,
+    # 做市商自成交配置：当没有人工订单时，做市商主动制造价格波动
+    "mmSelfTradeEnabled": True,  # 是否启用做市商自成交
+    "mmSelfTradePct": 0.005,     # 自成交价格偏移百分比（默认0.5%）
+    "mmSelfTradeQtyPct": 0.1,    # 自成交数量占基础数量的百分比（默认10%）
 }
 
 # 防连板因子：上一轮已封板时，本轮同侧限幅收紧到 94%。
@@ -786,6 +790,11 @@ def generate_market_maker_orders(
     # 计算总卖量，确保持仓足够
     total_sell_qty = sum(base_quantity * i for i in range(1, levels + 1))
     total_sell_qty += intervention_qty
+    
+    # 做市商自成交：当没有人工订单时，做市商主动制造价格波动
+    self_trade_enabled = stock_config.get("mmSelfTradeEnabled", True)
+    self_trade_pct = stock_config.get("mmSelfTradePct", 0.005)
+    self_trade_qty_pct = stock_config.get("mmSelfTradeQtyPct", 0.1)
 
     mm_holding = StockHolding.objects.filter(
         funds_account_id=mm_account.id, stock_id=stock.id
@@ -876,6 +885,50 @@ def generate_market_maker_orders(
             competition_id=competition_id,
         ))
 
+    # 做市商自成交：当启用自成交且没有人工订单时，生成一对自成交订单制造价格波动
+    if self_trade_enabled and not need_intervene:
+        # 计算自成交数量
+        self_trade_qty = max(1, int(round(base_quantity * self_trade_qty_pct)))
+        
+        # 随机决定价格偏移方向（向上或向下）
+        import random
+        direction = random.choice([-1, 1])
+        price_offset = direction * self_trade_pct
+        
+        # 计算自成交价格（在基准价格基础上偏移）
+        self_trade_price = round2(Decimal(str(base_price)) * (Decimal("1") + Decimal(str(price_offset))))
+        
+        # 生成一对自成交订单（买方和卖方，价格略有差异确保成交）
+        # 买入价略高于卖出价，确保能够成交
+        buy_price = round2(self_trade_price * (Decimal("1") + Decimal("0.001")))
+        sell_price = round2(self_trade_price * (Decimal("1") - Decimal("0.001")))
+        
+        orders.append(StockOrder(
+            stock_id=stock.id,
+            funds_account_id=mm_account.id,
+            side="BUY",
+            price=buy_price,
+            quantity=self_trade_qty,
+            amount=round2(buy_price * Decimal(str(self_trade_qty))),
+            status="PENDING",
+            round=current_round,
+            competition_id=competition_id,
+        ))
+        orders.append(StockOrder(
+            stock_id=stock.id,
+            funds_account_id=mm_account.id,
+            side="SELL",
+            price=sell_price,
+            quantity=self_trade_qty,
+            amount=round2(sell_price * Decimal(str(self_trade_qty))),
+            status="PENDING",
+            round=current_round,
+            competition_id=competition_id,
+        ))
+        
+        # 更新总卖量，确保有足够持仓支撑自成交
+        total_sell_qty += self_trade_qty
+    
     if orders:
         StockOrder.objects.bulk_create(orders)
     return len(orders), need_intervene
@@ -912,16 +965,41 @@ def _advance_round_flat(stock, competition_id: int, limit_pct: float) -> tuple[i
     Stock.objects.filter(pk=stock.id).update(
         current_price=stock.current_price, round=new_round
     )
-    cancelled = StockOrder.objects.filter(
+    # 轮次推进后处理旧轮订单：重新验证价格限制
+    # 如果价格仍在有效范围内，订单应保持有效（更新轮次）
+    # 如果价格超出限制，则撤销订单
+    from decimal import Decimal as D
+    
+    old_orders = StockOrder.objects.filter(
         stock_id=stock.id,
         competition_id=competition_id,
         status="PENDING",
         round__lt=new_round,
-    ).update(status="CANCELLED")
-    if cancelled:
-        from apps.realtime.emit import emit_resource_changed
-
-        emit_resource_changed("stock-orders", None, competition_id, "bulk")
+    )
+    
+    if old_orders.exists():
+        # 获取当前价格和涨跌幅限制
+        current_price = stock.current_price
+        upper_limit = current_price * (1 + D(str(limit_pct)))
+        lower_limit = current_price * (1 - D(str(limit_pct)))
+        
+        cancelled_count = 0
+        for order in old_orders:
+            # 检查订单价格是否仍在有效范围内
+            order_price = D(str(order.price))
+            if order_price < lower_limit or order_price > upper_limit:
+                # 价格超出限制，撤销订单
+                order.status = "CANCELLED"
+                order.save(update_fields=["status"])
+                cancelled_count += 1
+            else:
+                # 价格仍在范围内，更新订单轮次保持有效
+                order.round = new_round
+                order.save(update_fields=["round"])
+        
+        if cancelled_count > 0:
+            from apps.realtime.emit import emit_resource_changed
+            emit_resource_changed("stock-orders", None, competition_id, "bulk")
     return new_round, candle
 
 
@@ -950,16 +1028,37 @@ def advance_one_stock(
             consecutive_up, consecutive_down, last_change,
         )
 
-        # 读取本事务内刚生成的 PENDING 订单（仅当前轮 round=stock.round，
-        # 避免旧轮未成交限价单变 GTC、在下轮以过时 ±10% 限价成交）。
-        orders = list(
+        # 读取本事务内刚生成的 PENDING 订单（包括当前轮和旧轮有效订单）
+        # 旧轮订单如果价格仍在有效范围内，应继续参与撮合
+        all_orders = list(
             StockOrder.objects.select_related("funds_account").filter(
                 stock_id=stock.id,
                 competition_id=competition_id,
                 status="PENDING",
-                round=stock.round,
+                round__lte=stock.round,  # 包括当前轮和旧轮
             ).order_by("created_at")
         )
+        
+        # 验证旧轮订单价格是否在当前轮次有效范围内
+        from decimal import Decimal as D
+        current_price = stock.current_price
+        upper_limit = current_price * (1 + D(str(stock_config["limitPct"])))
+        lower_limit = current_price * (1 - D(str(stock_config["limitPct"])))
+        
+        orders = []
+        for order in all_orders:
+            if order.round == stock.round:
+                # 当前轮订单直接保留
+                orders.append(order)
+            else:
+                # 旧轮订单需要验证价格是否在有效范围内
+                order_price = D(str(order.price))
+                if lower_limit <= order_price <= upper_limit:
+                    orders.append(order)
+                else:
+                    # 价格超出限制，标记为撤销
+                    order.status = "CANCELLED"
+                    order.save(update_fields=["status"])
         # 无任何订单（做市商关闭且无玩家委托）→ 平盘推进：价格不动但 round 照常 +1，
         # 避免该股票 round 长期冻结、与其他股票失去同步（round 全局同步语义）。
         if not orders:
@@ -1231,18 +1330,41 @@ def advance_one_stock(
         # 股票价 / 轮次
         Stock.objects.filter(pk=stock.id).update(current_price=price["final"], round=new_round)
 
-        # 轮次推进后取消未成交的旧轮订单（含本轮未成交单）：限定订单作用域为单轮，
-        # 避免限价单跨轮不清、在下轮以过时价限成交（下单时的 ±10% 限制随轮次失效）。
-        cancelled = StockOrder.objects.filter(
+        # 轮次推进后处理旧轮订单：不再直接撤销，而是重新验证价格限制
+        # 避免限价单跨轮后以过时价限成交（下单时的 ±10% 限制随轮次失效）
+        # 但如果价格仍在有效范围内，订单应保持有效
+        from decimal import Decimal as D
+        
+        old_orders = StockOrder.objects.filter(
             stock_id=stock.id,
             competition_id=competition_id,
             status="PENDING",
             round__lt=new_round,
-        ).update(status="CANCELLED")
-        if cancelled:
-            from apps.realtime.emit import emit_resource_changed
-
-            emit_resource_changed("stock-orders", None, competition_id, "bulk")
+        )
+        
+        if old_orders.exists():
+            # 获取当前价格和涨跌幅限制
+            current_price = price["final"]
+            upper_limit = current_price * (1 + D(str(cfg["upperLimitPct"])))
+            lower_limit = current_price * (1 - D(str(cfg["lowerLimitPct"])))
+            
+            cancelled_count = 0
+            for order in old_orders:
+                # 检查订单价格是否仍在有效范围内
+                order_price = D(str(order.price))
+                if order_price < lower_limit or order_price > upper_limit:
+                    # 价格超出限制，撤销订单
+                    order.status = "CANCELLED"
+                    order.save(update_fields=["status"])
+                    cancelled_count += 1
+                else:
+                    # 价格仍在范围内，更新订单轮次保持有效
+                    order.round = new_round
+                    order.save(update_fields=["round"])
+            
+            if cancelled_count > 0:
+                from apps.realtime.emit import emit_resource_changed
+                emit_resource_changed("stock-orders", None, competition_id, "bulk")
 
         return {
             "stockId": stock.id,
