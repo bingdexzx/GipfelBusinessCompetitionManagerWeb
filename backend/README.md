@@ -110,6 +110,8 @@ regions + consumer_demands → competitions + maps
 messages (label=gipfel_messages) → competitions + users
 stock → competitions + companies + users
 files → common
+announcements → common
+widget_packages → common
 ```
 
 > `apps.messages` label 显式取 `gipfel_messages`，避免与 `django.contrib.messages` 冲突。
@@ -206,7 +208,7 @@ emit_permissions_changed(u.id, u.permission_version)
   | --- | --- | --- |
   | `admin` | 默认 `admin23`（`SEED_ADMIN_PASSWORD` 在 `.env` 中默认被注释，由 `bootstrap.py` 兜底；取消注释可自定义） | 生产务必改用强密码；**建议首次登录后立即改密** |
 
-- 登录后可见 39 个业务模型（公司 / 比赛 / 合同 / 股票 / 原料 / 零件 / 产品 / 地图节点 / 基础设施 / 燃料 / 车辆 / 仓库 / 生产线 / 行业类型 / 区域 / 消费需求 / 消息 / 技术树 / 审计等）+ Django 内置的 用户 / 组。
+- 登录后可见 40 个业务模型（公司 / 比赛 / 合同 / 股票 / 原料 / 零件 / 产品 / 地图节点 / 基础设施 / 燃料 / 车辆 / 仓库 / 生产线 / 行业类型 / 区域 / 消费需求 / 消息 / 公告 / 控件包 / 技术树 / 审计等）+ Django 内置的 用户 / 组。
 
 ### ⚠️ 重要警示：后台仅用于临时排查 / 修数
 

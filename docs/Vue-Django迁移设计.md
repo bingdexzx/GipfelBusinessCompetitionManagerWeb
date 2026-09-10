@@ -504,7 +504,7 @@ sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=...)
 - [x] P0 数据模型迁移（User/AuditLog/Competition/FiscalYear）
 - [x] JWT + 守卫链（JwtAuth/MustChangePassword/CompetitionScope/Ownership/Permissions）
 - [x] auth/users 模块（登录/me/change-password/CRUD/权限授予）
-- [x] 权限目录 + 角色模板（31 key + has_permission + assert_grant_allowed）
+- [x] 权限目录 + 角色模板（39 key + has_permission + assert_grant_allowed）
 - [x] 安全头/CORS/限流/审计/日志/操作员上下文（apps/common/*）
 - [x] 默认超管自举（apps/auth/bootstrap.py + post_migrate 信号）
 - [x] competitions 模块（CRUD + 财年）

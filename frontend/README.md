@@ -37,7 +37,7 @@ src/
 │   ├── index.ts            axios 实例（baseURL=/api）+ 所有业务接口（与原 NestJS 路由签名一致）
 │   └── types.ts            业务类型（Company/Material/Part/...），同步后端序列化 camelCase 契约
 ├── utils/
-│   ├── permissions/        41 权限键 / 角色动作等级继承表 / has_permission / can()
+│   ├── permissions/        39 权限键 / 角色动作等级继承表 / has_permission / can()
 │   ├── case.ts             toCamel/toSnake 工具
 │   └── constants.ts        枚举
 ├── realtime/
@@ -63,7 +63,7 @@ src/
 
 ## 与后端的接口契约
 
-完整「每个路由 → 方法 → 参数 → 返回 → 权限键」表见上一层 [Vue-Django迁移设计.md](../Vue-Django迁移设计.md#9.1 前端 API 契约)。
+完整「每个路由 → 方法 → 参数 → 返回 → 权限键」表见 [Vue-Django迁移设计.md](../docs/Vue-Django迁移设计.md#9.1 前端 API 契约)。
 
 全部 REST 调用走 `src/api/index.ts`：
 - axios 实例 baseURL=`/api`，`Authorization: Bearer <token>` 自动注入

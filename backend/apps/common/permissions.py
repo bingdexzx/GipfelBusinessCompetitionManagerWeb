@@ -1,6 +1,6 @@
 """权限目录与 RBAC。
 
-41 个权限 key，20 个域，动作等级蕴含：
+39 个权限 key，19 个域，动作等级蕴含：
     manage ⊇ execute ⊇ audit ⊇ edit ⊇ view
 （合同域自定义：manage ⊇ execute ⊇ audit ⊇ view）
 """

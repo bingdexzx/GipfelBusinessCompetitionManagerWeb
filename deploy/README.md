@@ -15,9 +15,11 @@ sudo bash scripts/deploy-linux.sh \
 ### 获取源码（clone 到服务器）
 
 部署脚本必须在源码树内执行（`scripts/deploy-linux.sh` 的相对路径依赖它所在目录），所以**先 clone 到服务器，再进去跑脚本**。
-sudo apt-get install -y git
 
 ```bash
+# 0) 安装 git（若尚未安装）
+sudo apt-get install -y git
+
 # 1) 克隆仓库到 /opt（默认分支 master；克隆目录不要叫 /opt/gipfel，否则会与安装目录 rsync 自拷贝冲突）
 git clone https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git /opt/GipfelBusinessCompetitionManagerWeb
 cd /opt/GipfelBusinessCompetitionManagerWeb/
@@ -69,7 +71,7 @@ sudo unzip -d /opt /opt/fastgithub_linux-x64.zip
 >   --exclude='backend/.venv' --exclude='backend/db.sqlite3' --exclude='backend/uploads' \
 >   --exclude='backend/logs' --exclude='backend/staticfiles' --exclude='backend/logviewer/staticfiles' \
 >   --exclude='frontend/node_modules' --exclude='frontend/dist' \
->   backend frontend deploy scripts OPS.md README.md Vue-Django迁移设计.md
+>   backend frontend deploy scripts docs README.md
 > # 传到服务器
 > scp gipfel-deploy-src.tgz root@<服务器IP>:/tmp/
 > # 服务器上解包并部署（脚本从解包后的源码树内运行，无需 --source-dir）
@@ -276,3 +278,32 @@ CMD ["daphne", "-b", "0.0.0.0", "-p", "8000", "--proxy-headers", "backend.asgi:a
 -v ./data/logs:/app/backend/logs
 -e JWT_SECRET=CHANGE-ME
 ```
+
+---
+
+## 服务器迁移
+
+需要将服务从一台服务器迁移到另一台？项目提供了专用迁移脚本：
+
+```bash
+# 在旧服务器执行（推送到新服务器）
+sudo bash scripts/migrate-server.sh --mode push --target root@新服务器IP --install-dir /opt/gipfel
+
+# 在新服务器执行（从旧服务器拉取）
+sudo bash scripts/migrate-server.sh --mode pull --source root@旧服务器IP --install-dir /opt/gipfel
+```
+
+**迁移内容**：数据库 (`db.sqlite3`)、用户上传 (`uploads/`)、环境配置 (`.env`)、日志、静态资源、前端构建产物。
+
+**快速数据同步**（仅同步数据，不含代码）：
+```bash
+bash scripts/quick-sync.sh push root@新服务器IP    # 推送
+bash scripts/quick-sync.sh pull root@旧服务器IP    # 拉取
+```
+
+**迁移验证**：
+```bash
+bash scripts/verify-migration.sh /opt/gipfel
+```
+
+详细文档见 [**服务器迁移指南**](../docs/MIGRATION.md)。

@@ -14,8 +14,8 @@
 ┌─────────────────────────────────────────────────────────────┐
 │  Django 5 后端                                              │
 │  · daphne ASGI server（HTTP + WebSocket 同源同端口 :8000）  │
-│  · DRF：39 张业务表 / 25 个 app / 统一 CRUD 基类            │
-│  · JWT + RBAC：41 个权限键（20 个域）、5 级动作等级         │
+│  · DRF：40 张业务表 / 27 个 app / 统一 CRUD 基类            │
+│  · JWT + RBAC：39 个权限键（19 个域）、5 级动作等级         │
 │  · 实时广播：Socket.IO Rooms（comp-{id} + user-{id}）       │
 │  · 合同引擎 / 股票引擎 / 产业计算图                         │
 │  · SQLite（默认）/ PostgreSQL（生产）                       │
@@ -58,7 +58,7 @@ scripts\start-dev.bat
 ```
 GipfelBusinessCompetitionManagerWeb/
 ├── backend/                         Django 5 后端
-│   ├── apps/                        25 个业务 + 基础设施 app
+│   ├── apps/                        27 个业务 + 基础设施 app
 │   │   ├── auth/                    JWT 登录/改密/顶号/默认超管种子
 │   │   ├── users/                   用户与权限版本
 │   │   ├── competitions/            比赛 / 财年
@@ -71,6 +71,8 @@ GipfelBusinessCompetitionManagerWeb/
 │   │   ├── contracts/               合同 + 引擎 engine.py
 │   │   ├── stock/                   股票引擎（集合竞价撮合 + AI 做市商 + 防连板）
 │   │   ├── messages/                消息中心
+│   │   ├── announcements/           公告管理
+│   │   ├── widget_packages/         自定义控件包管理
 │   │   └── files/                   上传
 │   ├── logviewer/                   独立日志查看器站点（默认 :8120，见下）
 │   ├── manage.py
@@ -102,7 +104,16 @@ GipfelBusinessCompetitionManagerWeb/
 │   ├── logviewer.service            systemd unit 模板（日志查看器）
 │   └── nginx-gipfel.conf            nginx 虚拟主机模板
 │
-├── Vue-Django迁移设计.md             技术迁移方案 / API 契约 / 阶段进度
+├── widget-package-examples/         自定义控件包示例（progress-bar、simple-card）
+├── architecture_diagram/            架构图资源
+├── tests/                           端到端冒烟测试
+├── logs/                            开发期日志（生产由 backend/logs/ 托管）
+├── uploads/                         开发期上传文件（生产由 backend/uploads/ 托管）
+├── docs/
+│   ├── OPS.md                         运维文档（日常操作手册）
+│   ├── CUSTOM_WIDGET_GUIDE.md         自定义仪表盘控件开发指南
+│   └── Vue-Django迁移设计.md           技术迁移方案 / API 契约 / 阶段进度
+├── VERSION.json                     全局版本号（前端 prebuild 读取）
 └── README.md                        ← 你现在正在看的
 ```
 
@@ -152,7 +163,7 @@ sudo bash scripts/deploy-linux.sh \
 #   http://<IP>/                 # 纯 IP 访问（或 https://comp.example.com）
 ```
 
-> **日常升级**用 [update-from-github.sh](scripts/update-from-github.sh)：自动「拉取最新 + 备份 + 迁移 + 前端构建 + 重启」，保留数据；纯 IP 部署同样支持（自动自愈 `LOG_VIEWER_PUBLIC_URL` 与 `DJANGO_ALLOWED_HOSTS`）。详见 [deploy/README.md「更新部署」](deploy/README.md) 与 [OPS.md 第 11 节](OPS.md)。
+> **日常升级**用 [update-from-github.sh](scripts/update-from-github.sh)：自动「拉取最新 + 备份 + 迁移 + 前端构建 + 重启」，保留数据；纯 IP 部署同样支持（自动自愈 `LOG_VIEWER_PUBLIC_URL` 与 `DJANGO_ALLOWED_HOSTS`）。详见 [deploy/README.md「更新部署」](deploy/README.md) 与 [OPS.md 第 11 节](docs/OPS.md)。
 
 脚本自动完成：
 1. 系统依赖安装（python3-venv、python3-dev、nodejs、npm、nginx、openssl）
@@ -181,7 +192,7 @@ scripts\start-dev.bat
 ## 6. 安全与合规
 
 - **JWT**：HS256，`JWT_SECRET`（必填，未配置进程 fail-fast 拒绝启动），默认 24h，`tokenVersion` 顶号立即失效（改密同样递增吊销所有旧 token）；**改密时后端直接签发新 token 返回**，前端拿到后**替换旧 token 即可**（[ChangePasswordView](backend/apps/auth/views.py) 改密、递增 `token_version` 吊销旧 token、签发新 token 三步在同一 ORM 实例上原子完成，避免二次 `/login` 触发的 SQLite 写后读竞态）；Django 自身 `SECRET_KEY` 支持经 `DJANGO_SECRET_KEY` 独立配置（未配置回退 `JWT_SECRET`，生产建议分离）
-- **RBAC**：41 个权限键、20 个权限域；5 级动作等级蕴含（`view(10) < edit(20) < manage(30) < execute(40) < audit(50)`），合同域自定义为 `view(10) < audit(20) < execute(30) < manage(40)`；`can(action, resource)` 前后端一致
+- **RBAC**：39 个权限键、19 个权限域；5 级动作等级蕴含（`view(10) < edit(20) < manage(30) < execute(40) < audit(50)`），合同域自定义为 `view(10) < audit(20) < execute(30) < manage(40)`；`can(action, resource)` 前后端一致
 - **比赛隔离**：读查询自动按 `competition_id` 域过滤（`apply_competition_scope`）；写操作由 `create_competition_id` 强制归属（非超管忽略请求体的 competitionId，杜绝跨比赛写入）；`CompetitionScopePermission` 挂载在 DRF 全局默认权限做兜底（非超管写操作必须有比赛上下文）
 - **客户端 IP 信任链**：`client_ip()` 仅当请求来自可信代理（默认回环，可经 `TRUSTED_PROXIES` 扩展）才信任 `X-Real-IP`，绕过 nginx 直连后端无法伪造 IP 使登录限速失效
 - **CORS**：未配置 `CORS_ORIGIN` 时仅本地/私网反射并带凭据；公网必须显式白名单
@@ -199,7 +210,7 @@ scripts\start-dev.bat
 
 | 用户名 | 初始密码 | 角色 | 权限 |
 | --- | --- | --- | --- |
-| `admin` | `admin23` | SUPER_ADMIN | 全部 41 项 + 所有比赛域 |
+| `admin` | `admin23` | SUPER_ADMIN | 全部 39 项 + 所有比赛域 |
 
 > 同一套凭据也会在 `migrate` 时一并创建 Django 后台（`/admin`）超级管理员（见下方「Django 管理后台」一节）。
 
