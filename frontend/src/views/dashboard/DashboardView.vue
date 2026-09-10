@@ -149,6 +149,17 @@
               <el-option v-for="f in fields" :key="f.key" :label="f.label" :value="f.key" />
             </el-select>
           </el-form-item>
+          <el-form-item v-if="editingCustomDef?.bindable" label="总量字段">
+            <el-select
+              v-model="editForm.totalFieldKey"
+              placeholder="可选：绑定总量字段，组件经 props.totalValue 读取"
+              clearable
+              filterable
+              style="width: 100%"
+            >
+              <el-option v-for="f in fields" :key="f.key" :label="f.label" :value="f.key" />
+            </el-select>
+          </el-form-item>
           <el-form-item label="自定义配置 (JSON)">
             <el-input
               v-model="editForm.customText"
@@ -439,7 +450,10 @@ function saveEdit() {
     }
     const cdef = getCustomWidget(w.type);
     const fieldRef = cdef?.bindable ? ref : undefined;
-    w.config = { custom, fieldRef };
+    const totalRef = cdef?.bindable && editForm.value.totalFieldKey
+      ? fieldByKey(editForm.value.totalFieldKey)?.ref
+      : undefined;
+    w.config = { custom, fieldRef, totalField: totalRef };
   } else {
     const totalRef = editForm.value.totalFieldKey
       ? fieldByKey(editForm.value.totalFieldKey)?.ref
