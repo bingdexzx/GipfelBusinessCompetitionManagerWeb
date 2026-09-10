@@ -91,8 +91,7 @@
 
     <!-- 管理控件包弹窗 -->
     <el-dialog v-model="wpDialogVisible" title="管理控件包" width="700px" append-to-body destroy-on-close>
-      <div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center">
-        <span style="font-size: 13px; color: #909399">上传 zip（manifest.json + component.js）</span>
+      <div style="margin-bottom: 12px; text-align: right">
         <el-upload :show-file-list="false" accept=".zip" :before-upload="handleUploadWidget" :disabled="wpUploading">
           <el-button type="primary" size="small" :loading="wpUploading">上传控件包</el-button>
         </el-upload>
