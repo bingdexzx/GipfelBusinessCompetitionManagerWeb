@@ -161,6 +161,8 @@ function onDown(e: PointerEvent) {
   sy = e.clientY;
   ox = props.widget.x;
   oy = props.widget.y;
+  // 捕获指针：移动端触摸拖动时手指可能移出元素边界，capture 保证后续事件仍送达
+  (e.target as HTMLElement).setPointerCapture(e.pointerId);
   window.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);
   e.preventDefault();
@@ -176,6 +178,7 @@ function onResizeDown(e: PointerEvent) {
   rsy = e.clientY;
   ow = props.widget.w;
   oh = props.widget.h;
+  (e.target as HTMLElement).setPointerCapture(e.pointerId);
   window.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);
   e.preventDefault();
@@ -299,6 +302,8 @@ const gradId = computed(() => `gaugeGrad-${props.widget.id}`);
   cursor: grab;
   overflow: hidden;
   box-sizing: border-box;
+  /* 移动端/平板：禁止浏览器默认触摸行为（滚动/缩放），让 pointer 事件接管拖拽 */
+  touch-action: none;
 }
 .dw-widget:active {
   cursor: grabbing;
@@ -430,6 +435,16 @@ const gradId = computed(() => `gaugeGrad-${props.widget.id}`);
   cursor: nwse-resize;
   z-index: 2;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  touch-action: none;
+}
+/* 移动端：扩大缩放柄触摸区域 */
+@media (pointer: coarse) {
+  .dw-resize {
+    width: 28px;
+    height: 28px;
+    right: 2px;
+    bottom: 2px;
+  }
 }
 
 .dw-unknown {
