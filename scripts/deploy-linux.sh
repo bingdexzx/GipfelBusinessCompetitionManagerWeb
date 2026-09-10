@@ -604,6 +604,19 @@ fi
 # ---------------- 收尾 ----------------
 echo
 ok "部署完成！"
+echo
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+# 读取管理员密码并醒目输出
+_SEED_PW="$(grep -E '^SEED_ADMIN_PASSWORD=' "$INSTALL_DIR/backend/.env" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]$//")"
+if [[ -n "$_SEED_PW" ]]; then
+    echo "  👤 管理员账号：admin"
+    echo "  🔑 管理员密码：${_SEED_PW}"
+else
+    echo "  👤 管理员账号：admin"
+    echo "  🔑 管理员密码：admin23（默认值，建议登录后立即修改）"
+fi
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo
 
 # 公网 IP 提示：优先采用用户显式 --public-ip；否则用与首跑一致的 _probe_public_ip() 探测
 # （含 timeout 硬包裹，无外网/异常 DNS 时不会卡在结尾）。探测仍失败才提示手动查询。
@@ -635,14 +648,5 @@ if [[ $WITH_NGINX -eq 1 ]]; then
         echo "                 （需放行防火墙 ${LV_PORT}；前端「系统设置 → 日志查看器」按钮跳转）"
     fi
     echo "  Nginx 状态：  systemctl status nginx"
-fi
-# 读取 SEED_ADMIN_PASSWORD（如果已配置）
-_SEED_PW="$(grep -E '^SEED_ADMIN_PASSWORD=' "$INSTALL_DIR/backend/.env" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]$//")"
-if [[ -n "$_SEED_PW" ]]; then
-    echo "  默认超管：    admin / $_SEED_PW（首次登录强制改密）"
-else
-    # .env 中无密码（可能非首次部署或被手动删除），提示查看方式
-    echo "  默认超管：    admin / admin23（默认密码，如已修改请用新密码）"
-    echo "               生产环境请在 .env 设置 SEED_ADMIN_PASSWORD 并重启服务"
 fi
 echo "  日志：        journalctl -u gipfel -f   /   tail -F $INSTALL_DIR/backend/logs/app.log"
