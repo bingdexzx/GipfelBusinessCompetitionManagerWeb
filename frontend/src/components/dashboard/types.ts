@@ -53,12 +53,28 @@ export type { FieldRef };
  * 你的组件必须声明这三个 props（名称、类型与此一致）。
  */
 export interface FieldSlot {
-  /** 组件通过 props.values[key] 读取该字段值 */
+  key: string;
+  label: string;
+  required?: boolean;
+}
+
+export interface ConfigField {
+  /** 配置键名，组件通过 this.widget.config.custom[key] 读取 */
   key: string;
   /** 编辑弹窗中显示的标签 */
   label: string;
-  /** 是否必填（默认 false） */
-  required?: boolean;
+  /** 输入控件类型 */
+  type: "string" | "number" | "color" | "boolean" | "select";
+  /** 默认值 */
+  default?: unknown;
+  /** type="string" 时的占位符 */
+  placeholder?: string;
+  /** type="number" 时的最小值 */
+  min?: number;
+  /** type="number" 时的最大值 */
+  max?: number;
+  /** type="select" 时的选项列表 */
+  options?: { label: string; value: unknown }[];
 }
 
 export interface CustomWidgetProps {
@@ -86,6 +102,13 @@ export interface CustomWidgetDef {
    * 不声明（或空数组）则编辑弹窗不出现字段选择。
    */
   fieldSlots?: FieldSlot[];
+  /**
+   * 控件可配置项列表。
+   * 声明后，编辑弹窗会为每个配置项渲染对应的输入控件（文本、数字、颜色、开关、下拉），
+   * 用户填写的值存储在 config.custom 中，组件通过 this.widget.config.custom[key] 读取。
+   * 不声明则编辑弹窗不出现配置项。
+   */
+  configFields?: ConfigField[];
   /** 控件说明，显示在编辑对话框（可选） */
   description?: string;
   /**

@@ -1,5 +1,4 @@
 // 进度条控件
-// 通过 props.values.current 和 props.values.total 读取绑定字段值
 window.__widget_module__ = {
   props: ["widget", "values"],
   computed: {

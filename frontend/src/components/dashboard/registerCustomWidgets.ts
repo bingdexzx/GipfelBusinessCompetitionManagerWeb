@@ -50,9 +50,20 @@ async function loadWidgetPackages() {
           description: pkg.description || (manifest.description as string) || "",
           defaultSize: (manifest.defaultSize as { w: number; h: number }) || undefined,
           defaultConfig: (manifest.defaultConfig as Record<string, unknown>) || undefined,
-          // manifest.fields: [{ key, label, required }] → fieldSlots
           fieldSlots: Array.isArray(manifest.fields)
             ? manifest.fields.map((f: any) => ({ key: f.key, label: f.label || f.key, required: !!f.required }))
+            : undefined,
+          configFields: Array.isArray(manifest.configFields)
+            ? manifest.configFields.map((f: any) => ({
+                key: f.key,
+                label: f.label || f.key,
+                type: f.type || "string",
+                default: f.default,
+                placeholder: f.placeholder,
+                min: f.min,
+                max: f.max,
+                options: f.options,
+              }))
             : undefined,
         });
       } catch (e) {

@@ -7,10 +7,10 @@
     { "key": "current", "label": "当前值字段", "required": true },
     { "key": "total", "label": "总量字段", "required": true }
   ],
+  "configFields": [
+    { "key": "title", "label": "标题", "type": "string", "default": "进度", "placeholder": "显示在进度条上方" },
+    { "key": "color", "label": "颜色", "type": "color", "default": "#409eff" }
+  ],
   "defaultSize": { "w": 240, "h": 80 },
-  "defaultConfig": {
-    "title": "进度",
-    "color": "#409eff"
-  },
   "component": "component.js"
 }

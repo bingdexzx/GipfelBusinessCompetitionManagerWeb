@@ -6,12 +6,12 @@
   "fields": [
     { "key": "value", "label": "数据字段", "required": true }
   ],
+  "configFields": [
+    { "key": "title", "label": "标题", "type": "string", "default": "数据项", "placeholder": "显示在数值上方" },
+    { "key": "unit", "label": "单位", "type": "string", "default": "", "placeholder": "如：元、%" },
+    { "key": "color", "label": "数值颜色", "type": "color", "default": "#1f2d3d" },
+    { "key": "bgColor", "label": "背景色", "type": "color", "default": "#f0f9ff" }
+  ],
   "defaultSize": { "w": 180, "h": 120 },
-  "defaultConfig": {
-    "title": "数据项",
-    "unit": "",
-    "color": "#1f2d3d",
-    "bgColor": "#f0f9ff"
-  },
   "component": "component.js"
 }

@@ -159,13 +159,51 @@
           <el-form-item v-if="editingCustomDef.fieldSlots?.length" label="读取方式">
             <span class="dw-tip">组件内通过 <code>this.values.字段标识</code> 读取各字段实时值</span>
           </el-form-item>
-          <el-form-item label="自定义配置 (JSON)">
+          <!-- 配置项：按 configFields 声明渲染表单控件 -->
+          <el-form-item
+            v-for="cf in (editingCustomDef.configFields || [])"
+            :key="cf.key"
+            :label="cf.label"
+          >
             <el-input
-              v-model="editForm.customText"
-              type="textarea"
-              :rows="10"
-              placeholder='{"key": "value"}'
+              v-if="cf.type === 'string'"
+              :model-value="getCustomConfig(cf.key, cf.default)"
+              @update:model-value="setCustomConfig(cf.key, $event)"
+              :placeholder="cf.placeholder || ''"
+              style="width: 100%"
             />
+            <el-input-number
+              v-else-if="cf.type === 'number'"
+              :model-value="getCustomConfig(cf.key, cf.default ?? 0)"
+              @update:model-value="setCustomConfig(cf.key, $event)"
+              :min="cf.min"
+              :max="cf.max"
+              controls-position="right"
+              style="width: 100%"
+            />
+            <el-color-picker
+              v-else-if="cf.type === 'color'"
+              :model-value="getCustomConfig(cf.key, cf.default || '#000000')"
+              @update:model-value="setCustomConfig(cf.key, $event)"
+            />
+            <el-switch
+              v-else-if="cf.type === 'boolean'"
+              :model-value="getCustomConfig(cf.key, cf.default ?? false)"
+              @update:model-value="setCustomConfig(cf.key, $event)"
+            />
+            <el-select
+              v-else-if="cf.type === 'select'"
+              :model-value="getCustomConfig(cf.key, cf.default)"
+              @update:model-value="setCustomConfig(cf.key, $event)"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="opt in (cf.options || [])"
+                :key="String(opt.value)"
+                :label="opt.label"
+                :value="opt.value"
+              />
+            </el-select>
           </el-form-item>
           <el-form-item v-if="editingCustomDef?.description" label="说明">
             <span class="dw-tip">{{ editingCustomDef.description }}</span>
@@ -374,12 +412,23 @@ const editForm = ref({
   total: "" as string | number,
   display: 0,
   dictText: "",
-  customText: "",
   bindings: [] as BindingEntry[],
+  /** 自定义控件配置项值（由 configFields 动态生成） */
+  customConfig: {} as Record<string, unknown>,
 });
 
 function fieldByKey(key: string): SelectableField | undefined {
   return fields.value.find((f) => f.key === key);
+}
+
+/** 获取某个 configField 当前值 */
+function getCustomConfig(key: string, fallback: unknown = undefined): unknown {
+  const v = editForm.value.customConfig[key];
+  return v !== undefined ? v : fallback;
+}
+/** 设置某个 configField 的值 */
+function setCustomConfig(key: string, value: unknown) {
+  editForm.value.customConfig[key] = value;
 }
 
 /** 获取某个 fieldSlot 当前选中的字段 key */
@@ -404,8 +453,7 @@ function openEdit(w: WidgetConfig) {
     total: c.total ?? 0,
     display: c.display ?? 0,
     dictText: c.dict ? JSON.stringify(c.dict, null, 2) : "",
-    customText: c.custom ? JSON.stringify(c.custom, null, 2) : "{}",
-    // 从 fieldSlots 生成 bindings：每个 slot 对应一个字段选择
+    // 从 fieldSlots 生成 bindings
     bindings: (() => {
       const cdef = w.type ? getCustomWidget(w.type) : undefined;
       const slots = cdef?.fieldSlots || [];
@@ -418,6 +466,17 @@ function openEdit(w: WidgetConfig) {
           label: slot.label || "",
         };
       });
+    })(),
+    // 从 configFields 生成 customConfig：默认值 + 已保存值
+    customConfig: (() => {
+      const cdef = w.type ? getCustomWidget(w.type) : undefined;
+      const fields = cdef?.configFields || [];
+      const saved = c.custom || {};
+      const result: Record<string, unknown> = {};
+      for (const f of fields) {
+        result[f.key] = saved[f.key] !== undefined ? saved[f.key] : f.default;
+      }
+      return result;
     })(),
   };
   showEdit.value = true;
@@ -467,24 +526,9 @@ function saveEdit() {
       ? { fieldRef: ref, caption: editForm.value.caption }
       : { fieldRef: undefined, dict, caption: editForm.value.caption };
   } else if (isCustomType(w.type)) {
-    // 自定义控件：解析 JSON 配置并写入 config.custom；bindable 时写入绑定字段
-    let custom: Record<string, unknown> = {};
-    const raw = editForm.value.customText?.trim();
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          custom = parsed as Record<string, unknown>;
-        } else {
-          ElMessage.error("自定义配置必须是 JSON 对象");
-          return;
-        }
-      } catch {
-        ElMessage.error("自定义配置不是合法 JSON");
-        return;
-      }
-    }
+    // 自定义控件：configFields 值写入 config.custom
     const cdef = getCustomWidget(w.type);
+    const custom = { ...editForm.value.customConfig };
     // 按 fieldSlots 生成 bindings
     const hasSlots = (cdef?.fieldSlots || []).length > 0;
     const bindings = hasSlots

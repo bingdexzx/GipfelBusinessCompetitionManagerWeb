@@ -1,5 +1,4 @@
 // 数据卡片控件
-// 通过 props.values.value 读取绑定字段值
 window.__widget_module__ = {
   props: ["widget", "values"],
   computed: {
