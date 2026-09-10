@@ -214,6 +214,17 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
     SECRET="$(head -c 32 /dev/urandom | base64 | tr -d '\n+/=')"
     echo "[DIAG] JWT_SECRET 生成完成（$(date +%T)）" >&2
     sed -i "s|^JWT_SECRET=.*|JWT_SECRET=${SECRET}|" "$INSTALL_DIR/backend/.env"
+    # Django SECRET_KEY：session / CSRF 签名用，与 JWT 密钥分离（安全隔离原则）。
+    # .env.example 中通常注释掉（# DJANGO_SECRET_KEY=""），需要取消注释并写入随机值。
+    DJANGO_SK="$(head -c 32 /dev/urandom | base64 | tr -d '\n+/=')"
+    if grep -qE '^#?[[:space:]]*DJANGO_SECRET_KEY=' "$INSTALL_DIR/backend/.env"; then
+        # 存在（可能注释），取消注释并覆盖
+        sed -i -E "s|^#?[[:space:]]*DJANGO_SECRET_KEY=.*|DJANGO_SECRET_KEY=${DJANGO_SK}|" "$INSTALL_DIR/backend/.env"
+    else
+        # 不存在，追加
+        echo "DJANGO_SECRET_KEY=${DJANGO_SK}" >> "$INSTALL_DIR/backend/.env"
+    fi
+    echo "[DIAG] DJANGO_SECRET_KEY 生成完成（$(date +%T)）" >&2
     # 显式关闭 DEBUG（.env.example 可能无此行，确保生产环境 DEBUG=false）
     if ! grep -q '^DEBUG=' "$INSTALL_DIR/backend/.env"; then
         echo 'DEBUG=false' >> "$INSTALL_DIR/backend/.env"
@@ -278,9 +289,10 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
     else
         echo "SEED_ADMIN_PASSWORD=${ADMIN_PW}" >> "$INSTALL_DIR/backend/.env"
     fi
+    ok "管理员密码已生成：admin / ${ADMIN_PW}（首次登录强制改密）"
     echo "[DIAG] SEED_ADMIN_PASSWORD 已生成并写入（$(date +%T)）" >&2
 
-    echo "[DIAG] 首次部署 .env 生成完毕（$(date +%T)），JWT_SECRET/LOGVIEWER_SECRET_KEY/SEED_ADMIN_PASSWORD 已就绪" >&2
+    echo "[DIAG] 首次部署 .env 生成完毕（$(date +%T)），JWT_SECRET/DJANGO_SECRET_KEY/LOGVIEWER_SECRET_KEY/SEED_ADMIN_PASSWORD 已就绪" >&2
 fi
 
 # 解析日志查看器 nginx 公网监听端口（.env 已就绪，vhost/URL/防火墙/输出提示全流程共用），
@@ -629,7 +641,8 @@ _SEED_PW="$(grep -E '^SEED_ADMIN_PASSWORD=' "$INSTALL_DIR/backend/.env" 2>/dev/n
 if [[ -n "$_SEED_PW" ]]; then
     echo "  默认超管：    admin / $_SEED_PW（首次登录强制改密）"
 else
-    echo "  默认超管：    admin / （密码已自动生成，见下方说明）"
-    echo "               首次登录密码请查看后端日志：grep 'SEED_ADMIN_PASSWORD' $INSTALL_DIR/backend/logs/gipfel.log"
+    # .env 中无密码（可能非首次部署或被手动删除），提示查看方式
+    echo "  默认超管：    admin / admin23（默认密码，如已修改请用新密码）"
+    echo "               生产环境请在 .env 设置 SEED_ADMIN_PASSWORD 并重启服务"
 fi
 echo "  日志：        journalctl -u gipfel -f   /   tail -F $INSTALL_DIR/backend/logs/app.log"
