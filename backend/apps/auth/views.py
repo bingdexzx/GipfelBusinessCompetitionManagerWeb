@@ -1,4 +1,4 @@
-"""认证与健康检查视图。
+﻿"""认证与健康检查视图。
 
 响应经 apps.common.response.JSONRenderer 自动包装为 {code,message,data}：
 视图返回 Response(data)，其中 data 为 dict/list/None 时渲染器自动包装为
@@ -26,7 +26,7 @@ from apps.common.middleware import (
 
 from .authentication import create_jwt
 
-VERSION = "1.3.18"
+VERSION = "1.4.0"
 
 logger = logging.getLogger("gipfel")
 
