@@ -1,4 +1,4 @@
-﻿"""认证与健康检查视图。
+"""认证与健康检查视图。
 
 响应经 apps.common.response.JSONRenderer 自动包装为 {code,message,data}：
 视图返回 Response(data)，其中 data 为 dict/list/None 时渲染器自动包装为
@@ -26,9 +26,22 @@ from apps.common.middleware import (
 
 from .authentication import create_jwt
 
-VERSION = "1.4.0"
-
 logger = logging.getLogger("gipfel")
+
+
+def _read_version() -> str:
+    """从项目根目录 VERSION.json 读取版本号（单一真源）。"""
+    import json
+    from pathlib import Path
+
+    vfile = Path(__file__).resolve().parent.parent.parent.parent / "VERSION.json"
+    try:
+        return json.loads(vfile.read_text(encoding="utf-8"))["version"]
+    except Exception:
+        return "0.0.0"
+
+
+VERSION = _read_version()
 
 
 # ==================== 用户资料序列化 ====================
