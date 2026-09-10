@@ -9,6 +9,7 @@ class Warehouse(models.Model):
         ("MATERIAL", "MATERIAL"),
         ("PART", "PART"),
         ("PRODUCT", "PRODUCT"),
+        ("FUEL", "FUEL"),
     ]
 
     name = models.CharField(max_length=255)

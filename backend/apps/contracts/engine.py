@@ -1784,6 +1784,14 @@ def eval_value_spec(spec: Any, inputs: dict, scope: dict | None = None, ctx: Eva
         company = Company.objects.filter(pk=party["companyId"]).values("industry_type_id").first()
         return bool(company and company.get("industry_type_id") and company["industry_type_id"] == to_number(spec.get("industryTypeId")))
 
+    if stype == "PARTY_COMPANY_NAME":
+        party = ctx.parties.get(spec.get("party")) if ctx else None
+        if not party or party.get("isHost") or party.get("companyId") is None:
+            return ""
+        Company, _ = _load_company_models()
+        company = Company.objects.filter(pk=party["companyId"]).values("name").first()
+        return company["name"] if company else ""
+
     if stype == "ENTITY":
         ent_id = to_number(inputs.get(spec.get("entityRef")))
         if not ent_id:

@@ -196,7 +196,7 @@ export interface Warehouse {
   name: string;
   capacity: number;
   price: number;
-  type: string; // MATERIAL | PART | PRODUCT
+  type: string; // MATERIAL | PART | PRODUCT | FUEL
   competitionId: number | null;
   createdAt: string;
   updatedAt: string;

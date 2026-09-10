@@ -42,7 +42,7 @@ export interface GGraph {
 // 节点端口定义：编辑器渲染连线、序列化据此解析引用。
 export const NODE_PORTS: Record<GNodeType, { inputs: string[]; outputs: string[] }> = {
   root: { inputs: [], outputs: ["out"] },
-  party: { inputs: [], outputs: ["out"] },
+  party: { inputs: [], outputs: ["out", "companyName"] },
   input: { inputs: ["parent"], outputs: ["out"] },
   value: {
     inputs: ["entityRef", "multiplyByInput", "key", "value", "routeRef", "fieldParty"],
@@ -78,7 +78,7 @@ export const NODE_META: Record<
   { title: string; color: string; inputs: string[]; outputs: string[] }
 > = {
   root: { title: "合同", color: "#8e44ad", inputs: [], outputs: ["out"] },
-  party: { title: "参与方", color: "#2980b9", inputs: [], outputs: ["out"] },
+  party: { title: "参与方", color: "#2980b9", inputs: [], outputs: ["out", "公司名称"] },
   input: { title: "输入项", color: "#16a085", inputs: ["上级"], outputs: ["out"] },
   value: {
     title: "数值源",
@@ -426,6 +426,7 @@ export const PORT_LABEL_TO_HANDLE: Record<string, string> = {
   输入键: "key",
   常量: "value",
   参与方: "party",
+  公司名称: "companyName",
   值: "value",
   值1: "value1",
   值2: "value2",
@@ -483,6 +484,7 @@ export const PORT_DESC: Record<string, string> = {
   value: "连接一个上游数值源，或直接填常量值",
   parent: "挂到某个控制流（IF / FOREACH / ASSIGN）之下，成为其分支 / 循环体 / 语句",
   party: "连接参与方节点，指定效果或检查作用于哪一方",
+  companyName: "该参与方所绑定公司的名称（运行时取公司 name 字段）",
   value1:
     "连接一个数值源节点（FIELD/ENTITY/INPUT/FORMULA/OP…）作为比较的左操作数（自动获得，不写死常量）",
   value2: "连接一个数值源节点作为比较的右操作数（自动获得，不写死常量）",
@@ -574,6 +576,7 @@ export const PORT_TYPE: Record<string, string> = {
   vehList: "列表(载具名)",
   parent: "控制流",
   party: "参与方",
+  companyName: "字符串",
   value1: "数值/任意",
   value2: "数值/任意",
   cond: "布尔/数值",
@@ -793,7 +796,10 @@ export function nodeInputHandles(node: GNode): string[] {
 export function portDataType(node: GNode, kind: "in" | "out", idx: number): string {
   if (kind === "out") {
     if (node.type === "root") return "（结构连接）";
-    if (node.type === "party") return "参与方引用";
+    if (node.type === "party") {
+      if (nodeOutputs(node)[idx] === "companyName") return "字符串(公司名称)";
+      return "参与方引用";
+    }
     if (node.type === "input") {
       // materialList 输入节点有第二、第三输出端口 carbon / price：
       // Σ(碳排放系数[Float] × 数量) / Σ(价格[Float] × 数量)，结果均为浮点数
@@ -1272,6 +1278,9 @@ function resolveValueSource(graph: GGraph, node?: GNode, viaEdge?: GEdge): any {
   if (node.type === "value") return resolveValueSpec(graph, node);
   // 输入节点直连：聚合口径由连线的源端口决定（如「每种种类的仓库总存储量」→ WAREHOUSE_STORAGE）。
   if (node.type === "input") return buildInputSpec(graph, viaEdge);
+  // 参与方节点「公司名称」输出端口：运行时取该参与方所绑定公司的 name 字段。
+  if (node.type === "party" && viaEdge?.sourceHandle === "companyName")
+    return { type: "PARTY_COMPANY_NAME", party: node.data.role };
   return { type: "INPUT", key: "" };
 }
 
@@ -1917,6 +1926,19 @@ export function flatToGraph(flat: Partial<FlatContract>): GGraph {
     y: number,
   ): GNode | undefined {
     if (!spec) return undefined;
+    // PARTY_COMPANY_NAME：直接从参与方节点的「公司名称」输出端口连线，不创建中间 value 节点。
+    if (spec.type === "PARTY_COMPANY_NAME") {
+      const pn = partyByRole.get(spec.party);
+      if (pn)
+        edges.push({
+          id: uid("e"),
+          source: pn.id,
+          sourceHandle: "companyName",
+          target: ownerId,
+          targetHandle,
+        });
+      return pn;
+    }
     if (spec.type === "OP") return buildOpNode(spec, ownerId, targetHandle, x, y);
     return buildValueNode(spec, ownerId, targetHandle, x, y);
   }
