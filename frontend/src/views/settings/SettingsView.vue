@@ -15,6 +15,9 @@
       <h3>后端管理</h3>
       <el-button type="danger" @click="openAdmin">后端管理界面</el-button>
       <el-button type="warning" @click="openLogViewer">日志查看器</el-button>
+    </div>
+    <div class="settings-section" v-if="isSuperAdmin">
+      <h3>系统管理</h3>
       <el-button @click="openAnnManager">管理更新公告</el-button>
       <el-button @click="openWidgetPkg">管理控件包</el-button>
     </div>
