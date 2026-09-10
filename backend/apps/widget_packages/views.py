@@ -101,6 +101,16 @@ class CollectionView(APIView):
                 shutil.rmtree(extract_full)
             raise BusinessError("解压失败", code=500, status_code=500)
 
+        # 处理常见情况：zip 内嵌套了单个子目录（如 progress-bar/manifest.json）
+        # 自动将内容上移一级，使 manifest.json 在 extract_full 根目录
+        entries = os.listdir(extract_full)
+        if len(entries) == 1 and os.path.isdir(os.path.join(extract_full, entries[0])):
+            nested = os.path.join(extract_full, entries[0])
+            if os.path.exists(os.path.join(nested, "manifest.json")):
+                for item in os.listdir(nested):
+                    shutil.move(os.path.join(nested, item), os.path.join(extract_full, item))
+                os.rmdir(nested)
+
         # 读取 manifest.json
         manifest_path = os.path.join(extract_full, "manifest.json")
         if not os.path.exists(manifest_path):
