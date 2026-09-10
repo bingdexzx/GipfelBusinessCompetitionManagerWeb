@@ -33,13 +33,14 @@
       </div>
     </div>
 
-    <!-- 自定义控件：已注册则渲染其组件，并传入 widget / value / totalValue -->
+    <!-- 自定义控件：已注册则渲染其组件，并传入 widget / value / totalValue / values -->
     <component
       v-else-if="customDef"
       :is="customDef.component"
       :widget="widget"
       :value="boundValue"
       :total-value="boundTotalValue"
+      :values="boundValues"
     />
 
     <!-- 仪表控件 -->
@@ -96,6 +97,7 @@ const props = defineProps<{
   selected: boolean;
   boundValue: unknown;
   boundTotalValue: unknown;
+  boundValues: Record<string, unknown>;
 }>();
 
 const emit = defineEmits<{

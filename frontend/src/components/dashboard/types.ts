@@ -10,34 +10,34 @@ export type BuiltinWidgetType = "text" | "gauge" | "table";
  */
 export type WidgetType = BuiltinWidgetType | (string & {});
 
+export interface FieldBinding {
+  /** 绑定标识（组件通过 props.values[key] 读取） */
+  key: string;
+  /** 字段引用 */
+  fieldRef: FieldRef;
+  /** 显示标签（可选，编辑弹窗中展示用） */
+  label?: string;
+}
+
 export interface WidgetConfig {
   id: string;
   type: WidgetType;
   x: number;
   y: number;
-  /** 控件宽（px） */
   w: number;
-  /** 控件高（px） */
   h: number;
   config: {
-    /** 绑定的可查看字段引用（区域总览卡片 / 公司产业字段 / 消费者需求） */
     fieldRef?: FieldRef;
-    /** 文字控件：绑定字段时的标题；或静态文字内容 */
     caption?: string;
     text?: string;
-    /** 仪表控件 */
     label?: string;
-    /**
-     * 总量：可手动填（total），或绑定字段（totalField，取值优先）。
-     * 大数安全：允许字符串承载（>2^53 的值以字符串保存，显示/计算侧 Number 化仅影响比例精度）
-     */
     total?: number | string;
     totalField?: FieldRef;
     display?: number;
-    /** 表格控件：静态字典（键/值两列）；绑定时以绑定字段的字典值为准 */
     dict?: Record<string, unknown>;
-    /** 自定义控件配置：任意 JSON 可序列化对象，由对应控件组件自行解释 */
     custom?: Record<string, unknown>;
+    /** 自定义控件多字段绑定：每个 binding 有 key + fieldRef，组件通过 props.values[key] 读取 */
+    bindings?: FieldBinding[];
   };
 }
 
@@ -53,12 +53,11 @@ export type { FieldRef };
  * 你的组件必须声明这三个 props（名称、类型与此一致）。
  */
 export interface CustomWidgetProps {
-  /** 该控件在仪表盘中的完整配置（含已解析的 config.custom） */
   widget: WidgetConfig;
-  /** 若用户在仪表盘绑定了「可查看字段」，这里是其当前值（字符串 / 数字 / 对象等） */
   value: unknown;
-  /** 若绑定了「总量字段」，这里是其当前值 */
   totalValue: unknown;
+  /** 多字段绑定值：{ [binding.key]: fieldValue } */
+  values: Record<string, unknown>;
 }
 
 /**

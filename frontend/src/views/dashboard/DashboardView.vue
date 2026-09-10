@@ -32,6 +32,7 @@
         :selected="w.id === selectedId"
         :bound-value="valueOf(w.config.fieldRef)"
         :bound-total-value="valueOf(w.config.totalField)"
+        :bound-values="valuesOf(w)"
         @patch="patchWidget(w, $event)"
         @edit="openEdit(w)"
         @remove="removeWidget(w)"
@@ -160,6 +161,38 @@
               <el-option v-for="f in fields" :key="f.key" :label="f.label" :value="f.key" />
             </el-select>
           </el-form-item>
+          <!-- 多字段绑定 -->
+          <template v-if="editingCustomDef?.bindable">
+            <el-form-item label="多字段绑定">
+              <div style="width: 100%">
+                <div
+                  v-for="(b, bi) in editForm.bindings"
+                  :key="bi"
+                  style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center"
+                >
+                  <el-input v-model="b.key" placeholder="标识名" style="width: 100px" size="small" />
+                  <el-select
+                    v-model="b.fieldKey"
+                    placeholder="选择字段"
+                    clearable
+                    filterable
+                    size="small"
+                    style="flex: 1"
+                  >
+                    <el-option v-for="f in fields" :key="f.key" :label="f.label" :value="f.key" />
+                  </el-select>
+                  <el-input v-model="b.label" placeholder="标签(可选)" style="width: 100px" size="small" />
+                  <el-button link type="danger" size="small" @click="editForm.bindings.splice(bi, 1)">✕</el-button>
+                </div>
+                <el-button size="small" @click="editForm.bindings.push({ key: '', fieldKey: '', label: '' })">
+                  ＋ 添加字段
+                </el-button>
+              </div>
+            </el-form-item>
+            <el-form-item v-if="editForm.bindings.length" label="读取方式">
+              <span class="dw-tip">组件内通过 <code>this.values.标识名</code> 读取各字段值</span>
+            </el-form-item>
+          </template>
           <el-form-item label="自定义配置 (JSON)">
             <el-input
               v-model="editForm.customText"
@@ -259,6 +292,17 @@ const selectedId = ref<string | null>(null);
 const showAddMenu = ref(false);
 const ctx = ref<{ x: number; y: number; widget: WidgetConfig } | null>(null);
 
+/** 计算控件的多字段绑定值：{ [binding.key]: fieldValue } */
+function valuesOf(w: WidgetConfig): Record<string, unknown> {
+  const bindings = w.config.bindings;
+  if (!bindings || !bindings.length) return {};
+  const result: Record<string, unknown> = {};
+  for (const b of bindings) {
+    result[b.key] = valueOf(b.fieldRef);
+  }
+  return result;
+}
+
 /** 已注册自定义控件列表，用于「添加控件」菜单动态展开 */
 const customWidgets = computed(() => listCustomWidgets());
 
@@ -354,16 +398,18 @@ function clearAll() {
 // ===== 编辑对话框 =====
 const showEdit = ref(false);
 const editing = ref<WidgetConfig | null>(null);
+interface BindingEntry { key: string; fieldKey: string; label: string }
 const editForm = ref({
   fieldKey: "",
   totalFieldKey: "",
   caption: "",
   text: "",
   label: "",
-  total: "" as string | number, // 大数安全：总量可字符串承载
+  total: "" as string | number,
   display: 0,
   dictText: "",
   customText: "",
+  bindings: [] as BindingEntry[],
 });
 
 function fieldByKey(key: string): SelectableField | undefined {
@@ -383,6 +429,11 @@ function openEdit(w: WidgetConfig) {
     display: c.display ?? 0,
     dictText: c.dict ? JSON.stringify(c.dict, null, 2) : "",
     customText: c.custom ? JSON.stringify(c.custom, null, 2) : "{}",
+    bindings: (c.bindings || []).map((b) => ({
+      key: b.key,
+      fieldKey: b.fieldRef ? refKey(b.fieldRef) : "",
+      label: b.label || "",
+    })),
   };
   showEdit.value = true;
 }
@@ -453,7 +504,17 @@ function saveEdit() {
     const totalRef = cdef?.bindable && editForm.value.totalFieldKey
       ? fieldByKey(editForm.value.totalFieldKey)?.ref
       : undefined;
-    w.config = { custom, fieldRef, totalField: totalRef };
+    // 多字段绑定
+    const bindings = cdef?.bindable
+      ? editForm.value.bindings
+          .filter((b) => b.key.trim() && b.fieldKey)
+          .map((b) => ({
+            key: b.key.trim(),
+            fieldRef: fieldByKey(b.fieldKey)!.ref,
+            label: b.label || undefined,
+          }))
+      : undefined;
+    w.config = { custom, fieldRef, totalField: totalRef, bindings: bindings?.length ? bindings : undefined };
   } else {
     const totalRef = editForm.value.totalFieldKey
       ? fieldByKey(editForm.value.totalFieldKey)?.ref
