@@ -1,3 +1,3 @@
-﻿/** 客户端版本号（真源：项目根目录 VERSION.json，与后端共享同一文件）。 */
-import versionData from "../../../VERSION.json";
-export const APP_VERSION: string = versionData.version;
+﻿/** 客户端版本号（真源：项目根目录 VERSION.json，构建时由 Vite define 注入）。 */
+declare const __APP_VERSION__: string;
+export const APP_VERSION: string = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "0.0.0";

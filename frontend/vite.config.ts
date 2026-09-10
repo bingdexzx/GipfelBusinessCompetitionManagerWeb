@@ -1,11 +1,25 @@
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { fileURLToPath, URL } from "node:url";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+// 从项目根目录 VERSION.json 读取版本号，构建时注入为全局常量
+const rootVersion = (() => {
+  try {
+    return JSON.parse(readFileSync(resolve(__dirname, "../VERSION.json"), "utf-8")).version;
+  } catch {
+    return "0.0.0";
+  }
+})();
 
 // 纯 Web 配置（已剥离 Electron）。
 // 开发代理 /api 与 /socket.io 到 Django 后端（默认 8000），避免 CORS 预检开销。
 export default defineConfig({
   plugins: [vue()],
+  define: {
+    __APP_VERSION__: JSON.stringify(rootVersion),
+  },
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

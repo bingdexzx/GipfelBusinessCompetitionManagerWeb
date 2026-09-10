@@ -8,6 +8,8 @@ declare module "*.vue" {
 }
 
 declare global {
+  // Vite define 注入的全局常量（构建时从 VERSION.json 读取）
+  const __APP_VERSION__: string;
   interface Window {
     electronAPI?: {
       getConfig: (key: string) => Promise<any>;
