@@ -1,4 +1,5 @@
 import type { Component } from "vue";
+import { ref } from "vue";
 import type { FieldRef } from "@/types/dashboard";
 
 export type BuiltinWidgetType = "text" | "gauge" | "table";
@@ -93,6 +94,8 @@ export interface CustomWidgetDef {
 
 const customRegistry = new Map<string, CustomWidgetDef>();
 const BUILTIN_TYPES = new Set<string>(["text", "gauge", "table"]);
+// 响应式触发器：每次注册新控件时递增，使依赖 listCustomWidgets() 的 computed 重新计算
+const _registryVersion = ref(0);
 
 /** 注册一个自定义控件。重复注册同名 type 会覆盖；与内置类型冲突会抛错。 */
 export function registerCustomWidget(def: CustomWidgetDef): void {
@@ -102,6 +105,7 @@ export function registerCustomWidget(def: CustomWidgetDef): void {
   if (!def.label) throw new Error("registerCustomWidget: def.label 必填");
   if (!def.component) throw new Error("registerCustomWidget: def.component 必填");
   customRegistry.set(def.type, def);
+  _registryVersion.value++;
 }
 
 /** 按 type 取自定义控件定义；非自定义 / 未注册返回 undefined。 */
@@ -109,8 +113,9 @@ export function getCustomWidget(type: string): CustomWidgetDef | undefined {
   return customRegistry.get(type);
 }
 
-/** 列出所有已注册的自定义控件（用于「添加控件」菜单）。 */
+/** 列出所有已注册的自定义控件（用于「添加控件」菜单）。读取 _registryVersion 以触发响应式更新。 */
 export function listCustomWidgets(): CustomWidgetDef[] {
+  _registryVersion.value; // 触发 reactive 依赖收集
   return Array.from(customRegistry.values());
 }
 
