@@ -1,11 +1,12 @@
-{
+﻿{
   "name": "gipfel-business-competition-manager-web",
-  "version": "1.3.16",
+  "version": "1.4.0",
   "description": "商赛办赛辅助系统 - Web 前端（Vue 3 重写）",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node -e \"const f=\\\"package.json\\\",v=require(\\\"../VERSION.json\\\").version,p=require(\\\"./\\\"+f);p.version=v;require(\\\"fs\\\").writeFileSync(f,JSON.stringify(p,null,2)+\\\"\\n\\\")\"",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
