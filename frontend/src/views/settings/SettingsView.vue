@@ -16,6 +16,7 @@
       <el-button type="danger" @click="openAdmin">后端管理界面</el-button>
       <el-button type="warning" @click="openLogViewer">日志查看器</el-button>
       <el-button @click="openAnnManager">管理更新公告</el-button>
+      <el-button @click="openWidgetPkg">管理控件包</el-button>
     </div>
 
     <!-- 管理更新公告弹窗 -->
@@ -92,7 +93,7 @@ import { ref, computed } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { clearCurrentAccountCache } from "@/api/cache";
 import { resetRequestMemo } from "@/api/request";
-import api, { announcementsApi, type AnnouncementItem } from "@/api";
+import api, { announcementsApi, type AnnouncementItem, widgetPackagesApi, type WidgetPackageItem } from "@/api";
 import { removeAccountItem } from "@/utils/accountStorage";
 import { useVersionStore } from "@/stores/version";
 import { useAuthStore } from "@/stores/auth";
@@ -238,6 +239,62 @@ async function openLogViewer() {
     window.open(url, "_blank", "noopener,noreferrer");
   } catch (e: unknown) {
     ElMessage.error((e as { message?: string })?.message || "打开日志查看器失败");
+  }
+}
+
+// ===== 管理控件包 =====
+const wpDialogVisible = ref(false);
+const wpLoading = ref(false);
+const wpUploading = ref(false);
+const wpList = ref<WidgetPackageItem[]>([]);
+
+async function openWidgetPkg() {
+  wpDialogVisible.value = true;
+  await fetchWidgetList();
+}
+
+async function fetchWidgetList() {
+  wpLoading.value = true;
+  try {
+    wpList.value = (await widgetPackagesApi.list()) || [];
+  } catch {
+    wpList.value = [];
+  } finally {
+    wpLoading.value = false;
+  }
+}
+
+async function handleUploadWidget(file: File) {
+  wpUploading.value = true;
+  try {
+    await widgetPackagesApi.upload(file);
+    ElMessage.success("控件包已上传，刷新页面后生效");
+    await fetchWidgetList();
+  } catch (e: unknown) {
+    ElMessage.error((e as { message?: string })?.message || "上传失败");
+  } finally {
+    wpUploading.value = false;
+  }
+  return false; // 阻止 el-upload 自动上传
+}
+
+async function toggleWidgetActive(row: WidgetPackageItem) {
+  try {
+    await widgetPackagesApi.update(row.id, { isActive: !row.isActive });
+    ElMessage.success(row.isActive ? "已停用，刷新页面后生效" : "已启用，刷新页面后生效");
+    await fetchWidgetList();
+  } catch {
+    ElMessage.error("操作失败");
+  }
+}
+
+async function handleDeleteWidget(id: number) {
+  try {
+    await widgetPackagesApi.remove(id);
+    ElMessage.success("已删除，刷新页面后生效");
+    await fetchWidgetList();
+  } catch {
+    ElMessage.error("删除失败");
   }
 }
 </script>

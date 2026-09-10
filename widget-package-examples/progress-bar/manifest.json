@@ -1,0 +1,15 @@
+{
+  "type": "progress-bar",
+  "label": "进度条",
+  "description": "展示进度百分比，可绑定展示量和总量字段，也可手动配置",
+  "version": "1.0.0",
+  "bindable": true,
+  "defaultSize": { "w": 240, "h": 80 },
+  "defaultConfig": {
+    "title": "进度",
+    "color": "#409eff",
+    "current": 0,
+    "total": 100
+  },
+  "component": "component.js"
+}

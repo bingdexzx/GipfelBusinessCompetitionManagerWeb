@@ -1,4 +1,4 @@
-﻿import api, { getErrorMessage } from "./request";
+import api, { getErrorMessage } from "./request";
 import type {
   CreateUserInput,
   UpdateUserInput,
@@ -494,4 +494,29 @@ export const announcementsApi = {
   update: (id: number, data: Partial<{ version: string; title: string; date: string; content: string; isActive: boolean }>) =>
     api.patch<AnnouncementItem>(`/announcements/${id}`, data),
   remove: (id: number) => api.delete(`/announcements/${id}`),
+};
+
+// ===================== 仪表盘控件包 =====================
+export interface WidgetPackageItem {
+  id: number;
+  name: string;
+  widgetType: string;
+  description: string;
+  version: string;
+  manifest: Record<string, unknown>;
+  isActive: boolean;
+  componentUrl: string;
+  createdAt?: string;
+}
+
+export const widgetPackagesApi = {
+  list: () => api.get<WidgetPackageItem[]>("/widget-packages", { cache: false }),
+  upload: (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return api.post<WidgetPackageItem>("/widget-packages", fd);
+  },
+  update: (id: number, data: { isActive?: boolean }) =>
+    api.patch<WidgetPackageItem>(`/widget-packages/${id}`, data),
+  remove: (id: number) => api.delete(`/widget-packages/${id}`),
 };

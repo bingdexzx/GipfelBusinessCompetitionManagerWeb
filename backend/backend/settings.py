@@ -209,6 +209,7 @@ INSTALLED_APPS = [
     "apps.realtime",
     "apps.audit",
     "apps.announcements",
+    "apps.widget_packages",
 ]
 
 MIDDLEWARE = [
