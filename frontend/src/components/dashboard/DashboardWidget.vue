@@ -350,6 +350,8 @@ const gradId = computed(() => `gaugeGrad-${props.widget.id}`);
   flex: 1;
   overflow: auto;
   margin-top: 4px;
+  /* 移动端：禁止表格区域默认触摸滚动，让 pointer 事件冒泡到父级控件处理拖拽 */
+  touch-action: none;
 }
 .dw-table {
   width: 100%;
