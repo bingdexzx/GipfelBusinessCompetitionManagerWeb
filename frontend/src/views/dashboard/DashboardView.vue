@@ -137,12 +137,18 @@
           </el-form-item>
         </template>
 
-        <!-- 自定义控件：可绑定字段（若 bindable）+ 自定义配置 JSON -->
+        <!-- 自定义控件：按 fieldSlots 声明渲染字段选择 + 自定义配置 JSON -->
         <template v-else-if="editingCustomDef">
-          <el-form-item v-if="editingCustomDef?.bindable" label="绑定字段">
+          <el-form-item
+            v-for="slot in (editingCustomDef.fieldSlots || [])"
+            :key="slot.key"
+            :label="slot.label"
+            :required="slot.required"
+          >
             <el-select
-              v-model="editForm.fieldKey"
-              placeholder="可选：绑定一个可查看字段，组件经 props.value 读取"
+              :model-value="getSlotFieldKey(slot.key)"
+              @update:model-value="setSlotFieldKey(slot.key, $event)"
+              :placeholder="'选择字段（组件通过 values.' + slot.key + ' 读取）'"
               clearable
               filterable
               style="width: 100%"
@@ -150,49 +156,9 @@
               <el-option v-for="f in fields" :key="f.key" :label="f.label" :value="f.key" />
             </el-select>
           </el-form-item>
-          <el-form-item v-if="editingCustomDef?.bindable" label="总量字段">
-            <el-select
-              v-model="editForm.totalFieldKey"
-              placeholder="可选：绑定总量字段，组件经 props.totalValue 读取"
-              clearable
-              filterable
-              style="width: 100%"
-            >
-              <el-option v-for="f in fields" :key="f.key" :label="f.label" :value="f.key" />
-            </el-select>
+          <el-form-item v-if="editingCustomDef.fieldSlots?.length" label="读取方式">
+            <span class="dw-tip">组件内通过 <code>this.values.字段标识</code> 读取各字段实时值</span>
           </el-form-item>
-          <!-- 多字段绑定 -->
-          <template v-if="editingCustomDef?.bindable">
-            <el-form-item label="多字段绑定">
-              <div style="width: 100%">
-                <div
-                  v-for="(b, bi) in editForm.bindings"
-                  :key="bi"
-                  style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center"
-                >
-                  <el-input v-model="b.key" placeholder="标识名" style="width: 100px" size="small" />
-                  <el-select
-                    v-model="b.fieldKey"
-                    placeholder="选择字段"
-                    clearable
-                    filterable
-                    size="small"
-                    style="flex: 1"
-                  >
-                    <el-option v-for="f in fields" :key="f.key" :label="f.label" :value="f.key" />
-                  </el-select>
-                  <el-input v-model="b.label" placeholder="标签(可选)" style="width: 100px" size="small" />
-                  <el-button link type="danger" size="small" @click="editForm.bindings.splice(bi, 1)">✕</el-button>
-                </div>
-                <el-button size="small" @click="editForm.bindings.push({ key: '', fieldKey: '', label: '' })">
-                  ＋ 添加字段
-                </el-button>
-              </div>
-            </el-form-item>
-            <el-form-item v-if="editForm.bindings.length" label="读取方式">
-              <span class="dw-tip">组件内通过 <code>this.values.标识名</code> 读取各字段值</span>
-            </el-form-item>
-          </template>
           <el-form-item label="自定义配置 (JSON)">
             <el-input
               v-model="editForm.customText"
@@ -416,6 +382,16 @@ function fieldByKey(key: string): SelectableField | undefined {
   return fields.value.find((f) => f.key === key);
 }
 
+/** 获取某个 fieldSlot 当前选中的字段 key */
+function getSlotFieldKey(slotKey: string): string {
+  return editForm.value.bindings.find((b) => b.key === slotKey)?.fieldKey || "";
+}
+/** 设置某个 fieldSlot 选中的字段 key */
+function setSlotFieldKey(slotKey: string, fieldKey: string) {
+  const b = editForm.value.bindings.find((b) => b.key === slotKey);
+  if (b) b.fieldKey = fieldKey;
+}
+
 function openEdit(w: WidgetConfig) {
   editing.value = w;
   const c = w.config;
@@ -429,11 +405,20 @@ function openEdit(w: WidgetConfig) {
     display: c.display ?? 0,
     dictText: c.dict ? JSON.stringify(c.dict, null, 2) : "",
     customText: c.custom ? JSON.stringify(c.custom, null, 2) : "{}",
-    bindings: (c.bindings || []).map((b) => ({
-      key: b.key,
-      fieldKey: b.fieldRef ? refKey(b.fieldRef) : "",
-      label: b.label || "",
-    })),
+    // 从 fieldSlots 生成 bindings：每个 slot 对应一个字段选择
+    bindings: (() => {
+      const cdef = w.type ? getCustomWidget(w.type) : undefined;
+      const slots = cdef?.fieldSlots || [];
+      const existing = c.bindings || [];
+      return slots.map((slot) => {
+        const saved = existing.find((b) => b.key === slot.key);
+        return {
+          key: slot.key,
+          fieldKey: saved?.fieldRef ? refKey(saved.fieldRef) : "",
+          label: slot.label || "",
+        };
+      });
+    })(),
   };
   showEdit.value = true;
 }
@@ -500,12 +485,9 @@ function saveEdit() {
       }
     }
     const cdef = getCustomWidget(w.type);
-    const fieldRef = cdef?.bindable ? ref : undefined;
-    const totalRef = cdef?.bindable && editForm.value.totalFieldKey
-      ? fieldByKey(editForm.value.totalFieldKey)?.ref
-      : undefined;
-    // 多字段绑定
-    const bindings = cdef?.bindable
+    // 按 fieldSlots 生成 bindings
+    const hasSlots = (cdef?.fieldSlots || []).length > 0;
+    const bindings = hasSlots
       ? editForm.value.bindings
           .filter((b) => b.key.trim() && b.fieldKey)
           .map((b) => ({
@@ -514,7 +496,7 @@ function saveEdit() {
             label: b.label || undefined,
           }))
       : undefined;
-    w.config = { custom, fieldRef, totalField: totalRef, bindings: bindings?.length ? bindings : undefined };
+    w.config = { custom, bindings: bindings?.length ? bindings : undefined };
   } else {
     const totalRef = editForm.value.totalFieldKey
       ? fieldByKey(editForm.value.totalFieldKey)?.ref

@@ -47,10 +47,13 @@ async function loadWidgetPackages() {
           type: pkg.widgetType,
           label: pkg.name,
           component,
-          bindable: manifest.bindable !== false,
           description: pkg.description || (manifest.description as string) || "",
           defaultSize: (manifest.defaultSize as { w: number; h: number }) || undefined,
           defaultConfig: (manifest.defaultConfig as Record<string, unknown>) || undefined,
+          // manifest.fields: [{ key, label, required }] → fieldSlots
+          fieldSlots: Array.isArray(manifest.fields)
+            ? manifest.fields.map((f: any) => ({ key: f.key, label: f.label || f.key, required: !!f.required }))
+            : undefined,
         });
       } catch (e) {
         console.warn(`[控件包] 加载失败: ${pkg.widgetType}`, e);

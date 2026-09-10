@@ -33,13 +33,11 @@
       </div>
     </div>
 
-    <!-- 自定义控件：已注册则渲染其组件，并传入 widget / value / totalValue / values -->
+    <!-- 自定义控件：传入 widget + values -->
     <component
       v-else-if="customDef"
       :is="customDef.component"
       :widget="widget"
-      :value="boundValue"
-      :total-value="boundTotalValue"
       :values="boundValues"
     />
 

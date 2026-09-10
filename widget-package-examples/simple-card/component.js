@@ -1,7 +1,7 @@
 // 数据卡片控件
-// 简洁地展示一个标题 + 数值，适合仪表盘概览
+// 通过 props.values.value 读取绑定字段值
 window.__widget_module__ = {
-  props: ["widget", "value", "totalValue"],
+  props: ["widget", "values"],
   computed: {
     config() {
       return (this.widget.config.custom || {});
@@ -19,14 +19,12 @@ window.__widget_module__ = {
       return this.config.bgColor || "#f0f9ff";
     },
     displayValue() {
-      if (this.value != null && this.value !== "") {
-        var v = this.value;
-        if (typeof v === "number") {
-          v = v.toLocaleString();
-        }
+      var v = this.values.value;
+      if (v != null && v !== "") {
+        if (typeof v === "number") v = v.toLocaleString();
         return v + (this.unit ? " " + this.unit : "");
       }
-      return this.config.defaultValue || "—";
+      return "—";
     },
   },
   template: '\

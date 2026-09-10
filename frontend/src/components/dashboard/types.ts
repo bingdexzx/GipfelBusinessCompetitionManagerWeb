@@ -52,11 +52,18 @@ export type { FieldRef };
  * 自定义控件组件接收的 props 契约。
  * 你的组件必须声明这三个 props（名称、类型与此一致）。
  */
+export interface FieldSlot {
+  /** 组件通过 props.values[key] 读取该字段值 */
+  key: string;
+  /** 编辑弹窗中显示的标签 */
+  label: string;
+  /** 是否必填（默认 false） */
+  required?: boolean;
+}
+
 export interface CustomWidgetProps {
   widget: WidgetConfig;
-  value: unknown;
-  totalValue: unknown;
-  /** 多字段绑定值：{ [binding.key]: fieldValue } */
+  /** 多字段绑定值：{ [fieldSlot.key]: fieldValue } */
   values: Record<string, unknown>;
 }
 
@@ -68,20 +75,17 @@ export interface CustomWidgetDef {
   type: string;
   /** 在「添加控件」菜单中显示的名称 */
   label: string;
-  /**
-   * 渲染组件。必须声明 props：
-   *   { widget: WidgetConfig; value: unknown; totalValue: unknown }
-   * 可直接用 SFC（<script setup> 的 defineProps），或用渲染函数。
-   */
+  /** 渲染组件。接收 props: { widget, values } */
   component: Component;
   /** 默认尺寸（px），创建控件时填入 w / h；缺省 220 × 160 */
   defaultSize?: { w: number; h: number };
   /**
-   * 是否允许在仪表盘编辑对话框中绑定「可查看字段」。
-   * true 时，对话框出现「绑定字段」下拉；组件可经 props.value 读取该字段当前值。
-   * 设为 false 时，控件仅依赖 config.custom 自行取数（如自行调 API）。
+   * 控件需要绑定的字段列表。
+   * 声明后，编辑弹窗会为每个 slot 渲染一个字段选择下拉。
+   * 组件通过 props.values[slot.key] 读取对应字段的实时值。
+   * 不声明（或空数组）则编辑弹窗不出现字段选择。
    */
-  bindable?: boolean;
+  fieldSlots?: FieldSlot[];
   /** 控件说明，显示在编辑对话框（可选） */
   description?: string;
   /**

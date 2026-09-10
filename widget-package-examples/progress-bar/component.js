@@ -1,7 +1,7 @@
 // 进度条控件
-// 组件接收三个 props：widget（完整配置）、value（绑定字段值）、totalValue（总量字段值）
+// 通过 props.values.current 和 props.values.total 读取绑定字段值
 window.__widget_module__ = {
-  props: ["widget", "value", "totalValue"],
+  props: ["widget", "values"],
   computed: {
     config() {
       return (this.widget.config.custom || {});
@@ -13,12 +13,12 @@ window.__widget_module__ = {
       return this.config.title || "";
     },
     current() {
-      if (this.value != null) return Number(this.value);
-      return Number(this.config.current || 0);
+      var v = this.values.current;
+      return v != null ? Number(v) : 0;
     },
     total() {
-      if (this.totalValue != null) return Number(this.totalValue);
-      return Number(this.config.total || 100);
+      var v = this.values.total;
+      return v != null ? Number(v) : 100;
     },
     pct() {
       if (!this.total || this.total <= 0) return 0;

@@ -1,16 +1,17 @@
 {
   "type": "simple-card",
   "label": "数据卡片",
-  "description": "简洁的数据展示卡片，显示标题和数值，可绑定字段",
+  "description": "简洁的数据展示卡片，绑定一个字段显示数值",
   "version": "1.0.0",
-  "bindable": true,
+  "fields": [
+    { "key": "value", "label": "数据字段", "required": true }
+  ],
   "defaultSize": { "w": 180, "h": 120 },
   "defaultConfig": {
     "title": "数据项",
     "unit": "",
     "color": "#1f2d3d",
-    "bgColor": "#f0f9ff",
-    "defaultValue": "—"
+    "bgColor": "#f0f9ff"
   },
   "component": "component.js"
 }
