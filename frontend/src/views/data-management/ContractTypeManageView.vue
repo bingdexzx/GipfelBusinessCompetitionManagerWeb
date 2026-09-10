@@ -1,5 +1,14 @@
 <template>
   <div class="ct-manager">
+    <!-- 手机端提示 -->
+    <el-dialog :model-value="isPhone" :close-on-click-modal="false" :close-on-press-escape="false" :show-close="false" width="300px" append-to-body>
+      <div style="text-align:center;padding:10px 0">
+        <p style="font-size:15px;color:#1f1f1f;margin:0 0 8px">请使用电脑打开该界面</p>
+        <p style="font-size:13px;color:#909399;margin:0">该页面包含可视化编辑器，建议在电脑端操作</p>
+      </div>
+    </el-dialog>
+    <div v-if="isPhone" style="position:fixed;inset:0;z-index:2000;background:#fff"></div>
+
     <div class="mm-toolbar">
       <h2 class="mm-title">合同类型管理</h2>
       <div class="mm-actions">
