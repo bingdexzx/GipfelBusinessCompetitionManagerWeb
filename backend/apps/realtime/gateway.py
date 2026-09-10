@@ -129,7 +129,15 @@ async def connect(sid, environ, auth):
         except (TypeError, ValueError, Exception):  # noqa: BLE001
             pass
         logger.debug("socket.io 连接拒绝：用户不存在或已顶号 (sid=%s)", sid)
-        return False
+        # 抛出 ConnectionRefusedError 而非 return False：
+        # - return False 仅发送通用"Connection rejected"，客户端无法区分认证失败和其他原因
+        # - ConnectionRefusedError 携带明确的错误标识，客户端 connect_error 处理器可据此
+        #   检测到「被顶号」并立即触发 auth:kicked → logout，而非无限重连
+        from socketio.exceptions import ConnectionRefusedError
+
+        raise ConnectionRefusedError(
+            {"message": "auth_required", "reason": "token_version_mismatch"}
+        )
 
     await sio.save_session(
         sid,

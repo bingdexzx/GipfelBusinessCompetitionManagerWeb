@@ -101,12 +101,10 @@ export function bindResourceChanged() {
     },
   );
 
-  // 顶号事件：token 版本不匹配时经 socket 广播 auth:required，即时触发登出。
-  onRealtime("auth:required", (payload: { reason?: string }) => {
-    if (payload && payload.reason === "token_version_mismatch") {
-      window.dispatchEvent(new CustomEvent("auth:kicked"));
-    }
-  });
+  // 顶号事件：已在 socket.ts connectRealtime() 中注册（socket 创建时即绑定），
+  // 此处不再重复注册，避免 auth:kicked 被派发两次。
+  // socket.ts 中的早期注册解决了竞态问题：bindResourceChanged 在选择比赛后才调用，
+  // 而 socket 可能已连接并收到 auth:required，导致事件丢失。
 
   // 权限变更事件：定向推送到具体用户
   // 前端订阅后拉取 /auth/me 刷新权限状态

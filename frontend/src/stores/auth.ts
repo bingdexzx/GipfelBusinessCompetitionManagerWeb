@@ -151,7 +151,8 @@ export const useAuthStore = defineStore("auth", () => {
   // 绝大多数 GET 走本地缓存、不发网络，旧设备停在界面浏览时不会触发任何被守卫的请求，
   // 也就不会被后端 tokenVersion 校验踢掉。心跳周期性向 /auth/me 真实打网络，
   // 一旦被新设备登录顶号（tokenVersion 不一致 → 后端 401），响应拦截器会清空登录态并跳转登录页。
-  const HEARTBEAT_INTERVAL_MS = 45 * 1000;
+  // 20s 间隔：作为 socket 实时通道之外的兜底，保证即使 WebSocket 断连也能在 20s 内感知顶号。
+  const HEARTBEAT_INTERVAL_MS = 20 * 1000;
   let heartbeatTimer: number | null = null;
 
   function stopHeartbeat() {

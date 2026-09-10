@@ -51,8 +51,31 @@ export function connectRealtime(): Socket | null {
     reconnectionAttempts: Infinity,
     reconnectionDelay: 2000,
   });
-  socket.on("connect_error", (err: Error) => {
-    logger.error("[Realtime] 连接失败:", err.message);
+  // ---------- 连接错误处理：检测认证失败（被顶号）并立即触发登出 ----------
+  // 当设备 B 登录顶掉设备 A 后，设备 A 的 socket 断连后会尝试用旧 token 重连。
+  // 服务端检测到 tokenVersion 不匹配后抛出 ConnectionRefusedError，携带明确标识
+  // "auth_required"。客户端据此立即触发 auth:kicked → logout，而非无限重试。
+  socket.on("connect_error", (err: Error & { data?: { reason?: string } }) => {
+    const msg = err?.message || "";
+    // 服务端 ConnectionRefusedError({"message":"auth_required","reason":"token_version_mismatch"})
+    // 的 message 字段为 "auth_required"
+    if (msg === "auth_required") {
+      logger.warn("[Realtime] 被顶号/认证失败，触发登出");
+      // 立即停止重连：避免 socket.io 在 logout/disconnect 之前再发起一次连接
+      socket?.disconnect();
+      window.dispatchEvent(new CustomEvent("auth:kicked"));
+      return;
+    }
+    logger.error("[Realtime] 连接失败:", msg);
+  });
+  // ---------- 顶号事件：注册时机早于 resource-changed.ts 的 bindResourceChanged ----------
+  // bindResourceChanged 在 competition store 选择比赛后才调用，存在竞态窗口：
+  // socket 已连接 → 服务端立即广播 auth:required → 但 handler 尚未注册 → 事件丢失。
+  // 此处在 socket 创建时即注册，保证任何阶段都能即时响应顶号。
+  socket.on("auth:required", (payload: { reason?: string }) => {
+    if (payload && payload.reason === "token_version_mismatch") {
+      window.dispatchEvent(new CustomEvent("auth:kicked"));
+    }
   });
   // 断线自动重连成功（仅 reconnection，不含首次 connect）：通知业务层重订阅房间 + 回源刷新。
   // 注意：遗漏事件的补发统一由 resource-changed.ts 在 "connect" 事件（含重连后的 connect）中发起，
