@@ -42,6 +42,7 @@ urlpatterns = [
     path("api/", include("apps.stock.urls")),
     path("api/", include("apps.files.urls")),
     path("api/", include("apps.audit.urls")),
+    path("api/", include("apps.announcements.urls")),
 ]
 
 # /uploads 静态托管（CORP cross-origin 由中间件设置）

@@ -208,6 +208,7 @@ INSTALLED_APPS = [
     "apps.files",
     "apps.realtime",
     "apps.audit",
+    "apps.announcements",
 ]
 
 MIDDLEWARE = [

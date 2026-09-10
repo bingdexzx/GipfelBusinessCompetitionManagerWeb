@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="settings">
     <h2 class="page-title">系统设置</h2>
     <div class="settings-section">
@@ -15,7 +15,75 @@
       <h3>后端管理</h3>
       <el-button type="danger" @click="openAdmin">后端管理界面</el-button>
       <el-button type="warning" @click="openLogViewer">日志查看器</el-button>
+      <el-button @click="openAnnManager">管理更新公告</el-button>
     </div>
+
+    <!-- 管理更新公告弹窗 -->
+    <el-dialog v-model="annDialogVisible" title="管理更新公告" width="700px" append-to-body destroy-on-close>
+      <!-- 列表模式 -->
+      <template v-if="!annEditing">
+        <div style="margin-bottom: 12px; text-align: right">
+          <el-button type="primary" size="small" @click="startCreate">＋ 新增公告</el-button>
+        </div>
+        <el-table :data="annList" v-loading="annLoading" stripe max-height="400">
+          <el-table-column prop="version" label="版本" width="100" />
+          <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip />
+          <el-table-column prop="date" label="日期" width="110" />
+          <el-table-column label="状态" width="80">
+            <template #default="{ row }">
+              <el-tag :type="row.isActive !== false ? 'success' : 'info'" size="small">
+                {{ row.isActive !== false ? '启用' : '停用' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="130" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="primary" size="small" @click="startEdit(row)">编辑</el-button>
+              <el-popconfirm title="确定删除此公告？" @confirm="handleDelete(row.id)">
+                <template #reference>
+                  <el-button link type="danger" size="small">删除</el-button>
+                </template>
+              </el-popconfirm>
+            </template>
+          </el-table-column>
+        </el-table>
+      </template>
+
+      <!-- 编辑/新增模式 -->
+      <template v-else>
+        <el-form :model="annForm" label-width="80px">
+          <el-form-item label="版本号" required>
+            <el-input v-model="annForm.version" placeholder="如 1.4.0" />
+          </el-form-item>
+          <el-form-item label="标题" required>
+            <el-input v-model="annForm.title" placeholder="如 更新公告 v1.4.0" />
+          </el-form-item>
+          <el-form-item label="日期">
+            <el-input v-model="annForm.date" placeholder="留空自动取今天" />
+          </el-form-item>
+          <el-form-item label="内容" required>
+            <el-input
+              v-model="annForm.content"
+              type="textarea"
+              :rows="8"
+              placeholder="支持 HTML，如 <ul><li>...</li></ul>"
+            />
+          </el-form-item>
+          <el-form-item label="启用">
+            <el-switch v-model="annForm.isActive" />
+          </el-form-item>
+        </el-form>
+      </template>
+      <template #footer>
+        <template v-if="!annEditing">
+          <el-button @click="annDialogVisible = false">关闭</el-button>
+        </template>
+        <template v-else>
+          <el-button @click="annEditing = false">返回列表</el-button>
+          <el-button type="primary" :loading="annSaving" @click="handleSave">保存</el-button>
+        </template>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -24,7 +92,7 @@ import { ref, computed } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { clearCurrentAccountCache } from "@/api/cache";
 import { resetRequestMemo } from "@/api/request";
-import api from "@/api";
+import api, { announcementsApi, type AnnouncementItem } from "@/api";
 import { removeAccountItem } from "@/utils/accountStorage";
 import { useVersionStore } from "@/stores/version";
 import { useAuthStore } from "@/stores/auth";
@@ -35,6 +103,90 @@ const versionStore = useVersionStore();
 const authStore = useAuthStore();
 const isSuperAdmin = computed(() => authStore.isSuperAdmin);
 
+// ===== 管理更新公告 =====
+const annDialogVisible = ref(false);
+const annLoading = ref(false);
+const annSaving = ref(false);
+const annEditing = ref(false);
+const annEditingId = ref<number | null>(null);
+const annList = ref<AnnouncementItem[]>([]);
+const annForm = ref({ version: "", title: "", date: "", content: "", isActive: true });
+
+async function openAnnManager() {
+  annEditing.value = false;
+  annDialogVisible.value = true;
+  await fetchAnnList();
+}
+
+async function fetchAnnList() {
+  annLoading.value = true;
+  try {
+    annList.value = (await announcementsApi.list()) || [];
+  } catch {
+    annList.value = [];
+  } finally {
+    annLoading.value = false;
+  }
+}
+
+function startCreate() {
+  annEditingId.value = null;
+  annForm.value = { version: "", title: "", date: "", content: "", isActive: true };
+  annEditing.value = true;
+}
+
+function startEdit(row: AnnouncementItem) {
+  annEditingId.value = row.id;
+  annForm.value = {
+    version: row.version,
+    title: row.title,
+    date: row.date,
+    content: row.content,
+    isActive: row.isActive,
+  };
+  annEditing.value = true;
+}
+
+async function handleSave() {
+  if (!annForm.value.version.trim()) return ElMessage.warning("请填写版本号");
+  if (!annForm.value.title.trim()) return ElMessage.warning("请填写标题");
+  if (!annForm.value.content.trim()) return ElMessage.warning("请填写内容");
+  annSaving.value = true;
+  try {
+    const payload = {
+      version: annForm.value.version.trim(),
+      title: annForm.value.title.trim(),
+      date: annForm.value.date.trim() || new Date().toISOString().slice(0, 10),
+      content: annForm.value.content,
+      isActive: annForm.value.isActive,
+    };
+    if (annEditingId.value != null) {
+      await announcementsApi.update(annEditingId.value, payload);
+      ElMessage.success("已保存");
+    } else {
+      await announcementsApi.create(payload);
+      ElMessage.success("已发布");
+    }
+    annEditing.value = false;
+    await fetchAnnList();
+  } catch {
+    ElMessage.error("操作失败");
+  } finally {
+    annSaving.value = false;
+  }
+}
+
+async function handleDelete(id: number) {
+  try {
+    await announcementsApi.remove(id);
+    ElMessage.success("已删除");
+    await fetchAnnList();
+  } catch {
+    ElMessage.error("删除失败");
+  }
+}
+
+// ===== 清空本地缓存 =====
 async function clearLocalData() {
   try {
     await ElMessageBox.confirm(
@@ -43,74 +195,49 @@ async function clearLocalData() {
       { type: "warning" },
     );
   } catch {
-    return; // 用户取消
+    return;
   }
-  // 清空三层缓存，确保「点击后立即见效」：
-  // ① 内存请求 memo（O3 stale-while-revalidate，命中后 15s 内直接返回旧值，不清则当前会话仍显示旧数据）
   resetRequestMemo();
-  // ② 持久化 IndexedDB 全量副本（按账号分库天然隔离，token/登录态保留，其他账号不受影响）
   await clearCurrentAccountCache();
-  // ③ 当前比赛选择
   removeAccountItem("currentCompetition");
-  // 重载页面：所有已挂载组件的 Pinia/响应式状态随之归零，从服务端重新拉取。
-  // 仅清 IndexedDB 不重载，视图仍持有内存旧值 → 按钮「看起来没用」，此即原 bug 根因。
   ElMessage.success("本地缓存已清空，正在重新加载…");
   setTimeout(() => window.location.reload(), 300);
 }
 
-// 后端管理后台地址：前端经同源 nginx 提供，直接走相对路径 /admin/（无需拼端口/域名）。
-// 既兼容本机开发，也兼容公网同域部署。
+// ===== 后端管理 =====
 const adminUrl = computed(() => `/admin/`);
 
-// 后端管理后台跳转：需「仅按钮点击可跳转、直接输入网址自动跳转回前端」。
-// 点击时向后端请求一次性防直连令牌（仅 SUPER_ADMIN 可获取），拼入 /admin/?token=... 打开；
-// 后端 BackendGateMiddleware 校验令牌，缺失/无效/过期则 302 重定向回前端 SPA
-// （见后端 BackendTokenView + BackendGateMiddleware 网关）。
 async function openAdmin() {
   try {
     const res = (await api.post("/auth/backend-token")) as { token?: string };
     const token = res?.token;
     if (!token) throw new Error("未获取到访问令牌");
-    const base = adminUrl.value; // "/admin/"
+    const base = adminUrl.value;
     const sep = base.includes("?") ? "&" : "?";
-    // 一次性防直连令牌经 URL 传递（后端网关消费后即失效，默认 120s TTL）。
-    // H7 缓解：window.open 已带 noopener,noreferrer（防 opener 访问 + 剥离 Referer）；
-    // 同源场景下，待新标签加载完成后用 replaceState 清除地址栏中的 token，避免残留在历史/可见 URL。
     const url = `${base}${sep}token=${encodeURIComponent(token)}`;
     const win = window.open(url, "_blank", "noopener,noreferrer");
     if (win) {
       win.addEventListener("load", () => {
-        try {
-          win.history.replaceState(null, "", base);
-        } catch {
-          /* 跨域或非预期场景忽略 */
-        }
+        try { win.history.replaceState(null, "", base); } catch { /* */ }
       });
     }
   } catch (e: unknown) {
-    const msg = (e as { message?: string })?.message || "打开后端管理界面失败";
-    ElMessage.error(msg);
+    ElMessage.error((e as { message?: string })?.message || "打开后端管理界面失败");
   }
 }
 
-// 日志查看器跳转：需「仅按钮点击可跳转、直接输入网址自动跳转回前端」。
-// 点击时向后端请求一次性防直连令牌（仅 SUPER_ADMIN 可获取），拼入日志查看器公网地址后打开；
-// 日志查看器 index 视图校验令牌，缺失/无效/过期则 302 自动跳转回前端主站（见后端 LogViewerTokenView + 日志查看器网关）。
-// 公网地址来自 /api/version 的 log_viewer_url（默认 http://127.0.0.1:8120/，部署时由 Host 派生 log.<域名>）。
+// ===== 日志查看器 =====
 async function openLogViewer() {
   try {
     const res = (await api.post("/auth/logviewer-token")) as { token?: string };
     const token = res?.token;
     if (!token) throw new Error("未获取到访问令牌");
-    const base =
-      versionStore.logViewerUrl ||
-      `http://127.0.0.1:${versionStore.logViewerPort || 8120}/`;
+    const base = versionStore.logViewerUrl || `http://127.0.0.1:${versionStore.logViewerPort || 8120}/`;
     const sep = base.includes("?") ? "&" : "?";
     const url = `${base}${sep}token=${encodeURIComponent(token)}`;
     window.open(url, "_blank", "noopener,noreferrer");
   } catch (e: unknown) {
-    const msg = (e as { message?: string })?.message || "打开日志查看器失败";
-    ElMessage.error(msg);
+    ElMessage.error((e as { message?: string })?.message || "打开日志查看器失败");
   }
 }
 </script>

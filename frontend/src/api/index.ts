@@ -1,4 +1,4 @@
-import api, { getErrorMessage } from "./request";
+﻿import api, { getErrorMessage } from "./request";
 import type {
   CreateUserInput,
   UpdateUserInput,
@@ -473,4 +473,25 @@ export const auditApi = {
     for (const k of Object.keys(params)) if (params[k] == null || params[k] === "") delete params[k];
     return api.get("/audit-logs", { params, cache: false, normalize: false });
   },
+};
+
+// ===================== 更新公告 =====================
+export interface AnnouncementItem {
+  id: number;
+  version: string;
+  title: string;
+  date: string;
+  content: string;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export const announcementsApi = {
+  list: () => api.get<AnnouncementItem[]>("/announcements", { cache: false }),
+  create: (data: { version: string; title: string; date: string; content: string; isActive?: boolean }) =>
+    api.post<AnnouncementItem>("/announcements", data),
+  update: (id: number, data: Partial<{ version: string; title: string; date: string; content: string; isActive: boolean }>) =>
+    api.patch<AnnouncementItem>(`/announcements/${id}`, data),
+  remove: (id: number) => api.delete(`/announcements/${id}`),
 };

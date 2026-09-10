@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="sidebar" :class="{ 'is-drawer': drawer, 'is-open': open }">
     <div class="sidebar-brand">
       <div class="brand-text">
