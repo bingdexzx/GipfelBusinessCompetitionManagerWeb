@@ -712,7 +712,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   line-height: 0;
-  padding-bottom: 2px;
+  padding-bottom: 4px;
 }
 .dash-fab:hover {
   transform: scale(1.06);
