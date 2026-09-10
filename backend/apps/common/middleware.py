@@ -63,27 +63,33 @@ def _simplify_ua(ua: str) -> str:
             os_name = f"Win(NT{nt_ver})"
         os_info = os_name
 
-    # macOS：Mac OS X 10_15_7 → macOS 10.15.7
-    elif "Mac OS X" in ua:
-        m = _re.search(r"Mac OS X ([\d_]+)", ua)
-        ver = m.group(1).replace("_", ".") if m else ""
-        os_info = f"macOS {ver}".strip()
-
     # iOS：iPhone/iPad + CPU iPhone OS 17_0 → iOS 17.0 (iPhone)
+    # 必须在 macOS 之前检测：iOS UA 含 "like Mac OS X"，若 macOS 在前会被误判
     elif "iPhone" in ua or "iPad" in ua:
         device = "iPhone" if "iPhone" in ua else "iPad"
         m = _re.search(r"CPU (?:iPhone )?OS ([\d_]+)", ua)
         ver = m.group(1).replace("_", ".") if m else ""
         os_info = f"iOS {ver} ({device})".strip()
 
+    # macOS：Mac OS X 10_15_7 → macOS 10.15.7
+    elif "Mac OS X" in ua:
+        m = _re.search(r"Mac OS X ([\d_]+)", ua)
+        ver = m.group(1).replace("_", ".") if m else ""
+        os_info = f"macOS {ver}".strip()
+
     # Android：Android 14; 型号 → Android 14 (型号)
     elif "Android" in ua:
         m = _re.search(r"Android ([\d.]+)", ua)
         ver = m.group(1) if m else ""
-        # 常见型号在 "Android N; 型号" 或 "Android N Build/..." 之后
-        m_model = _re.search(r"Android [\d.]+;\s*(?:Build|[A-Z]{2}[-_])?([A-Za-z0-9_\- ]+?)(?:\)|;| Build)", ua)
+        # 提取 "Android N; <型号>" 中的型号：匹配到下一个 ")" 或 ";" 或 " Build" 为止。
+        # 旧正则 (?:Build|[A-Z]{2}[-_])? 前缀跳过组会吞掉 SM-/RM- 等型号前缀，
+        # 导致 SM-S918B 只提取到 S918B；改为直接匹配到分隔符，再排除 Build/ 开头的非型号串。
+        m_model = _re.search(r"Android [\d.]+;\s*([^;)]+?)(?:\s*\)|;|\s+Build)", ua)
         model = m_model.group(1).strip() if m_model else ""
-        # 清理型号末尾的多余空格和标识
+        # "Build/xxx" 是构建标识而非型号，清空
+        if model.startswith("Build/"):
+            model = ""
+        # 清理型号末尾的多余标识（如 " w" 全球版、" v2" 版本号）
         model = _re.sub(r"\s+(?:w|v\d+)$", "", model).strip()
         os_info = f"Android {ver} ({model})".strip() if model else f"Android {ver}".strip()
 
