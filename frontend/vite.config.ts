@@ -23,6 +23,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
+      // 必须用完整版（含模板编译器），否则控件包的 runtime template 字符串无法编译
+      vue: "vue/dist/vue.esm-bundler.js",
     },
   },
   css: {
