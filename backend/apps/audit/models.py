@@ -16,6 +16,7 @@ class AuditLog(models.Model):
     status_code = models.IntegerField(null=True, blank=True)
     error_summary = models.CharField(max_length=512, null=True, blank=True)
     ip = models.CharField(max_length=64, null=True, blank=True)
+    device = models.CharField(max_length=256, null=True, blank=True)
     request_id = models.CharField(max_length=64, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

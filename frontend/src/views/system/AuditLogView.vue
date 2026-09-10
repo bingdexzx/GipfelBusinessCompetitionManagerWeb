@@ -66,6 +66,9 @@
         <el-table-column label="概要" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">{{ brief(row) }}</template>
         </el-table-column>
+        <el-table-column label="设备" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.device || "-" }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="80" fixed="right">
           <template #default="{ row }">
             <el-button size="small" text type="primary" @click="showDetail(row)">详情</el-button>
@@ -127,6 +130,9 @@
           <el-descriptions-item v-if="detail.kind === 'error'" label="来源 IP">
             {{ detail.ip || "-" }}
           </el-descriptions-item>
+          <el-descriptions-item label="设备信息">
+            {{ detail.device || "-" }}
+          </el-descriptions-item>
           <el-descriptions-item v-if="detail.requestId" label="请求 ID">
             {{ detail.requestId }}
           </el-descriptions-item>
@@ -168,6 +174,7 @@ const mobileColumns = [
   { prop: "kind", label: "类型", slot: "kind" },
   { prop: "operatorName", label: "操作人" },
   { prop: "createdAt", label: "时间", formatter: (row: AuditLog) => fmtTime(row.createdAt) },
+  { prop: "device", label: "设备" },
   { prop: "brief", label: "概要", slot: "brief" },
 ];
 

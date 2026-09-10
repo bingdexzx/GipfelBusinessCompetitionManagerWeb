@@ -57,6 +57,7 @@ def log_write(
     operator = get_current_operator_safe()
     try:
         from apps.audit.models import AuditLog
+        from apps.common.logfilter import get_request_device, get_request_ip
 
         AuditLog.objects.create(
             kind="write",
@@ -69,6 +70,8 @@ def log_write(
             changes=json.dumps(sanitize_changes(changes), ensure_ascii=False)
             if changes is not None
             else None,
+            ip=get_request_ip(),
+            device=get_request_device(),
         )
     except Exception:  # noqa: BLE001 - 审计失败不阻断主流程
         logger.debug("写操作审计写入失败", exc_info=True)
@@ -78,6 +81,7 @@ def log_exception(request, exc, response) -> None:
     """异常上下文审计落库。"""
     try:
         from apps.audit.models import AuditLog
+        from apps.common.logfilter import get_request_device
 
         operator = get_current_operator_safe()
         status_code = getattr(response, "status_code", 500) if response else 500
@@ -98,6 +102,7 @@ def log_exception(request, exc, response) -> None:
             status_code=status_code,
             error_summary=error_summary,
             ip=ip,
+            device=get_request_device(),
             request_id=request_id,
         )
     except Exception:  # noqa: BLE001

@@ -50,6 +50,7 @@ class AuditLogSerializer:
             "statusCode": instance.status_code,
             "errorSummary": instance.error_summary,
             "ip": instance.ip,
+            "device": instance.device,
             "requestId": instance.request_id,
             "createdAt": instance.created_at,
         }

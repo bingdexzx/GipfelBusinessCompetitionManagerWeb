@@ -534,6 +534,7 @@ export interface AuditLog {
   statusCode: number | null;
   errorSummary: string | null;
   ip: string | null;
+  device: string | null;
   requestId: string | null;
   createdAt: string;
 }
