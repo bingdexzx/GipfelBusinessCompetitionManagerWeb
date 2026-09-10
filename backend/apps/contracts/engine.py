@@ -1524,6 +1524,24 @@ def compute_route_path_types(node_ids, competition_id):
     return out
 
 
+def compute_route_start_node_name(node_ids, competition_id):
+    """节点列表起始节点名：返回第一个节点的名称字符串。"""
+    if not node_ids:
+        return ""
+    from apps.maps.models import MapNode
+    node = MapNode.objects.filter(competition_id=competition_id, pk=node_ids[0]).values("name").first()
+    return node["name"] if node else ""
+
+
+def compute_route_end_node_name(node_ids, competition_id):
+    """节点列表终止节点名：返回最后一个节点的名称字符串。"""
+    if not node_ids:
+        return ""
+    from apps.maps.models import MapNode
+    node = MapNode.objects.filter(competition_id=competition_id, pk=node_ids[-1]).values("name").first()
+    return node["name"] if node else ""
+
+
 def models_q_from_to(node_ids):
     """构造 MapEdge 的 from_node_id__in / to_node_id__in OR 查询。"""
     from django.db.models import Q
@@ -1700,6 +1718,10 @@ def eval_value_spec(spec: Any, inputs: dict, scope: dict | None = None, ctx: Eva
             return compute_route_distance(to_number_array(raw), ctx.competition_id if ctx else None, ctx.cache if ctx else None)
         if aggregate == "ROUTE_PATH_TYPES":
             return compute_route_path_types(to_number_array(raw), ctx.competition_id if ctx else None)
+        if aggregate == "ROUTE_START_NODE_NAME":
+            return compute_route_start_node_name(to_number_array(raw), ctx.competition_id if ctx else None)
+        if aggregate == "ROUTE_END_NODE_NAME":
+            return compute_route_end_node_name(to_number_array(raw), ctx.competition_id if ctx else None)
         if aggregate == "PART_MATERIALS":
             return compute_part_materials(raw, ctx.competition_id if ctx else None)
         if aggregate == "PART_MATERIAL_TOTAL_QTY":
