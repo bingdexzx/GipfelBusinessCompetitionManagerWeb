@@ -156,9 +156,6 @@
               <el-option v-for="f in fields" :key="f.key" :label="f.label" :value="f.key" />
             </el-select>
           </el-form-item>
-          <el-form-item v-if="editingCustomDef.fieldSlots?.length" label="读取方式">
-            <span class="dw-tip">组件内通过 <code>this.values.字段标识</code> 读取各字段实时值</span>
-          </el-form-item>
           <!-- 配置项：按 configFields 声明渲染表单控件 -->
           <el-form-item
             v-for="cf in (editingCustomDef.configFields || [])"
