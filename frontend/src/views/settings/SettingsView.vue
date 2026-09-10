@@ -268,7 +268,7 @@ async function openLogViewer() {
     const res = (await api.post("/auth/logviewer-token")) as { token?: string };
     const token = res?.token;
     if (!token) throw new Error("未获取到访问令牌");
-    const base = versionStore.logViewerUrl || `http://127.0.0.1:${versionStore.logViewerPort || 8120}/`;
+    const base = `http://${window.location.hostname}:${versionStore.logViewerPort || 8120}/`;
     const sep = base.includes("?") ? "&" : "?";
     const url = `${base}${sep}token=${encodeURIComponent(token)}`;
     window.open(url, "_blank", "noopener,noreferrer");

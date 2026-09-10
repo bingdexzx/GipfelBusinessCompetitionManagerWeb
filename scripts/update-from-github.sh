@@ -264,7 +264,7 @@ ok "文件归属已切换为 gipfel，.env 权限收紧为 600"
 
 # 自愈：无域名部署时，纠正/补全 .env 中 LOG_VIEWER_PUBLIC_URL。
 #   - 显式 --public-ip：无论当前有无/对错，都以它为准写入（覆盖内网 IP 或缺失该行）
-#   - 否则：仅当当前值指向内网/私网 IP 才纠正；已是公网 IP/域名/缺失行则不动
+#   - 否则：仅当当前值缺失或指向内网/私网 IP 才纠正；已是公网 IP/域名则不动
 # 公网 IP 探测失败则移除该行，改由后端按请求 Host 推导（nginx 透传 $host=公网 IP）。
 LV_PUBLIC_IP=""   # 预初始化：set -u 下后续 ALLOWED_HOSTS 自愈块可能在其未赋值时引用
 if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
@@ -272,14 +272,14 @@ if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
     LV_NEED_FIX=0
     if [[ -n "$PUBLIC_IP" ]]; then
         LV_NEED_FIX=1   # 显式指定：强制以 --public-ip 为准（覆盖内网 IP 或缺失行）
-    elif [[ -n "$LV_CUR" ]]; then
-        if [[ "$LV_CUR" =~ ^10\. ]] || \
-           [[ "$LV_CUR" =~ ^192\.168\. ]] || \
-           [[ "$LV_CUR" =~ ^172\.(1[6-9]|2[0-9]|3[01])\. ]] || \
-           [[ "$LV_CUR" =~ ^169\.254\. ]] || \
-           [[ "$LV_CUR" =~ ^127\. ]]; then
-            LV_NEED_FIX=1
-        fi
+    elif [[ -z "$LV_CUR" ]]; then
+        LV_NEED_FIX=1   # 缺失：需要补全（此前漏过缺失场景，后端回退 127.0.0.1）
+    elif [[ "$LV_CUR" =~ ^10\. ]] || \
+         [[ "$LV_CUR" =~ ^192\.168\. ]] || \
+         [[ "$LV_CUR" =~ ^172\.(1[6-9]|2[0-9]|3[01])\. ]] || \
+         [[ "$LV_CUR" =~ ^169\.254\. ]] || \
+         [[ "$LV_CUR" =~ ^127\. ]]; then
+        LV_NEED_FIX=1
     fi
     if [[ $LV_NEED_FIX -eq 1 ]]; then
         if [[ -n "$PUBLIC_IP" ]]; then
@@ -305,10 +305,17 @@ if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
                 else
                     sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/|" "$INSTALL_DIR/backend/.env"
                 fi
-                warn "检测到 LOG_VIEWER_PUBLIC_URL 指向内网 IP(${LV_CUR})，已自动纠正为公网 IP(${LV_PUBLIC_IP})。"
+                # .env 中缺失该行时 sed 无匹配 → 追加
+                if ! grep -q '^LOG_VIEWER_PUBLIC_URL=' "$INSTALL_DIR/backend/.env"; then
+                    echo "LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/" >> "$INSTALL_DIR/backend/.env"
+                fi
+                warn "已写入 LOG_VIEWER_PUBLIC_URL=${LV_PUBLIC_IP}（原值：${LV_CUR:-缺失}）。"
             else
-                sed -i -E "/^LOG_VIEWER_PUBLIC_URL=/d" "$INSTALL_DIR/backend/.env"
-                warn "公网 IP 探测失败，已移除 .env 中指向内网 IP(${LV_CUR}) 的 LOG_VIEWER_PUBLIC_URL，改由后端按请求 Host 推导公网地址。"
+                if [[ -n "$LV_CUR" ]]; then
+                    sed -i -E "/^LOG_VIEWER_PUBLIC_URL=/d" "$INSTALL_DIR/backend/.env"
+                    warn "公网 IP 探测失败，已移除 .env 中指向内网 IP(${LV_CUR}) 的 LOG_VIEWER_PUBLIC_URL，改由后端按请求 Host 推导公网地址。"
+                fi
+                # 无旧值且探测失败：什么都不做，后端会按 Host 推导
             fi
         fi
     fi
@@ -570,19 +577,21 @@ echo "  部署目录：    $INSTALL_DIR"
 echo "  备份位置：    $BACKUP_DIR"
 echo "  后端状态：    systemctl status gipfel"
 echo "  日志查看器：  systemctl status gipfel-logviewer"
-echo "  健康检查：    curl -sS http://127.0.0.1:8000/api/health"
 # 网站地址提示：有域名显示域名；纯 IP 部署显示公网 IP（优先 --public-ip，其次探测），
 # 不再用 hostname -I 首地址（通常为内网 IP，对用户访问无意义）。
 if [[ -n "$DOMAIN" ]]; then
     echo "  网站：        http://${DOMAIN}/"
+    echo "  健康检查：    curl -sS http://${DOMAIN}:8000/api/health"
 else
     if [[ -z "$PUBLIC_IP" ]]; then
         PUBLIC_IP="$(_probe_public_ip)" || true
     fi
     if [[ -n "$PUBLIC_IP" ]]; then
         echo "  网站：        http://${PUBLIC_IP}/"
+        echo "  健康检查：    curl -sS http://${PUBLIC_IP}:8000/api/health"
     else
         echo "  网站：        http://<公网IP>/（未能自动探测公网 IP，请用云控制台查询后访问）"
+        echo "  健康检查：    curl -sS http://127.0.0.1:8000/api/health"
     fi
 fi
 echo "  日志：        journalctl -u gipfel -f   /   tail -F $INSTALL_DIR/backend/logs/app.log"
