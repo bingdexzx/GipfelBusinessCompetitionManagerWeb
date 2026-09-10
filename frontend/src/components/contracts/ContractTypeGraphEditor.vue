@@ -1082,29 +1082,38 @@ function applyAutoLayout() {
     if (!parents.has(e.target)) parents.set(e.target, []);
     parents.get(e.target)!.push(e.source);
   }
-  // BFS 分层：root/party 节点为 level 0，输入项 level 1，数值源/运算 level 2，效果/检查 level 3+
+  // 拓扑排序 + 最长路径分层：保证每个节点在其所有父节点之后，
+  // 且层级 = max(父节点层级) + 1，避免多父节点导致层级错乱。
   const levels = new Map<string, number>();
+  const inDegree = new Map<string, number>();
+  for (const n of nodes) inDegree.set(n.id, 0);
+  for (const e of graph.edges) {
+    inDegree.set(e.target, (inDegree.get(e.target) || 0) + 1);
+  }
+  // 入度为 0 的节点（root/party/无入边）作为 level 0
   const queue: string[] = [];
-  // 找根节点和参与方节点（没有入边的节点，或 type 为 root/party）
   for (const n of nodes) {
-    if (n.type === "root" || n.type === "party" || !parents.has(n.id)) {
+    if (inDegree.get(n.id) === 0) {
       levels.set(n.id, 0);
       queue.push(n.id);
     }
   }
-  // BFS 分层
+  // 拓扑排序式 BFS：每个节点的层级 = max(所有父节点层级) + 1
   while (queue.length) {
     const curId = queue.shift()!;
     const curLevel = levels.get(curId)!;
     for (const childId of children.get(curId) || []) {
       const newLevel = curLevel + 1;
+      // 取最大值：确保节点在所有父节点中最远的那个之后
       if (!levels.has(childId) || levels.get(childId)! < newLevel) {
         levels.set(childId, newLevel);
-        queue.push(childId);
       }
+      const deg = (inDegree.get(childId) || 1) - 1;
+      inDegree.set(childId, deg);
+      if (deg === 0) queue.push(childId);
     }
   }
-  // 未被 BFS 访问到的节点（孤立节点），分配到 level 1
+  // 处理环中未访问的节点（理论上不应出现，但兜底分配到 level 1）
   for (const n of nodes) {
     if (!levels.has(n.id)) levels.set(n.id, 1);
   }
@@ -1115,15 +1124,20 @@ function applyAutoLayout() {
     if (!levelGroups.has(lv)) levelGroups.set(lv, []);
     levelGroups.get(lv)!.push(n);
   }
-  // 排列：每层水平间距 280px，层内垂直间距 140px
-  const COL_GAP = 280;
-  const ROW_GAP = 140;
+  // 排列：列间距需大于节点宽度避免重叠；行间距考虑节点实际高度
+  const COL_GAP = NODE_W + 80; // 288 + 80 = 368px，留出连线空间
+  const ROW_GAP = 50; // 垂直间距（节点高度由端口数动态决定，此处用最小间距）
   const sortedLevels = [...levelGroups.keys()].sort((a, b) => a - b);
   for (const lv of sortedLevels) {
     const group = levelGroups.get(lv)!;
-    group.forEach((n, i) => {
+    let y = 40;
+    group.forEach((n) => {
+      // 计算节点实际高度（与 nodeStyle 保持一致）
+      const portN = Math.max(inputHandles(n).length, outputHandles(n).length, 1);
+      const nodeH = HEADER_H + PORT_TOP + (portN - 1) * PORT_GAP + DOT + 14;
       n.x = 40 + lv * COL_GAP;
-      n.y = 40 + i * ROW_GAP;
+      n.y = y;
+      y += nodeH + ROW_GAP;
     });
   }
 }
