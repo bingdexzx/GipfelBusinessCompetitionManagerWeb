@@ -38,6 +38,12 @@ def _socketio_cors_origins():
 
     raw = getattr(settings, "CORS_ORIGIN", "") or ""
     if not raw:
+        # 生产环境未配置 CORS_ORIGIN 时记录警告（CSWSH 风险）
+        if not getattr(settings, "DEBUG", False):
+            logger.warning(
+                "⚠️  CORS_ORIGIN 未配置，Socket.IO 允许任意站点连接（CSWSH 风险）——"
+                " 生产环境务必配置 CORS_ORIGIN 白名单"
+            )
         return "*"
     items = [s.strip() for s in raw.split(",") if s.strip()]
     if not items or "*" in items:

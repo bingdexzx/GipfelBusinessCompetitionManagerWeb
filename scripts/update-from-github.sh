@@ -198,7 +198,7 @@ fi
 # 首跑引导：.env 不存在（全新 clone 未跑过 deploy-linux.sh）→ 从 example 生成，
 # 否则后端 settings.py 因缺 JWT_SECRET fail-fast，下方 manage.py 直接中止
 if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
-    log "未检测到 backend/.env，按首次部署生成（随机 JWT_SECRET / LOGVIEWER_SECRET_KEY，DEBUG=false）"
+    log "未检测到 backend/.env，按首次部署生成（随机 JWT_SECRET / LOGVIEWER_SECRET_KEY / SEED_ADMIN_PASSWORD，DEBUG=false）"
     cp "$INSTALL_DIR/backend/.env.example" "$INSTALL_DIR/backend/.env"
     SECRET="$(head -c 32 /dev/urandom | base64 | tr -d '\n+/=')"
     sed -i "s|^JWT_SECRET=.*|JWT_SECRET=${SECRET}|" "$INSTALL_DIR/backend/.env"
@@ -208,12 +208,20 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
     else
         echo "LOGVIEWER_SECRET_KEY=${LVSECRET}" >> "$INSTALL_DIR/backend/.env"
     fi
+    # 默认管理员密码：首次部署自动生成强随机密码
+    ADMIN_PW="$(head -c 16 /dev/urandom | base64 | tr -d '\n+/=' | head -c 20)"
+    if grep -q '^SEED_ADMIN_PASSWORD=' "$INSTALL_DIR/backend/.env"; then
+        sed -i -E "s|^SEED_ADMIN_PASSWORD=.*|SEED_ADMIN_PASSWORD=${ADMIN_PW}|" "$INSTALL_DIR/backend/.env"
+    else
+        echo "SEED_ADMIN_PASSWORD=${ADMIN_PW}" >> "$INSTALL_DIR/backend/.env"
+    fi
     if grep -q '^DEBUG=' "$INSTALL_DIR/backend/.env"; then
         sed -i 's/^DEBUG=.*/DEBUG=false/' "$INSTALL_DIR/backend/.env"
     else
         echo 'DEBUG=false' >> "$INSTALL_DIR/backend/.env"
     fi
     warn "已生成 .env；公网访问入口（DJANGO_ALLOWED_HOSTS/CORS/CSRF）将在下方自愈块按域名/公网 IP 补全"
+    warn "默认管理员密码已自动生成，请查看 .env 中的 SEED_ADMIN_PASSWORD（首次登录后强制修改）"
 fi
 log "更新后端（pip / migrate / collectstatic）"
 cd "$INSTALL_DIR/backend"

@@ -23,7 +23,23 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 JWT_SECRET = os.environ.get("JWT_SECRET", "").strip()
 if not JWT_SECRET:
     raise RuntimeError(
-        "环境变量校验失败:\n  JWT_SECRET: JWT_SECRET is required"
+        "环境变量校验失败:\n  JWT_SECRET: JWT_SECRET is required\n"
+        "  请在 .env 中配置强随机值，如：openssl rand -hex 32"
+    )
+
+# 已知弱密钥黑名单（防止部署时忘记修改）
+_WEAK_JWT_SECRETS = {
+    "your-dev-secret-change-in-production",
+    "secret",
+    "jwt-secret",
+    "change-me",
+    "password",
+    "123456",
+}
+if JWT_SECRET.lower() in _WEAK_JWT_SECRETS:
+    raise RuntimeError(
+        "环境变量校验失败:\n  JWT_SECRET: 检测到已知弱密钥，请使用强随机值\n"
+        "  生成命令：openssl rand -hex 32"
     )
 
 # 日志查看器防直连令牌共享密钥：主后端用它签发一次性令牌，日志查看器用它校验。
@@ -39,9 +55,18 @@ BACKEND_GATE_MAX_AGE = int(os.environ.get("BACKEND_GATE_MAX_AGE", "120"))
 # Django 自身 SECRET_KEY：优先读 DJANGO_SECRET_KEY（生产建议配置独立值，与 JWT 密钥分离，
 # 缩小单密钥泄露的影响面）；未配置时回退 JWT_SECRET（迁移期兼容，行为与旧版一致）。
 # 注意：更换 SECRET_KEY 会使现有 session / CSRF cookie 失效（用户需重新登录），换钥需择机进行。
-SECRET_KEY = (os.environ.get("DJANGO_SECRET_KEY") or "").strip() or JWT_SECRET
+_django_secret = (os.environ.get("DJANGO_SECRET_KEY") or "").strip()
+if not _django_secret:
+    import logging
+    logging.getLogger("gipfel").warning(
+        "DJANGO_SECRET_KEY 未配置，回退使用 JWT_SECRET（生产环境建议独立配置以缩小密钥泄露影响面）"
+    )
+SECRET_KEY = _django_secret or JWT_SECRET
 
 DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
+
+# 生产环境 DEBUG 模式警告（在 ALLOWED_HOSTS 解析后检查）
+_debug_warn_logged = False
 
 
 def _resolve_allowed_hosts() -> list:
@@ -71,6 +96,19 @@ def _resolve_allowed_hosts() -> list:
 
 ALLOWED_HOSTS = _resolve_allowed_hosts()
 
+# 生产环境 DEBUG 模式安全检查
+if DEBUG:
+    _non_localhost_hosts = [
+        h for h in ALLOWED_HOSTS
+        if h not in ("127.0.0.1", "localhost", "::1", "[::1]")
+    ]
+    if _non_localhost_hosts:
+        import logging
+        logging.getLogger("gipfel").warning(
+            "⚠️  检测到 DEBUG=true 且 ALLOWED_HOSTS 包含非回环主机 %s ——"
+            " 生产环境务必设置 DEBUG=false，否则会暴露详细错误信息和堆栈！",
+            _non_localhost_hosts
+        )
 
 def _resolve_csrf_trusted_origins() -> list:
     """Django 4+ CSRF Origin 校验白名单（scheme://host[:port] 显式格式）。
@@ -111,9 +149,19 @@ JWT_EXPIRES_IN = os.environ.get("JWT_EXPIRES_IN", "24h")
 # 默认超级管理员（首次 migrate 自动写入；可经 .env 覆盖）
 # · 业务超管：apps.users.User（前端 JWT 登录用，role=SUPER_ADMIN）
 # · 后台超管：django.contrib.auth.User（/admin 登录用，is_staff/is_superuser）
+# · 首次登录强制改密（must_change_password=true）
 SEED_ADMIN_USERNAME = os.environ.get("SEED_ADMIN_USERNAME", "admin")
 SEED_ADMIN_EMAIL = os.environ.get("SEED_ADMIN_EMAIL", "admin@example.com")
-SEED_ADMIN_PASSWORD = os.environ.get("SEED_ADMIN_PASSWORD", "admin23")
+# 未配置时自动生成强随机密码（deploy-linux.sh 也会自动生成）
+_raw_admin_pw = os.environ.get("SEED_ADMIN_PASSWORD", "").strip()
+if not _raw_admin_pw:
+    import secrets as _secrets
+    _raw_admin_pw = _secrets.token_urlsafe(16)
+    import logging
+    logging.getLogger("gipfel").info(
+        "SEED_ADMIN_PASSWORD 未配置，已自动生成随机密码（首次登录后强制修改）"
+    )
+SEED_ADMIN_PASSWORD = _raw_admin_pw
 
 # 日志
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()

@@ -74,40 +74,46 @@ class HealthView(APIView):
 
 
 class VersionView(APIView):
-    """GET /api/version → {code:0, message:"成功", data:{version:"1.3.18", port: <后端监听端口>, log_viewer_port: <日志查看器端口>}}
+    """GET /api/version → {code:0, message:"成功", data:{version, port, log_viewer_port, log_viewer_url}}
 
     port 来自 settings.PORT（即 .env 的 PORT），log_viewer_port 来自 settings.LOG_VIEWER_PORT
     （即 .env 的 LOG_VIEWER_PORT），供前端「后端管理」与「日志查看器」跳转按钮动态拼地址，
     避免后端改端口后按钮仍硬编码旧端口。
+
+    安全：未认证用户仅返回版本号（用于版本硬封锁校验）；端口和日志查看器地址仅对已认证用户可见。
     """
 
     permission_classes = (AllowAny,)
 
     def get(self, request):
-        # 日志查看器公网地址：优先 LOG_VIEWER_PUBLIC_URL 显式覆盖；
-        # 否则由当前请求 Host 派生子域 log.<host>（部署需配套 DNS A 记录 + certbot -d log.<host>）；
-        # 均无则回退本地 127.0.0.1（开发）。前端「日志查看器」按钮据此拼跳转地址。
-        log_viewer_url = os.environ.get("LOG_VIEWER_PUBLIC_URL", "").strip()
-        if not log_viewer_url:
-            host = (request.get_host().split(":") or [""])[0]
-            if host:
-                # 纯 IP 部署：日志查看器与前端同主机、走 8120 端口，用 http://<ip>:8120/；
-                # 域名部署：用 https://log.<domain>/（需配套 DNS A 记录 + certbot 覆盖子域）。
-                # 注意：Host 是客户端实际访问地址（经公网即公网 IP），故纯 IP 形态能正确推导公网地址。
-                if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", host) or host.startswith("["):
-                    log_viewer_url = f"http://{host}:{settings.LOG_VIEWER_PORT}/"
+        # 基础响应：版本号（未认证用户也可获取，用于版本硬封锁校验）
+        data = {"version": VERSION}
+
+        # 以下敏感信息仅对已认证用户返回（端口、日志查看器地址）
+        user = request.user
+        if user and user.is_authenticated:
+            data["port"] = settings.PORT
+            data["log_viewer_port"] = settings.LOG_VIEWER_PORT
+
+            # 日志查看器公网地址：优先 LOG_VIEWER_PUBLIC_URL 显式覆盖；
+            # 否则由当前请求 Host 派生子域 log.<host>（部署需配套 DNS A 记录 + certbot -d log.<host>）；
+            # 均无则回退本地 127.0.0.1（开发）。前端「日志查看器」按钮据此拼跳转地址。
+            log_viewer_url = os.environ.get("LOG_VIEWER_PUBLIC_URL", "").strip()
+            if not log_viewer_url:
+                host = (request.get_host().split(":") or [""])[0]
+                if host:
+                    # 纯 IP 部署：日志查看器与前端同主机、走 8120 端口，用 http://<ip>:8120/；
+                    # 域名部署：用 https://log.<domain>/（需配套 DNS A 记录 + certbot 覆盖子域）。
+                    # 注意：Host 是客户端实际访问地址（经公网即公网 IP），故纯 IP 形态能正确推导公网地址。
+                    if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", host) or host.startswith("["):
+                        log_viewer_url = f"http://{host}:{settings.LOG_VIEWER_PORT}/"
+                    else:
+                        log_viewer_url = f"https://log.{host}/"
                 else:
-                    log_viewer_url = f"https://log.{host}/"
-            else:
-                log_viewer_url = f"http://127.0.0.1:{settings.LOG_VIEWER_PORT}/"
-        return Response(
-            {
-                "version": VERSION,
-                "port": settings.PORT,
-                "log_viewer_port": settings.LOG_VIEWER_PORT,
-                "log_viewer_url": log_viewer_url,
-            }
-        )
+                    log_viewer_url = f"http://127.0.0.1:{settings.LOG_VIEWER_PORT}/"
+            data["log_viewer_url"] = log_viewer_url
+
+        return Response(data)
 
 
 # ==================== 登录 ====================

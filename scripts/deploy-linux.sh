@@ -268,7 +268,17 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
         echo "LOGVIEWER_SECRET_KEY=${LVSECRET}" >> "$INSTALL_DIR/backend/.env"
     fi
     echo "[DIAG] LOGVIEWER_SECRET_KEY 已生成并写入（$(date +%T)）" >&2
-    echo "[DIAG] 首次部署 .env 生成完毕（$(date +%T)），JWT_SECRET/LOGVIEWER_SECRET_KEY 已就绪" >&2
+
+    # 默认管理员密码：首次部署自动生成强随机密码（settings.py 也会兜底生成，但这里显式写入 .env 便于运维查看）
+    ADMIN_PW="$(head -c 16 /dev/urandom | base64 | tr -d '\n+/=' | head -c 20)"
+    if grep -q '^SEED_ADMIN_PASSWORD=' "$INSTALL_DIR/backend/.env"; then
+        sed -i -E "s|^SEED_ADMIN_PASSWORD=.*|SEED_ADMIN_PASSWORD=${ADMIN_PW}|" "$INSTALL_DIR/backend/.env"
+    else
+        echo "SEED_ADMIN_PASSWORD=${ADMIN_PW}" >> "$INSTALL_DIR/backend/.env"
+    fi
+    echo "[DIAG] SEED_ADMIN_PASSWORD 已生成并写入（$(date +%T)）" >&2
+
+    echo "[DIAG] 首次部署 .env 生成完毕（$(date +%T)），JWT_SECRET/LOGVIEWER_SECRET_KEY/SEED_ADMIN_PASSWORD 已就绪" >&2
 fi
 
 # 解析日志查看器 nginx 公网监听端口（.env 已就绪，vhost/URL/防火墙/输出提示全流程共用），
@@ -381,7 +391,7 @@ fi
 ok "Python 依赖安装完成"
 
 # ---------------- 4. 数据库迁移 + seed 默认 admin ----------------
-log "执行 migrate（首次会自动建 admin/admin23）"
+log "执行 migrate（首次会自动建 admin，密码自动生成或取自 .env SEED_ADMIN_PASSWORD）"
 ".venv/bin/python" manage.py check --fail-level ERROR
 ".venv/bin/python" manage.py migrate --noinput
 ".venv/bin/python" manage.py collectstatic --noinput
@@ -612,5 +622,12 @@ if [[ $WITH_NGINX -eq 1 ]]; then
     fi
     echo "  Nginx 状态：  systemctl status nginx"
 fi
-echo "  默认超管：    admin / admin23（首次登录强制改密）"
+# 读取 SEED_ADMIN_PASSWORD（如果已配置）
+_SEED_PW="$(grep -E '^SEED_ADMIN_PASSWORD=' "$INSTALL_DIR/backend/.env" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]$//")"
+if [[ -n "$_SEED_PW" ]]; then
+    echo "  默认超管：    admin / $_SEED_PW（首次登录强制改密）"
+else
+    echo "  默认超管：    admin / （密码已自动生成，见下方说明）"
+    echo "               首次登录密码请查看后端日志：grep 'SEED_ADMIN_PASSWORD' $INSTALL_DIR/backend/logs/gipfel.log"
+fi
 echo "  日志：        journalctl -u gipfel -f   /   tail -F $INSTALL_DIR/backend/logs/app.log"
