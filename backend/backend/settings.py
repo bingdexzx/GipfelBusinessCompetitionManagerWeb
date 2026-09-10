@@ -412,7 +412,9 @@ LOGGING = {
     "formatters": {
         "verbose": {
             # operator 来自 OperatorFilter：当前请求的 JWT 用户（无上下文时为 '-'）
-            "format": "[{asctime}] {levelname} {name} [{operator}] {message}",
+            # client_ip 来自 OperatorFilter：客户端 IP（无上下文时为 '-'）
+            # device 来自 OperatorFilter：设备信息精简标识（无上下文时为 '-'）
+            "format": "[{asctime}] {levelname} {name} [{operator}] [{client_ip}] [{device}] {message}",
             "style": "{",
         },
     },

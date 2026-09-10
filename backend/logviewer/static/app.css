@@ -143,3 +143,41 @@ body {
 .lv-DEBUG {
   color: #909399;
 }
+
+/* ---------- 详情弹窗 ---------- */
+.detail-grid {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 8px 12px;
+  font-size: 14px;
+}
+
+.detail-label {
+  color: #909399;
+  text-align: right;
+  line-height: 28px;
+}
+
+.detail-value {
+  color: #303133;
+  word-break: break-all;
+  line-height: 28px;
+}
+
+.detail-message {
+  grid-column: 1 / -1;
+}
+
+.detail-message pre {
+  margin: 0;
+  padding: 10px 12px;
+  background: #f5f7fa;
+  border-radius: 4px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 320px;
+  overflow-y: auto;
+}

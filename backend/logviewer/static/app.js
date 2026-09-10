@@ -87,7 +87,7 @@
         <el-option label="DEBUG" value="DEBUG" />
       </el-select>
       <el-input v-model="search" class="grow" clearable
-        placeholder="关键字过滤（消息 / 记录器 / 操作人）"
+        placeholder="关键字过滤（消息 / 记录器 / 操作人 / IP / 设备）"
         @keyup.enter="loadLogs" @clear="loadLogs">
         <template #append>
           <el-button @click="loadLogs">查询</el-button>
@@ -111,16 +111,47 @@
               <span :class="'lv-' + row.level" style="font-weight:600">{{ row.level || '-' }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="logger" label="记录器" width="210" show-overflow-tooltip />
-          <el-table-column prop="operator" label="操作人" width="150" show-overflow-tooltip />
+          <el-table-column prop="operator" label="操作人" width="130" show-overflow-tooltip />
           <el-table-column label="消息">
             <template #default="{ row }">
               <div class="msg-cell">{{ row.message }}</div>
             </template>
           </el-table-column>
+          <el-table-column label="操作" width="80" align="center">
+            <template #default="{ row }">
+              <el-button type="primary" link size="small" @click="showDetail(row)">详情</el-button>
+            </template>
+          </el-table-column>
         </el-table>
       </div>
     </div>
+
+    <!-- 详情弹窗 -->
+    <el-dialog v-model="detailVisible" title="日志详情" width="640px" :close-on-click-modal="true">
+      <div v-if="detailRow" class="detail-grid">
+        <div class="detail-label">时间</div>
+        <div class="detail-value">{{ detailRow.time || '-' }}</div>
+        <div class="detail-label">级别</div>
+        <div class="detail-value">
+          <span :class="'lv-' + detailRow.level" style="font-weight:600">{{ detailRow.level || '-' }}</span>
+        </div>
+        <div class="detail-label">记录器</div>
+        <div class="detail-value">{{ detailRow.logger || '-' }}</div>
+        <div class="detail-label">操作人</div>
+        <div class="detail-value">{{ detailRow.operator || '-' }}</div>
+        <div class="detail-label">IP 地址</div>
+        <div class="detail-value">{{ detailRow.client_ip || '-' }}</div>
+        <div class="detail-label">设备信息</div>
+        <div class="detail-value">{{ detailRow.device || '-' }}</div>
+        <div class="detail-label">消息内容</div>
+        <div class="detail-value detail-message">
+          <pre>{{ detailRow.message || '-' }}</pre>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </template>
   `;
 
@@ -144,10 +175,16 @@
         loading: false,
         autoRefresh: true,
         _timer: null,
+        detailVisible: false,
+        detailRow: null,
       };
     },
     methods: {
       fmtSize,
+      showDetail(row) {
+        this.detailRow = row;
+        this.detailVisible = true;
+      },
       async whoami() {
         try {
           const d = await api("/api/auth/whoami");

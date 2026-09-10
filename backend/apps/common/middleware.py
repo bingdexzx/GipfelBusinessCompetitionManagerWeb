@@ -14,6 +14,87 @@ from django.utils.deprecation import MiddlewareMixin
 logger = logging.getLogger("gipfel")
 
 
+# ==================== User-Agent 精简 ====================
+import re as _re  # noqa: E402
+
+
+def _simplify_ua(ua: str) -> str:
+    """将完整 User-Agent 精简为「浏览器/系统 版本(型号)」短标识，便于日志展示。
+
+    示例输出：
+        Chrome/Win10 22H2
+        Safari/iOS 17.0 (iPhone)
+        Chrome/Android 14 (SM-S918B)
+        Firefox/macOS 14.0
+        Edge/Win11 23H2
+    """
+    if not ua:
+        return "-"
+
+    # ---- 浏览器识别（优先级从高到低） ----
+    browser = "-"
+    if "Edg/" in ua:
+        browser = "Edge"
+    elif "OPR/" in ua or "Opera/" in ua:
+        browser = "Opera"
+    elif "Chrome/" in ua and "Safari/" in ua:
+        browser = "Chrome"
+    elif "Firefox/" in ua:
+        browser = "Firefox"
+    elif "Safari/" in ua and "Chrome/" not in ua:
+        browser = "Safari"
+    elif "MSIE " in ua or "Trident/" in ua:
+        browser = "IE"
+
+    # ---- 操作系统 + 版本 + 设备型号 ----
+    os_info = "-"
+
+    # Windows：NT 10.0 可能是 Win10 或 Win11（UA 不区分），附带版本号如 22H2
+    m = _re.search(r"Windows NT (\d+\.\d+)", ua)
+    if m:
+        nt_ver = m.group(1)
+        if nt_ver == "10.0":
+            os_name = "Win10/11"
+        elif nt_ver == "6.3":
+            os_name = "Win8.1"
+        elif nt_ver == "6.1":
+            os_name = "Win7"
+        else:
+            os_name = f"Win(NT{nt_ver})"
+        os_info = os_name
+
+    # macOS：Mac OS X 10_15_7 → macOS 10.15.7
+    elif "Mac OS X" in ua:
+        m = _re.search(r"Mac OS X ([\d_]+)", ua)
+        ver = m.group(1).replace("_", ".") if m else ""
+        os_info = f"macOS {ver}".strip()
+
+    # iOS：iPhone/iPad + CPU iPhone OS 17_0 → iOS 17.0 (iPhone)
+    elif "iPhone" in ua or "iPad" in ua:
+        device = "iPhone" if "iPhone" in ua else "iPad"
+        m = _re.search(r"CPU (?:iPhone )?OS ([\d_]+)", ua)
+        ver = m.group(1).replace("_", ".") if m else ""
+        os_info = f"iOS {ver} ({device})".strip()
+
+    # Android：Android 14; 型号 → Android 14 (型号)
+    elif "Android" in ua:
+        m = _re.search(r"Android ([\d.]+)", ua)
+        ver = m.group(1) if m else ""
+        # 常见型号在 "Android N; 型号" 或 "Android N Build/..." 之后
+        m_model = _re.search(r"Android [\d.]+;\s*(?:Build|[A-Z]{2}[-_])?([A-Za-z0-9_\- ]+?)(?:\)|;| Build)", ua)
+        model = m_model.group(1).strip() if m_model else ""
+        # 清理型号末尾的多余空格和标识
+        model = _re.sub(r"\s+(?:w|v\d+)$", "", model).strip()
+        os_info = f"Android {ver} ({model})".strip() if model else f"Android {ver}".strip()
+
+    # Linux
+    elif "Linux" in ua:
+        os_info = "Linux"
+
+    # ---- 拼接结果 ----
+    return f"{browser}/{os_info}"
+
+
 # ==================== 本地/私网来源判定（与 main.ts isLocalOrPrivateOrigin 一致） ====================
 def is_local_or_private_origin(origin: str) -> bool:
     if not origin:
@@ -77,7 +158,7 @@ def set_current_operator(operator: dict | None) -> contextvars.Token:
 
 
 class OperatorContextMiddleware(MiddlewareMixin):
-    """从 JWT（由 DRF authentication 解析）注入操作员到 contextvars。
+    """从 JWT（由 DRF authentication 解析）注入操作员到 contextvars，同时注入客户端 IP。
 
     DRF 的认证发生在视图派发阶段，中间件先于视图执行；此处从 Authorization
     头解析（与 JWT 认证独立、仅取上下文），失败不阻断（鉴权由视图层负责）。
@@ -85,6 +166,11 @@ class OperatorContextMiddleware(MiddlewareMixin):
 
     def process_request(self, request):
         set_current_operator(None)
+        # 注入客户端 IP 和设备信息到日志过滤器
+        from apps.common.logfilter import set_request_device, set_request_ip
+        set_request_ip(_client_ip(request))
+        set_request_device(_simplify_ua(request.headers.get("User-Agent", "")))
+
         auth = request.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
             return
