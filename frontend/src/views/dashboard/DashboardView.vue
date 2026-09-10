@@ -705,10 +705,12 @@ onBeforeUnmount(() => {
   color: #fff;
   border: none;
   font-size: 30px;
-  line-height: 1;
   cursor: pointer;
   box-shadow: 0 4px 14px rgba(64, 158, 255, 0.4);
   transition: transform 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .dash-fab:hover {
   transform: scale(1.06);
