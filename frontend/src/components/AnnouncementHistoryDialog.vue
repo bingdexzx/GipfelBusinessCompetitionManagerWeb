@@ -10,9 +10,11 @@
         <span class="ah-title">{{ a.title }}</span>
         <span class="ah-meta">v{{ a.version }} · {{ a.date }}</span>
         <el-tag v-if="i === 0" size="small" type="success" effect="light">最新</el-tag>
-        <el-tag v-if="a.source === 'api'" size="small" type="primary" effect="plain">在线</el-tag>
       </div>
       <div class="ah-content" v-html="sanitizeHtml(a.content)"></div>
+    </div>
+    <div v-if="!displayAnnouncements.length" style="text-align:center;color:#909399;padding:20px">
+      暂无更新记录
     </div>
   </el-dialog>
 </template>
@@ -32,14 +34,14 @@ const model = computed({
   set: (v: boolean) => emit("update:modelValue", v),
 });
 
-// 每次打开弹窗时拉取最新在线公告
+// 每次打开弹窗时拉取最新公告
 let _wasVisible = false;
 watch(() => props.modelValue, (v) => {
   if (v && !_wasVisible) annStore.fetchFromApi();
   _wasVisible = v;
 });
 
-// 历史更新记录里移除「点击不再显示…查看更新记录」这一句操作指引
+// 移除「点击不再显示…查看更新记录」操作指引
 const STRIP_HINT_RE = /<p>[^<]*不再显示[^<]*查看更新记录[^<]*<\/p>\s*/g;
 
 const displayAnnouncements = computed(() =>
