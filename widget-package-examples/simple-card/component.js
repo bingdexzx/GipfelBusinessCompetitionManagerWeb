@@ -1,6 +1,6 @@
 // 数据卡片控件
 // 简洁地展示一个标题 + 数值，适合仪表盘概览
-export default {
+window.__widget_module__ = {
   props: ["widget", "value", "totalValue"],
   computed: {
     config() {

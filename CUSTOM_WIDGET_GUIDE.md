@@ -1,4 +1,4 @@
-# 自定义仪表盘控件开发指南
+﻿# 自定义仪表盘控件开发指南
 
 ## 一、控件包方式（推荐）
 
@@ -48,7 +48,7 @@ my-widget.zip
 
 ### component.js 格式
 
-组件必须导出一个 Vue 组件对象，接收三个 props：
+组件必须将 Vue 组件对象赋值给 window.__widget_module__（不用 export default），接收三个 props：
 
 | Prop | 类型 | 说明 |
 |------|------|------|
@@ -59,7 +59,7 @@ my-widget.zip
 **示例：数据卡片**
 
 ```js
-export default {
+window.__widget_module__ = {
   props: ["widget", "value", "totalValue"],
   computed: {
     config() {
@@ -85,7 +85,7 @@ export default {
 **示例：进度条**
 
 ```js
-export default {
+window.__widget_module__ = {
   props: ["widget", "value", "totalValue"],
   computed: {
     config() { return (this.widget.config.custom || {}); },
@@ -128,7 +128,7 @@ export default {
 ### 注意事项
 
 1. **template 中的引号**：因为 `component.js` 用字符串定义 template，内部引号需要转义，建议用单引号包裹 template，内部用双引号；或用反斜杠转义。
-2. **不要用 `<script setup>`**：控件包的 component.js 是运行时加载的，不经过编译，只能用 Options API（`export default { props, computed, template }`）。
+2. **不要用 `<script setup>`**：控件包的 component.js 是运行时加载的，不经过编译，只能用 Options API（`window.__widget_module__ = { props, computed, template }`）。
 3. **不要用 `import`**：component.js 是独立模块，不能 import 其他 .vue 文件。需要的功能请内联实现。
 4. **单文件组件不支持**：不能用 `.vue` 文件，只能用纯 JS + template 字符串。
 5. **更新控件包**：上传同 `type` 的新 zip 会自动替换旧版本。

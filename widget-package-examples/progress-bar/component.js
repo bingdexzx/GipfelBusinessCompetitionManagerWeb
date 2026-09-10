@@ -1,6 +1,6 @@
 // 进度条控件
 // 组件接收三个 props：widget（完整配置）、value（绑定字段值）、totalValue（总量字段值）
-export default {
+window.__widget_module__ = {
   props: ["widget", "value", "totalValue"],
   computed: {
     config() {

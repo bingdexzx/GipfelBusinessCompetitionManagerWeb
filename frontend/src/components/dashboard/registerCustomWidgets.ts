@@ -2,21 +2,27 @@
  * ============================================================
  *  自定义控件注册入口
  * ============================================================
- * 在这里把你写好的控件组件 import 进来，并调用 registerCustomWidget(...)
- * 完成注册。注册成功后，该控件会自动出现在仪表盘「添加控件」菜单中，
- * 并复用现有的拖拽 / 缩放 / 编辑外壳。
- *
- * 本文件已在 main.ts 中被 import，会在应用启动前完成所有静态注册。
- * 此外，还会自动从后端 API 加载已上传的控件包（动态注册）。
+ * 静态控件：在此 import 并 registerCustomWidget。
+ * 动态控件包：启动时从 API 拉取列表，用 script 标签加载 component.js。
  * ============================================================
  */
-import { defineAsyncComponent } from "vue";
 import { registerCustomWidget } from "./types";
 import { widgetPackagesApi } from "@/api";
 
 // —— 在此追加你自己的静态控件 ——
 // import MyWidget from "./widgets/MyWidget.vue";
 // registerCustomWidget({ type: "my-widget", label: "我的控件", component: MyWidget });
+
+/** 通过 script 标签加载外部 JS，返回全局变量值 */
+function loadScript(url: string): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = url;
+    script.onload = () => resolve((window as any).__widget_module__);
+    script.onerror = () => reject(new Error(`Failed to load ${url}`));
+    document.head.appendChild(script);
+  });
+}
 
 // —— 动态加载已上传的控件包 ——
 async function loadWidgetPackages() {
@@ -27,10 +33,16 @@ async function loadWidgetPackages() {
       if (!pkg.isActive) continue;
       const manifest = pkg.manifest || {};
       try {
-        // 动态导入控件包的 component.js
-        // Vite 的 dynamic import 需要完整的 URL 路径
-        const mod = await import(/* @vite-ignore */ pkg.componentUrl);
-        const component = mod.default || mod;
+        // 清理全局变量，准备接收新控件模块
+        (window as any).__widget_module__ = undefined;
+        // 通过 script 标签加载 component.js
+        // component.js 需要将组件赋值给 window.__widget_module__
+        await loadScript(pkg.componentUrl);
+        const component = (window as any).__widget_module__;
+        if (!component) {
+          console.warn(`[控件包] ${pkg.widgetType}: component.js 未设置 window.__widget_module__`);
+          continue;
+        }
         registerCustomWidget({
           type: pkg.widgetType,
           label: pkg.name,
