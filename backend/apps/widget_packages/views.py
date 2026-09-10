@@ -17,11 +17,17 @@ from rest_framework.views import APIView
 
 from apps.common.exceptions import BusinessError
 from apps.common.guards import PermissionsPermission
+from apps.realtime.emit import _emit_sio
 
 from .models import WidgetPackage
 
 _PERM_CLASSES = (IsAuthenticated, PermissionsPermission)
 _WIDGETS_DIR = "widget-packages"  # MEDIA_ROOT 下的子目录
+
+
+def _broadcast_changed():
+    """广播控件包变更事件，通知所有在线客户端刷新控件包列表。"""
+    _emit_sio("widget-package:changed", {}, room=None)
 
 
 def _to_dict(wp: WidgetPackage) -> dict:
@@ -161,6 +167,7 @@ class CollectionView(APIView):
             extract_dir=extract_dir_name,
         )
 
+        _broadcast_changed()
         return Response(_to_dict(wp))
 
 
@@ -183,6 +190,7 @@ class ItemView(APIView):
         if "isActive" in data:
             wp.is_active = bool(data["isActive"])
             wp.save()
+            _broadcast_changed()
         return Response(_to_dict(wp))
 
     def delete(self, request, pk):
@@ -197,4 +205,5 @@ class ItemView(APIView):
         if os.path.exists(zip_full):
             os.remove(zip_full)
         wp.delete()
+        _broadcast_changed()
         return Response({"ok": True})

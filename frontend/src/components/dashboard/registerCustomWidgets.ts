@@ -8,6 +8,7 @@
  */
 import { registerCustomWidget } from "./types";
 import { widgetPackagesApi } from "@/api";
+import { onRealtime } from "@/realtime/socket";
 
 // —— 在此追加你自己的静态控件 ——
 // import MyWidget from "./widgets/MyWidget.vue";
@@ -77,3 +78,8 @@ async function loadWidgetPackages() {
 
 // 启动时异步加载，不阻塞应用初始化
 loadWidgetPackages();
+
+// 监听控件包变更广播（超管上传/启停/删除时后端推送），所有在线用户自动刷新
+onRealtime("widget-package:changed", () => {
+  window.location.reload();
+});
