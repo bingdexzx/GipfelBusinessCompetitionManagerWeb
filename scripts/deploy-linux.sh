@@ -246,6 +246,8 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
             # 会卡在解析阶段永不返回；timeout 连 DNS 一起杀掉，保证 N 秒内必返回（空=失败）。
             LV_PUBLIC_IP="$(_probe_public_ip)" || true
         fi
+        # 在使用 LV_PORT 前必须先定义（set -u 下未定义变量会报错退出）
+        LV_PORT="$(_log_viewer_port "$INSTALL_DIR/backend/.env")"
         if [[ -n "$LV_PUBLIC_IP" ]]; then
             LV_PUBLIC_IP="$(normalize_ip "$LV_PUBLIC_IP")"
             # IPv6 需加方括号：http://[IPv6]:${LV_PORT}/
