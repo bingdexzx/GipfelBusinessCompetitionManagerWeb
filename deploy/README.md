@@ -24,6 +24,9 @@ sudo apt-get install -y git
 git clone https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git /opt/GipfelBusinessCompetitionManagerWeb
 cd /opt/GipfelBusinessCompetitionManagerWeb/
 
+git clone https://gitee.com/to-uphold-virtue/GipfelBusinessCompetitionManagerWeb.git /opt/GipfelBusinessCompetitionManagerWeb
+cd /opt/GipfelBusinessCompetitionManagerWeb/
+
 # 2) 一键部署：纯 IP 先用「无 --domain」，有域名加 --domain
 sudo bash scripts/deploy-linux.sh --install-dir /opt/gipfel --with-nginx
 #   有域名时：
