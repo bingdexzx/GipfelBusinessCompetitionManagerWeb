@@ -151,6 +151,10 @@ class LoginView(APIView):
         user.token_version = (user.token_version or 0) + 1
         user.save(update_fields=["token_version", "updated_at"])
 
+        # 立即通过 WebSocket 踢掉旧设备（不等新设备建立 socket 连接）
+        from apps.realtime.emit import emit_to_users
+        emit_to_users([user.id], "auth:required", {"reason": "token_version_mismatch"})
+
         record_login_success(ip, username)
 
         token = create_jwt(user)
