@@ -148,7 +148,7 @@
             <el-select
               :model-value="getSlotFieldKey(slot.key)"
               @update:model-value="setSlotFieldKey(slot.key, $event)"
-              :placeholder="'选择字段（组件通过 values.' + slot.key + ' 读取）'"
+              :placeholder="'选择字段'"
               clearable
               filterable
               style="width: 100%"
