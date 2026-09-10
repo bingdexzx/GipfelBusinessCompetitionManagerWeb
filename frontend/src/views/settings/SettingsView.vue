@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="settings">
     <h2 class="page-title">系统设置</h2>
     <div class="settings-section">
@@ -83,6 +83,39 @@
           <el-button @click="annEditing = false">返回列表</el-button>
           <el-button type="primary" :loading="annSaving" @click="handleSave">保存</el-button>
         </template>
+      </template>
+    </el-dialog>
+
+    <!-- 管理控件包弹窗 -->
+    <el-dialog v-model="wpDialogVisible" title="管理控件包" width="700px" append-to-body destroy-on-close>
+      <div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center">
+        <span style="font-size: 13px; color: #909399">上传 zip（manifest.json + component.js）</span>
+        <el-upload :show-file-list="false" accept=".zip" :before-upload="handleUploadWidget" :disabled="wpUploading">
+          <el-button type="primary" size="small" :loading="wpUploading">上传控件包</el-button>
+        </el-upload>
+      </div>
+      <el-table :data="wpList" v-loading="wpLoading" stripe max-height="400">
+        <el-table-column prop="name" label="名称" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="widgetType" label="类型标识" width="160" show-overflow-tooltip />
+        <el-table-column prop="version" label="版本" width="80" />
+        <el-table-column label="状态" width="80">
+          <template #default="{ row }">
+            <el-tag :type="row.isActive ? 'success' : 'info'" size="small">{{ row.isActive ? '启用' : '停用' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="130" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="toggleWidgetActive(row)">{{ row.isActive ? '停用' : '启用' }}</el-button>
+            <el-popconfirm title="确定删除此控件包？" @confirm="handleDeleteWidget(row.id)">
+              <template #reference>
+                <el-button link type="danger" size="small">删除</el-button>
+              </template>
+            </el-popconfirm>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="wpDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
   </div>
