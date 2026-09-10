@@ -1,13 +1,13 @@
 <template>
   <div class="it-manager">
     <!-- 手机端提示 -->
-    <el-dialog :model-value="isPhone" :close-on-click-modal="false" :close-on-press-escape="false" :show-close="false" width="300px" append-to-body>
-      <div style="text-align:center;padding:10px 0">
-        <p style="font-size:15px;color:#1f1f1f;margin:0 0 8px">请使用电脑打开该界面</p>
-        <p style="font-size:13px;color:#909399;margin:0">该页面包含可视化编辑器，建议在电脑端操作</p>
+    <template v-if="isPhone">
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:60vh;color:#909399">
+        <p style="font-size:16px;color:#1f1f1f;margin:0 0 8px">请使用电脑打开该界面</p>
+        <p style="font-size:13px;margin:0">该页面包含可视化编辑器，建议在电脑端操作</p>
       </div>
-    </el-dialog>
-    <div v-if="isPhone" style="position:fixed;inset:0;z-index:2000;background:#fff"></div>
+    </template>
+    <template v-else>
 
     <div class="mm-toolbar">
       <h2 class="mm-title">产业类型管理</h2>
@@ -699,6 +699,7 @@
         <pre class="detail-json">{{ fieldDetailRow?.calcGraph || "（空）" }}</pre>
       </template>
     </el-dialog>
+    </template>
   </div>
 </template>
 
