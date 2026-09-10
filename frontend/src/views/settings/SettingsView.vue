@@ -303,21 +303,21 @@ async function handleUploadWidget(file: File) {
   wpUploading.value = true;
   try {
     await widgetPackagesApi.upload(file);
-    ElMessage.success("控件包已上传，刷新页面后生效");
-    await fetchWidgetList();
+    ElMessage.success("控件包已上传，正在刷新…");
+    setTimeout(() => window.location.reload(), 500);
   } catch (e: unknown) {
     ElMessage.error((e as { message?: string })?.message || "上传失败");
   } finally {
     wpUploading.value = false;
   }
-  return false; // 阻止 el-upload 自动上传
+  return false;
 }
 
 async function toggleWidgetActive(row: WidgetPackageItem) {
   try {
     await widgetPackagesApi.update(row.id, { isActive: !row.isActive });
-    ElMessage.success(row.isActive ? "已停用，刷新页面后生效" : "已启用，刷新页面后生效");
-    await fetchWidgetList();
+    ElMessage.success(row.isActive ? "已停用，正在刷新…" : "已启用，正在刷新…");
+    setTimeout(() => window.location.reload(), 500);
   } catch {
     ElMessage.error("操作失败");
   }
@@ -326,8 +326,8 @@ async function toggleWidgetActive(row: WidgetPackageItem) {
 async function handleDeleteWidget(id: number) {
   try {
     await widgetPackagesApi.remove(id);
-    ElMessage.success("已删除，刷新页面后生效");
-    await fetchWidgetList();
+    ElMessage.success("已删除，正在刷新…");
+    setTimeout(() => window.location.reload(), 500);
   } catch {
     ElMessage.error("删除失败");
   }
