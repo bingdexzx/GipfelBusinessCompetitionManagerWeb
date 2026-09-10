@@ -6,6 +6,13 @@
         （未选择比赛：仅可使用静态文字 / 手动数值控件；字段绑定需在比赛下进行）
       </span>
       <div class="dash-bar-right">
+        <el-button
+          size="small"
+          :type="locked ? 'warning' : 'default'"
+          @click="locked = !locked"
+        >
+          {{ locked ? '🔒 已锁定' : '🔓 锁定布局' }}
+        </el-button>
         <el-button size="small" :loading="loading" @click="refreshFields">刷新数据</el-button>
         <el-button v-if="widgets.length" size="small" type="danger" plain @click="clearAll">
           清空
@@ -33,6 +40,7 @@
         :bound-value="valueOf(w.config.fieldRef)"
         :bound-total-value="valueOf(w.config.totalField)"
         :bound-values="valuesOf(w)"
+        :locked="locked"
         @patch="patchWidget(w, $event)"
         @edit="openEdit(w)"
         @remove="removeWidget(w)"
@@ -291,6 +299,7 @@ const { fields, loading, load, valueOf, refKey } = useDashboardFields();
 const widgets = ref<WidgetConfig[]>([]);
 const selectedId = ref<string | null>(null);
 const showAddMenu = ref(false);
+const locked = ref(false);
 const ctx = ref<{ x: number; y: number; widget: WidgetConfig } | null>(null);
 
 /** 计算控件的多字段绑定值：{ [binding.key]: fieldValue } */

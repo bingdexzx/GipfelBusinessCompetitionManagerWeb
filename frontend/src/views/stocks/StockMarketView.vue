@@ -150,7 +150,7 @@
             <el-button
               class="trade-submit"
               :class="trade.side === 'BUY' ? 'is-buy' : 'is-sell'"
-              style="width: 100%"
+              style="width: 100%; height: 36px; font-size: 14px;"
               :disabled="!canTrade"
               @click="submitOrder"
             >
@@ -178,12 +178,14 @@
               <span class="order-price">{{ fmt(row.price) }}</span>
               <span class="order-qty">{{ fmt(row.quantity) }}</span>
               <span class="order-status">
-                <el-tag size="small" :type="row.status === 'PENDING' ? 'warning' : row.status === 'FILLED' ? 'success' : 'info'" style="font-size:11px; height:20px; padding:0 4px;">
+                <el-tag size="small" :type="row.status === 'PENDING' ? 'warning' : row.status === 'FILLED' ? 'success' : 'info'" style="font-size:13px; height:24px; padding:0 8px; min-width:36px; text-align:center;">
                   {{ statusLabel(row.status) }}
                 </el-tag>
+                <span v-if="row.status === 'FILLED' && row.round" class="order-round">R{{ row.round }}</span>
+                <span v-else class="order-round-placeholder"></span>
               </span>
               <span class="order-action">
-                <el-button v-if="row.status === 'PENDING'" link type="danger" @click="cancelOrder(row.id)" style="font-size:12px;">撤</el-button>
+                <el-button v-if="row.status === 'PENDING'" type="danger" size="small" @click="cancelOrder(row.id)" style="font-size:13px; padding: 6px 12px;">撤单</el-button>
               </span>
             </div>
           </div>
@@ -254,6 +256,7 @@ interface Order {
   price: number;
   quantity: number;
   status: string;
+  round?: number;
 }
 
 const stocks = ref<Stock[]>([]);
@@ -419,8 +422,14 @@ async function reloadAccountData() {
   loadingAccountData.value = true;
   try {
     holdings.value = await stockApi.accountHoldings(selectedAccountId.value);
-    // 按当前选中的资金账户过滤订单，只显示该账户的挂单/历史
-    orders.value = await stockApi.listOrders(compStore.competitionId!, selectedStockId.value || undefined, selectedAccountId.value);
+    // 统一展示该账户的所有订单（不再按选中股票过滤）
+    const rawOrders = await stockApi.listOrders(compStore.competitionId!, undefined, selectedAccountId.value);
+    // 挂单排最前，其余按原有顺序
+    orders.value = (rawOrders as Order[]).sort((a, b) => {
+      if (a.status === 'PENDING' && b.status !== 'PENDING') return -1;
+      if (a.status !== 'PENDING' && b.status === 'PENDING') return 1;
+      return 0;
+    });
   } catch {
     // 错误提示由全局响应拦截器统一弹出；保留旧数据避免闪现为空态
   } finally {
@@ -874,8 +883,8 @@ onBeforeUnmount(() => {
 }
 .market-body {
   display: grid;
-  grid-template-columns: 1fr 400px;
-  gap: 16px;
+  grid-template-columns: 1fr 480px;
+  gap: 20px;
   align-items: start;
 }
 .market-main {
@@ -954,8 +963,8 @@ onBeforeUnmount(() => {
   border: 1px solid var(--color-border, #ebeef5);
 }
 .card-title {
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: 700;
+  font-size: 16px;
 }
 .chart-card {
   position: relative;
@@ -1031,11 +1040,13 @@ onBeforeUnmount(() => {
 .market-side {
   position: sticky;
   top: 0;
+  max-height: 100vh;
+  overflow-y: auto;
 }
 .cash-line,
 .est-line {
-  font-size: 13px;
-  margin-bottom: 10px;
+  font-size: 15px;
+  margin-bottom: 12px;
   color: var(--color-text-secondary, #5a5f6a);
 }
 .est-line b {
@@ -1043,12 +1054,12 @@ onBeforeUnmount(() => {
 }
 .muted {
   color: var(--color-text-tertiary, #92969e);
-  font-size: 12px;
+  font-size: 13px;
 }
 .price-hint {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--color-text-tertiary, #92969e);
-  margin-top: 4px;
+  margin-top: 6px;
 }
 /* 红涨绿跌（中国股票惯例）— 统一设计 token */
 .up {
@@ -1065,77 +1076,106 @@ onBeforeUnmount(() => {
   padding: 24px 0;
 }
 .empty-hint.small {
-  padding: 12px 0;
-  font-size: 13px;
-}
-.market-side :deep(.el-divider) {
-  margin: 16px 0 12px;
-}
-.market-side :deep(.el-table) {
+  padding: 16px 0;
   font-size: 14px;
 }
-.market-side :deep(.el-table th) {
-  font-size: 13px;
+.market-side :deep(.el-divider) {
+  margin: 20px 0 16px;
 }
-.market-side :deep(.el-table td) {
-  padding: 6px 0;
+.market-side :deep(.el-divider__text) {
+  font-size: 15px;
+  font-weight: 600;
+}
+.market-side :deep(.el-table) {
+  font-size: 15px;
+}
+.market-side :deep(.el-table th) {
+  font-size: 14px;
+}
+.market-side :deep(.el-form-item) {
+  margin-bottom: 18px;
+}
+.market-side :deep(.el-form-item__label) {
+  font-size: 14px;
+  font-weight: 500;
+}
+.market-side :deep(.el-input__wrapper),
+.market-side :deep(.el-select .el-input__wrapper) {
+  padding: 8px 12px;
 }
 .order-list {
-  max-height: 320px;
+  max-height: 400px;
   overflow-y: auto;
 }
 .order-row {
   display: flex;
   align-items: center;
-  padding: 3px 0;
+  padding: 6px 0;
   border-bottom: 1px solid var(--color-border-light, #ebeef5);
-  font-size: 13px;
+  font-size: 15px;
 }
 .order-row:last-child {
   border-bottom: none;
 }
 .order-name {
-  width: 20%;
+  width: 15%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding-right: 4px;
+  padding-right: 2px;
+  font-weight: 500;
 }
 .order-side {
-  width: 15%;
+  width: 12%;
   text-align: center;
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 16px;
 }
 .order-price {
   width: 20%;
   text-align: right;
-  padding-right: 4px;
+  padding-right: 6px;
+  font-variant-numeric: tabular-nums;
 }
 .order-qty {
   width: 18%;
   text-align: right;
-  padding-right: 4px;
+  padding-right: 6px;
+  font-variant-numeric: tabular-nums;
 }
 .order-status {
-  width: 15%;
-  text-align: center;
-  font-size: 12px;
+  width: 16%;
+  min-width: 16%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 13px;
   color: var(--color-text-secondary);
 }
 .order-action {
   width: 12%;
   text-align: center;
 }
+.order-round {
+  font-size: 12px;
+  color: var(--color-text-tertiary, #92969e);
+  white-space: nowrap;
+  min-width: 30px;
+}
+.order-round-placeholder {
+  min-width: 30px;
+}
 .holding-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 .holding-row {
   display: flex;
   align-items: center;
-  padding: 4px 0;
-  font-size: 13px;
+  padding: 6px 0;
+  font-size: 15px;
 }
 .holding-cell {
   flex: 1;
@@ -1146,6 +1186,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 500;
 }
 .holding-shares {
   text-align: center;
@@ -1247,6 +1288,7 @@ onBeforeUnmount(() => {
   }
   .market-side {
     position: static;
+    max-height: none;
   }
 }
 @media (max-width: 640px) {
@@ -1278,10 +1320,10 @@ onBeforeUnmount(() => {
   }
   /* 交易面板置底时收紧分隔与内边距，信息更紧凑 */
   .market-side :deep(.el-divider) {
-    margin: 12px 0 8px;
+    margin: 14px 0 10px;
   }
   .order-list {
-    max-height: 240px;
+    max-height: 280px;
   }
 }
 </style>

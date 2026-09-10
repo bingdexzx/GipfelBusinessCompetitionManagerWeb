@@ -1,7 +1,7 @@
 <template>
   <div
     class="dw-widget"
-    :class="{ selected }"
+    :class="{ selected, locked }"
     :style="{
       left: widget.x + 'px',
       top: widget.y + 'px',
@@ -77,7 +77,7 @@
       <button title="删除" @pointerdown.stop @click.stop="emit('remove')">✕</button>
     </div>
     <div
-      v-if="selected"
+      v-if="selected && !locked"
       class="dw-resize"
       title="拖动缩放"
       @pointerdown="onResizeDown"
@@ -96,6 +96,7 @@ const props = defineProps<{
   boundValue: unknown;
   boundTotalValue: unknown;
   boundValues: Record<string, unknown>;
+  locked?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -152,6 +153,7 @@ function onUp() {
   window.removeEventListener("pointerup", onUp);
 }
 function onDown(e: PointerEvent) {
+  if (props.locked) return;
   const t = e.target as HTMLElement;
   if (t.closest(".dw-tool") || t.closest(".dw-resize")) return;
   if (e.button !== 0) return; // 仅左键拖拽；右键交由 contextmenu 处理
@@ -172,6 +174,7 @@ function onCtx(e: MouseEvent) {
   emit("contextmenu", { x: e.clientX, y: e.clientY });
 }
 function onResizeDown(e: PointerEvent) {
+  if (props.locked) return;
   emit("select");
   resizing = true;
   rsx = e.clientX;
@@ -307,6 +310,12 @@ const gradId = computed(() => `gaugeGrad-${props.widget.id}`);
 }
 .dw-widget:active {
   cursor: grabbing;
+}
+.dw-widget.locked {
+  cursor: default;
+}
+.dw-widget.locked:active {
+  cursor: default;
 }
 .dw-widget.selected {
   outline: 2px solid #409eff;
