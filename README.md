@@ -38,10 +38,14 @@ REM 1. 首次初始化（虚拟环境、pip 依赖、npm 依赖、迁移、建�
 scripts\bootstrap-dev.bat
 
 REM 2. 一键开发启动：同时拉起 Django (:8000) + Vite (:5173) + 日志查看器 (:8120)
+REM    前置校验通过后切到独立的 "Gipfel Dev" 监管窗口
 scripts\start-dev.bat
+
+REM 3. 停止：在 "Gipfel Dev" 窗口按一次 Ctrl+C（三个服务一起优雅退出）
+REM    窗口被强关（X / 任务管理器）导致服务残留时：scripts\stop-dev.bat
 ```
 
-> **端口来源**：Django 的 `127.0.0.1:8000` 由 `start-dev.bat` 内部固定，**不读** `.env` 的 `PORT`（`PORT` 是 `manage.py rundaphne` 与 `/api/version` 下发的真源）；日志查看器端口才读 `.env` 的 `LOG_VIEWER_PORT`（默认 8120）。若改了 `PORT`，请改用 `manage.py rundaphne` 启动，或同步修改 `start-dev.bat` 里的 `BACKEND_BIND`。
+> **端口来源**：Django 的 `127.0.0.1:8000` 由 `scripts/dev.py`（`start-dev.bat` 拉起的监管进程）内部固定，**不读** `.env` 的 `PORT`（`PORT` 是 `manage.py rundaphne` 与 `/api/version` 下发的真源）；日志查看器端口才读 `.env` 的 `LOG_VIEWER_PORT`（默认 8120）。若改了 `PORT`，请改用 `manage.py rundaphne` 启动，或同步修改 `scripts/dev.py` 里的 `BACKEND_HOST` / `BACKEND_PORT`。
 
 浏览器访问 `http://localhost:5173`，登录默认账号：
 
@@ -95,7 +99,9 @@ GipfelBusinessCompetitionManagerWeb/
 │
 ├── scripts/
 │   ├── bootstrap-dev.bat            Windows 开发环境首次初始化
-│   ├── start-dev.bat                Windows 开发启动（Django + Vite + 日志查看器 并行）
+│   ├── start-dev.bat                Windows 开发启动（校验前置条件后交给 dev.py）
+│   ├── dev.py                       Windows 开发监管进程（三服务 + Ctrl+C 一次停全部）
+│   ├── stop-dev.bat                 残留服务强停兜底（监管窗口被强关时用）
 │   ├── deploy-linux.sh              Linux 一键部署（daphne + systemd + nginx + 前端静态）
 │   └── update-from-github.sh        Linux 增量升级（拉取最新 + 备份 + 迁移 + 构建 + 重启，保留数据）
 │

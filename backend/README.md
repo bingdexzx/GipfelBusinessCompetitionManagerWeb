@@ -87,7 +87,7 @@ curl -s -X POST http://127.0.0.1:8000/api/auth/change-password \
 | `JWT_AUDIENCE` | `gipfel-competition-client` | | JWT aud |
 | `JWT_EXPIRES_IN` | `24h` | | 支持 `Nh/Nm/Ns/Nd` |
 | `DATABASE_URL` | 未设置 → SQLite `./db.sqlite3` | | `postgres://user:pw@host/dbname` |
-| `LOG_VIEWER_PORT` | `8120` | | 日志查看器服务端口（`start-dev.bat` 与日志查看器启动脚本读取） |
+| `LOG_VIEWER_PORT` | `8120` | | 日志查看器服务端口（Windows 开发由 `scripts/dev.py`（`start-dev.bat` 拉起）读取，Linux 由日志查看器启动脚本读取） |
 | `LOGVIEWER_SECRET_KEY` | 未设置 → 回退 `JWT_SECRET` | | 日志查看器 / `/admin` 防直连一次性令牌的签名密钥；主后端签发、日志查看器校验，两者必须读到同一值；生产建议配置独立强随机值 |
 | `LOG_VIEWER_PUBLIC_URL` | 未设置 → 按请求 Host 推导 | | 日志查看器公网地址（`/api/version` 下发的 `log_viewer_url` 用），如 `https://log.example.com/`。进程只取其中的 hostname 推导 ALLOWED_HOSTS（端口与 path 被忽略） |
 | `LOGVIEWER_ALLOWED_HOSTS` | 未设置 → 仅回环 + `LOG_VIEWER_PUBLIC_URL` 主机 + `DJANGO_ALLOWED_HOSTS` | | 日志查看器服务自身 Host 头白名单的兜底追加项（逗号分隔 host，可含 `host:port` 或 `[IPv6]:port`，端口/方括号会被剥掉），如 `log.example.com,43.142.77.225`；一般无需配置（`DJANGO_ALLOWED_HOSTS` 已被 deploy 写入公网 IP/域名，**会自动纳入**） |
