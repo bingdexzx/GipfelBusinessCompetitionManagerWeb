@@ -38,10 +38,13 @@ journalctl -u gipfel -f       # 实时日志
 
 ```bat
 scripts\bootstrap-dev.bat     :: 首次：虚拟环境 + pip + npm + migrate + 建默认超管（可加 --skip-frontend）
-scripts\start-dev.bat         :: 并行拉起 Django(:8000) + Vite(:5173) + 日志查看器(:8120)
+scripts\start-dev.bat         :: 校验前置条件后切到 "Gipfel Dev" 监管窗口，拉起 Django(:8000) + Vite(:5173) + 日志查看器(:8120)
+scripts\stop-dev.bat          :: 兜底强停：监管窗口被强关（X / 任务管理器）导致服务残留时执行
 ```
 
-停止：`start-dev.bat` 窗口按 `Ctrl+C` 结束全部子进程。
+停止：在 **Gipfel Dev** 监管窗口按一次 `Ctrl+C`，Django / Vite / 日志查看器会一起优雅退出，窗口随之关闭。
+
+> **为什么不再用批处理的 `start /B` 直接拉服务**：`start` 会把子进程放进**新的进程组**，控制台 Ctrl+C 不会投递给它们（服务照常运行、8000/5173/8120 只增不减），而 cmd.exe 自己会停在「终止批处理操作吗(Y/N)?」——窗口看起来就是卡死，按 Y 之后服务仍在跑。监管逻辑因此移入 [scripts/dev.py](scripts/dev.py)：子进程依旧以 `CREATE_NEW_PROCESS_GROUP` 启动，退出时由监管进程对每个子进程组**定向**发送 `CTRL_BREAK_EVENT` 优雅停止（daphne 收到 SIGBREAK 会正常关闭 reactor），8s 内没退再 `taskkill /PID <pid> /T /F` 兜底；子进程 PID 写入 `%TEMP%\gipfel-dev.pids`，供 `scripts\stop-dev.bat` 兜底强杀。
 
 > `start-dev.bat` 用的是 `manage.py runserver`，但 **daphne 已在 `INSTALLED_APPS` 首位并接管了 runserver 命令**，因此实际就是以 ASGI/daphne 运行，HTTP + WebSocket 同源同端口，Socket.IO 正常。
 

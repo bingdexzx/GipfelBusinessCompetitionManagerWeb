@@ -560,7 +560,7 @@ sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=...)
 - [x] README：[README.md](README.md)（架构总览/三行启动/环境要求/安全合规/常用命令速查）；[backend/README.md](backend/README.md) 与 [frontend/README.md](frontend/README.md) 子项目说明
 - [x] Linux 部署：[deploy-linux.sh](scripts/deploy-linux.sh)（apt/node20/venv/migrate/npm build/systemd gipfel.service/nginx vhost/回滚策略）；配套模板 [gipfel.service](deploy/gipfel.service)、[nginx-gipfel.conf](deploy/nginx-gipfel.conf)
 - [x] 部署：生产部署统一走 Linux [deploy-linux.sh](scripts/deploy-linux.sh)（Windows 不再单独提供生产部署脚本；Windows 仅保留开发启动脚本）
-- [x] Windows 开发启动：[bootstrap-dev.bat](scripts/bootstrap-dev.bat) 首次初始化 + [start-dev.bat](scripts/start-dev.bat) 并行拉起 Django+Vite+日志查看器 + Ctrl+C 清理
+- [x] Windows 开发启动：[bootstrap-dev.bat](scripts/bootstrap-dev.bat) 首次初始化 + [start-dev.bat](scripts/start-dev.bat) 校验后拉起 [dev.py](scripts/dev.py) 监管进程（Django+Vite+日志查看器，Ctrl+C 一次优雅停止全部，[stop-dev.bat](scripts/stop-dev.bat) 兜底强停）
 - [x] 部署手册：[deploy/README.md](deploy/README.md)（方案 A Linux / B Windows / C Docker 示例 + 升级与回滚）
 
 ---
