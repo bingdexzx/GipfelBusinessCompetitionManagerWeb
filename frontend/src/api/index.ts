@@ -34,6 +34,12 @@ import type {
   CreateStockFundsAccountInput,
   UpdateStockFundsAccountInput,
   CreateStockOrderInput,
+  CompetitionPreparationPlan,
+  PrepExportFormat,
+  PrepScope,
+  PrepScopeOption,
+  PrepImportResult,
+  PrepImportConfig,
 } from "@/types/api";
 
 export { getErrorMessage };
@@ -519,4 +525,59 @@ export const widgetPackagesApi = {
   update: (id: number, data: { isActive?: boolean }) =>
     api.patch<WidgetPackageItem>(`/widget-packages/${id}`, data),
   remove: (id: number) => api.delete(`/widget-packages/${id}`),
+};
+
+// ===================== 比赛准备总览与归档 =====================
+export const preparationApi = {
+  /** 准备清单：统计 + 体检提醒 + 明细（仅超管；默认取当前比赛） */
+  plan: (competitionId?: number | null) =>
+    api.get<CompetitionPreparationPlan>("/preparations/plan", {
+      params: competitionId != null ? { competitionId } : {},
+      cache: false,
+    }),
+  /** 导出归档文件：format=markdown 报告 / json 快照（附件下载） */
+  exportFile: (format: PrepExportFormat, competitionId?: number | null) =>
+    api.get<Blob>("/preparations/plan/export", {
+      params: {
+        format,
+        ...(competitionId != null ? { competitionId } : {}),
+      },
+      responseType: "blob",
+      cache: false,
+    }),
+  /** 可选导出/导入分组（全部 + 各分组） */
+  scopes: () => api.get<{ scopes: PrepScopeOption[] }>("/preparations/scopes", { cache: false }),
+  /** 按分组导出可再导入的 JSON 归档（附件下载） */
+  exportArchive: (scope: PrepScope, competitionId?: number | null) =>
+    api.get<Blob>("/preparations/archive/export", {
+      params: {
+        scope,
+        ...(competitionId != null ? { competitionId } : {}),
+      },
+      responseType: "blob",
+      cache: false,
+    }),
+  /**
+   * 导入归档：默认 dryRun=true 只预览不落库。
+   * 导入方式与资源选择随请求体 config 提交（避免 URL 过长）。
+   */
+  importArchive: (
+    payload: unknown,
+    options: {
+      scope: PrepScope;
+      competitionId?: number | null;
+      config?: PrepImportConfig;
+    },
+  ) =>
+    api.post<PrepImportResult>(
+      "/preparations/archive/import",
+      { archive: payload, config: options.config || {} },
+      {
+        params: {
+          scope: options.scope,
+          ...(options.competitionId != null ? { competitionId: options.competitionId } : {}),
+        },
+        cache: false,
+      },
+    ),
 };

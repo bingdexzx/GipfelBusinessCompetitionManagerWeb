@@ -44,6 +44,8 @@ urlpatterns = [
     path("api/", include("apps.audit.urls")),
     path("api/", include("apps.announcements.urls")),
     path("api/", include("apps.widget_packages.urls")),
+    # 比赛准备总览与归档导出（只读；需 competition:manage）
+    path("api/", include("apps.preparation.urls")),
 ]
 
 # /uploads 静态托管（CORP cross-origin 由中间件设置）
