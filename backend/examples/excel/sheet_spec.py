@@ -194,11 +194,93 @@ def _industry_ref(ctx: SheetContext, text: str) -> str:
     return s
 
 
+def _field_key_of(ctx: SheetContext, text: str) -> str:
+    """产业字段列的取值可以是 **fieldKey**（如 `cash`），也可以是**字段显示名**（如「现金」）。
+
+    中文表头的工作簿里，「公司」表的额外列、「公司字段值」表的字段列都推荐写显示名，
+    这里按已登记的产业字段把它们归一成 fieldKey。同名对应多个 fieldKey 时直接报错，
+    避免「静默写到另一个字段上」。
+    """
+    s = str(text or "").strip()
+    rows = ctx.builder.rows("industryFields")
+    keys = {str(r.get("fieldKey")) for r in rows}
+    if s in keys:
+        return s
+    by_name: dict[str, set[str]] = {}
+    for row in rows:
+        by_name.setdefault(str(row.get("name") or ""), set()).add(str(row.get("fieldKey")))
+    if s in by_name:
+        candidates = sorted(by_name[s])
+        if len(candidates) == 1:
+            return candidates[0]
+        raise SheetFormatError(
+            f"字段名「{s}」在多个产业下对应不同字段键（{'、'.join(candidates)}），请直接写字段键"
+        )
+    raise SheetFormatError(
+        f"未知字段「{s}」：既不是字段键，也不是任何产业字段的显示名"
+        "（请先在「产业字段」表里登记，或核对拼写）"
+    )
+
+
 # =============================================================================
 # 计算图：把 `字段A + 字段B` 这种最常用的写法翻译成产业计算图 GGraph
 # =============================================================================
 
 _SUM_SEP_RE = re.compile(r"[+＋,，、;；\s]+")
+
+
+# =============================================================================
+# 值源形状归一：`{"from": "input", "key": X}` → `{"type": "INPUT", "key": X}`
+# =============================================================================
+
+#: 「文档形状」的 from 取值 → 引擎值源类型
+_LEGACY_FROM_TYPES = {"input": "INPUT", "const": "CONST", "var": "VAR"}
+
+#: 引擎认识的检查（condition）种类；`FIELD` 不是其中之一（老文档里写错过）
+CONDITION_KINDS = ("VALUE_COMPARE", "FIELD_COMPARE", "DICT_COMPARE", "LIST_COMPARE", "INDUSTRY_IS")
+
+
+def normalize_conditions(conditions: Any, *, count: list[int] | None = None) -> Any:
+    """把检查里的老写法 `{"kind": "FIELD", ...}` 归一成引擎的 `FIELD_COMPARE`。
+
+    引擎没有 `FIELD` 这个检查种类（只有 `FIELD_COMPARE` / `VALUE_COMPARE` /
+    `INDUSTRY_IS` / `DICT_COMPARE` / `LIST_COMPARE`），写成 `FIELD` 时检查会**恒不通过**，
+    而建包库文档与 `demo_competition.py` 里正是这么写的。
+    """
+    if not isinstance(conditions, list):
+        return conditions
+    out = []
+    for item in conditions:
+        if isinstance(item, dict) and item.get("kind") == "FIELD" and item.get("fieldKey"):
+            item = {**item, "kind": "FIELD_COMPARE"}
+            if count is not None:
+                count[0] += 1
+        out.append(item)
+    return out
+
+
+def normalize_value_specs(node: Any, *, count: list[int] | None = None) -> Any:
+    """递归把老文档里的 `{"from": "input", "key": X}` 归一成引擎认识的值源。
+
+    为什么需要：合同引擎的 `eval_value_spec` 只认 `{"type": ...}`；
+    带 `"from"` 的形状会一路落到函数末尾 **静默返回 0**
+    （表现是「金额恒为 0」），而建包库文档与 `demo_competition.py` 里恰好是这种写法。
+    表格里贴 JSON 时两种形状都会遇到，这里统一归一，避免静默算错。
+    """
+    if isinstance(node, list):
+        return [normalize_value_specs(item, count=count) for item in node]
+    if not isinstance(node, dict):
+        return node
+    if "type" not in node and isinstance(node.get("from"), str):
+        mapped = _LEGACY_FROM_TYPES.get(str(node["from"]).strip().lower())
+        if mapped:
+            if count is not None:
+                count[0] += 1
+            out = {k: v for k, v in node.items() if k != "from"}
+            out["type"] = mapped
+            out.setdefault("key", node.get("key"))
+            return {k: normalize_value_specs(v, count=count) for k, v in out.items()}
+    return {k: normalize_value_specs(v, count=count) for k, v in node.items()}
 
 
 def field_sum_graph(expression: str) -> dict:
@@ -254,6 +336,103 @@ KIND_LABELS = {
     "pairs": "键值（key=value，分号分隔）",
     "json": "JSON 文本",
 }
+
+#: 表头中文化：{表名: {参数名: 中文表头}}
+#:
+#: 表格里**推荐写中文表头**；程序同时接受英文参数名（老文件与代码口径都能用），
+#: 两者指向同一列。中文表头只在**同一张表内**需要唯一，不同表可以复用（如「状态」「说明」）。
+HEADERS: dict[str, dict[str, str]] = {
+    "比赛": {
+        "name": "比赛名称", "status": "状态", "map_background_url": "地图背景图地址",
+        "map_background_width": "背景图宽", "map_background_height": "背景图高",
+    },
+    "财年": {"year": "年份", "status": "状态"},
+    "产业类型": {"code": "编码", "name": "产业名称", "description": "说明", "icon": "图标"},
+    "产业字段": {
+        "industry_type": "所属产业", "name": "字段名称", "field_key": "字段键",
+        "field_type": "字段类型", "default_value": "默认值", "is_calculated": "是否计算字段",
+        "graph": "计算图", "timer_enabled": "启用财年定时器", "timer_trigger": "定时器时机",
+        "timer_value": "定时器写入值", "sort_order": "排序", "visible": "是否展示",
+        "config": "类型配置",
+    },
+    "区域": {"name": "区域名称", "description": "说明"},
+    "公司": {"name": "公司名称", "industry_type": "所属产业", "region": "所属区域", "status": "状态"},
+    "公司字段值": {"company": "公司名称", "field_key": "字段键", "value": "值"},
+    "地图节点类型": {"name": "类型名称", "description": "说明", "color": "颜色"},
+    "路径类型": {"name": "类型名称", "description": "说明", "color": "颜色"},
+    "地图节点": {
+        "name": "节点名称", "node_type": "节点类型", "region": "所属区域",
+        "x": "X坐标", "y": "Y坐标",
+    },
+    "地图连线": {
+        "from_node": "起点节点", "to_node": "终点节点", "distance": "距离(公里)",
+        "path_type": "路径类型",
+    },
+    "燃料": {"name": "燃料名称", "price_per_liter": "每升单价"},
+    "原料": {
+        "name": "原料名称", "origin": "产地", "carbon_emission_coefficient": "碳排系数",
+        "type": "类型", "node_prices": "地点价",
+    },
+    "科技": {
+        "name": "科技名称", "tier": "层级", "research_cost": "研发费用",
+        "description": "说明", "prerequisites": "前置科技",
+    },
+    "生产线": {
+        "name": "生产线名称", "price": "单价", "labor_count": "用工人数", "max_per_year": "年产能",
+    },
+    "基建": {
+        "name": "基建名称", "footprint": "占地面积", "price": "单价", "activation_price": "启用费用",
+        "employment_rate_bonus": "就业率加成", "population_bonus": "人口加成",
+        "high_quality_population_bonus": "高素质人口加成", "happiness_index_bonus": "幸福度加成",
+        "per_capita_income_bonus": "人均收益加成", "carbon_reduction_bonus": "减碳加成",
+    },
+    "仓库": {"name": "仓库名称", "type": "仓库种类", "capacity": "容量", "price": "单价"},
+    "零件": {"name": "零件名称", "materials": "原料配比", "tech": "所需科技"},
+    "产品": {"name": "产品名称", "parts": "零件配比", "tech": "所需科技"},
+    "载具": {
+        "name": "载具名称", "fuel": "燃料", "path_types": "可通行路径类型",
+        "fuel_consumption_per_km": "每公里油耗", "max_cargo": "载货量",
+        "price": "单价", "carbon_emission": "碳排系数",
+    },
+    "消费者需求": {"region": "区域名称", "product": "产品名称", "quantity": "需求量", "note": "备注"},
+    "区域总览卡片": {
+        "region": "区域名称", "company": "公司名称", "field_key": "字段键",
+        "display_name": "卡片标题", "zone": "分区标记", "card_id": "卡片ID",
+    },
+    "合同类型": {
+        "key": "类型标识", "name": "合同名称", "description": "说明", "script": "脚本路径",
+        "party_roles": "参与方", "input_schema": "输入项定义", "effects": "效果定义",
+        "conditions": "前置检查", "enabled": "是否启用",
+    },
+    "合同实例": {
+        "contract_type": "合同类型标识", "name": "合同名称", "parties": "参与方",
+        "inputs": "输入项", "status": "状态",
+    },
+    "消息": {
+        "title": "标题", "content": "正文", "to_all": "是否发给全体",
+        "to_users": "指定收件人", "sender": "发布者",
+    },
+    "账号": {
+        "username": "用户名", "role": "角色", "display_name": "显示名",
+        "company_scopes": "公司管理范围", "view_company_scopes": "查看范围",
+        "contract_view_company_scopes": "合同查看范围", "stock_company_scopes": "股票范围",
+        "permissions": "权限键", "is_active": "是否启用",
+    },
+}
+
+
+def header_for(sheet_name: str, key: str) -> str:
+    """取某表某列的**中文表头**（缺失时回退参数名）。"""
+    return HEADERS.get(sheet_name, {}).get(key, key)
+
+
+def header_aliases(spec: "SheetSpec") -> dict[str, str]:
+    """构造「表头 → 参数名」的别名表：中文表头与英文参数名都指向同一列。"""
+    alias: dict[str, str] = {}
+    for col in spec.columns:
+        alias[col.key] = col.key
+        alias[header_for(spec.name, col.key)] = col.key
+    return alias
 
 
 @dataclass(frozen=True)
@@ -360,16 +539,16 @@ def _h_company(ctx: SheetContext, row: dict) -> None:
         "region": row.get("region") or None,
         "status": (row.get("status") or "ACTIVE").upper(),
     }
-    if extra:  # 额外列 = 该公司的产业字段初始值（列名就是 field_key）
-        kwargs["field_values"] = {k: str(v) for k, v in extra.items()}
+    if extra:  # 额外列 = 该公司的产业字段初始值（列名可写字段键或字段显示名）
+        kwargs["field_values"] = {_field_key_of(ctx, k): str(v) for k, v in extra.items()}
     b.company(name, **kwargs)
 
 
 def _h_company_field_value(ctx: SheetContext, row: dict) -> None:
     company, key = row.get("company"), row.get("field_key")
     if not company or not key:
-        raise SheetFormatError("公司字段值表的 company 与 field_key 必填")
-    ctx.builder.add_field_value(company, key, row.get("value", ""))
+        raise SheetFormatError("公司字段值表的公司名称与字段键必填")
+    ctx.builder.add_field_value(company, _field_key_of(ctx, key), row.get("value", ""))
 
 
 def _h_node_type(ctx: SheetContext, row: dict) -> None:
@@ -508,8 +687,9 @@ def _h_demand(ctx: SheetContext, row: dict) -> None:
 def _h_card(ctx: SheetContext, row: dict) -> None:
     region, company, key = row.get("region"), row.get("company"), row.get("field_key")
     if not region or not company or not key:
-        raise SheetFormatError("区域总览卡片表的 region / company / field_key 必填")
-    ctx.builder.card(region, company, key, display_name=row.get("display_name") or None,
+        raise SheetFormatError("区域总览卡片表的区域名称 / 公司名称 / 字段键必填")
+    ctx.builder.card(region, company, _field_key_of(ctx, key),
+                     display_name=row.get("display_name") or None,
                      zone=row.get("zone") or None, card_id=row.get("card_id") or None)
 
 
@@ -551,6 +731,19 @@ def _h_contract_type(ctx: SheetContext, row: dict) -> None:
     if conditions is None:
         text = (row.get("conditions") or "").strip()
         conditions = json.loads(text) if text else []
+    # 贴进来的 JSON 可能是老文档形状（{"from": "input", ...} / kind:"FIELD"）
+    # → 归一成引擎认识的形状，否则会静默按 0 计算 / 检查恒不通过
+    legacy = [0]
+    legacy_cond = [0]
+    effects = normalize_value_specs(effects, count=legacy)
+    conditions = normalize_conditions(normalize_value_specs(conditions, count=legacy),
+                                      count=legacy_cond)
+    if legacy[0]:
+        ctx.note(f"合同类型 {key}：把 {legacy[0]} 处老写法 {{\"from\": \"input\"}} 归一成了引擎值源"
+                 f" {{\"type\": \"INPUT\"}}（不归一的话引擎会静默按 0 计算）")
+    if legacy_cond[0]:
+        ctx.note(f"合同类型 {key}：把 {legacy_cond[0]} 处检查的老写法 kind=\"FIELD\" 归一成了"
+                 f" \"FIELD_COMPARE\"（引擎没有 FIELD 这个检查种类，检查会恒不通过）")
     enabled = as_bool(row.get("enabled"), default=True)
     b.contract_type(key, name, description=row.get("description") or payload.get("description"),
                     party_roles=party_roles, input_schema=input_schema,
@@ -959,22 +1152,27 @@ NOTES_SHEET_NAMES = {"说明", "README", "readme", "Readme"}
 
 
 def summarize_spec() -> str:
-    """把规范渲染成 Markdown（写文档 / 打印用）。"""
+    """把规范渲染成 Markdown（写文档 / 打印用）。
+
+    表头一栏给出**中文表头**（表格里推荐写的），括号里是内部参数名（也接受，便于与代码对照）。
+    """
     lines = ["# 比赛建包表格规范", ""]
     for spec in SHEETS:
         lines.append(f"## {spec.name}（分组：{spec.scope}）")
         lines.append("")
         lines.append(spec.purpose)
         lines.append("")
-        lines.append("| 列 | 说明 | 类型 | 必填 |")
-        lines.append("| --- | --- | --- | :---: |")
+        lines.append("| 表头 | 参数名 | 说明 | 类型 | 必填 |")
+        lines.append("| --- | --- | --- | --- | :---: |")
         for col in spec.columns:
             lines.append(
-                f"| `{col.key}` | {col.label} | {KIND_LABELS.get(col.kind, col.kind)} | "
-                f"{'是' if col.required else ''} |"
+                f"| {header_for(spec.name, col.key)} | `{col.key}` | {col.label} | "
+                f"{KIND_LABELS.get(col.kind, col.kind)} | {'是' if col.required else ''} |"
             )
         if spec.allow_extra_columns:
-            lines.append("| （额外列） | 列名视作 `field_key`，作为该公司字段初始值 | 文本 | |")
+            lines.append(
+                "| （额外列，可自定义） | — | 列名写**字段键或字段显示名**，作为该公司字段初始值 | 文本 | |"
+            )
         if spec.example:
             lines.append("")
             lines.append("示例行：" + " | ".join(str(x) for x in spec.example))

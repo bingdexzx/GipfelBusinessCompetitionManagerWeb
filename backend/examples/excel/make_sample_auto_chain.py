@@ -29,6 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from sheet_spec import SHEET_BY_NAME, header_for  # noqa: E402
 from xlsx_io import save_tables, write_xlsx  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -66,8 +67,7 @@ EXTRA_FIELDS = {
     2003: (("整车交付量", "delivered_units", "NUMBER", "0"), ("销售收入", "sales_revenue", "NUMBER", "0")),
 }
 
-COMPANY_HEADER = ("name", "industry_type", "region", "status",
-                  "location", "cash", "bank_deposit", "quota", "inventory")
+COMPANY_HEADER_EXTRA = ("所在地", "现金", "银行存款", "许可配额", "库存台账")
 
 #: 公司：行业、区域、所在地节点、现金、银行存款、配额、初始库存
 COMPANIES = (
@@ -244,71 +244,64 @@ USERS = (
 )
 
 
+def _h(sheet: str) -> list[str]:
+    """取某张表的表头（始终与规范一致：中文表头，改动规范后自动跟随）。"""
+    return [header_for(sheet, col.key) for col in SHEET_BY_NAME[sheet].columns]
+
+
 def sample_tables() -> dict[str, list[list]]:
-    """把上面这份比赛内容渲染成「一表一资源」的表格集合。"""
+    """把上面这份比赛内容渲染成「一表一资源」的表格集合（表头全中文）。"""
     return {
         "说明": [
             ["汽车产业链测试赛 · 表格建包示例"],
             ["与代码建包脚本 examples/competitions/auto_chain_competition.py 描述同一场比赛。"],
             ["股票系统不在本规范内：本示例不产出任何股票 / 资金账户 / 股票参数。"],
             ["用法：python examples/excel/build_from_sheets.py examples/excel/汽车产业链示例.xlsx --inspect"],
-            ["导入：python examples/excel/build_from_sheets.py examples/excel/汽车产业链示例.xlsx --competition <比赛id> --dry-run"],
+            ["导入：python examples/excel/build_from_sheets.py examples/excel/汽车产业链示例.xlsx --create-competition"],
         ],
-        "比赛": [["name", "status"], [COMPETITION_NAME, "ACTIVE"]],
-        "财年": [["year", "status"], ["2026", "ACTIVE"]],
-        "产业类型": [["code", "name", "description"]] + [[str(c), n, d] for c, n, d in INDUSTRIES],
+        "比赛": [_h("比赛"), [COMPETITION_NAME, "ACTIVE"]],
+        "财年": [_h("财年"), ["2026", "ACTIVE"]],
+        "产业类型": [_h("产业类型")] + [[str(c), n, d] for c, n, d in INDUSTRIES],
         "产业字段": _industry_field_rows(),
-        "区域": [["name", "description"],
+        "区域": [_h("区域"),
                  ["上游资源区", "锂 / 铝 / 铁矿与橡胶硅砂资源带"],
                  ["中部智造区", "动力电池、电驱与轻量化车身产业带"],
                  ["东部车都", "整车制造、展销与出口集散地"]],
-        "公司": [list(COMPANY_HEADER)] + [
+        "公司": [_h("公司") + list(COMPANY_HEADER_EXTRA)] + [
             [name, industry, region, "ACTIVE", node, cash, bank, quota,
              json.dumps(inventory, ensure_ascii=False)]
             for name, industry, region, node, cash, bank, quota, inventory in COMPANIES
         ],
         "公司字段值": [
-            ["company", "field_key", "value"],
-            ["西岭锂业", "last_deal", "开局初始化"],
-            ["中原创能", "ledger", '{"开局盘点": 1}'],
-            ["车都新能源", "ledger", '{"开局盘点": 1}'],
+            _h("公司字段值"),
+            ["西岭锂业", "最近业务摘要", "开局初始化"],
+            ["中原创能", "业务台账", '{"开局盘点": 1}'],
+            ["车都新能源", "业务台账", '{"开局盘点": 1}'],
         ],
-        "地图节点类型": [["name", "description", "color"]] + [list(x) for x in NODE_TYPES],
-        "路径类型": [["name", "description", "color"]] + [list(x) for x in PATH_TYPES],
-        "地图节点": [["name", "node_type", "region", "x", "y"]] + [list(x) for x in MAP_NODES],
-        "地图连线": [["from_node", "to_node", "distance", "path_type"]] + [list(x) for x in MAP_EDGES],
-        "燃料": [["name", "price_per_liter"]] + [list(x) for x in FUELS],
-        "原料": [["name", "origin", "carbon_emission_coefficient", "type", "node_prices"]]
-                + [list(x) for x in MATERIALS],
-        "科技": [["name", "tier", "research_cost", "description", "prerequisites"]]
-                + [list(x) for x in TECH],
-        "生产线": [["name", "price", "labor_count", "max_per_year"]] + [list(x) for x in LINES],
-        "基建": [["name", "footprint", "price", "activation_price", "employment_rate_bonus",
-                  "population_bonus", "high_quality_population_bonus", "happiness_index_bonus",
-                  "per_capita_income_bonus", "carbon_reduction_bonus"]]
-                + [list(x) for x in INFRASTRUCTURES],
-        "仓库": [["name", "type", "capacity", "price"]] + [list(x) for x in WAREHOUSES],
-        "零件": [["name", "materials", "tech"]] + [list(x) for x in PARTS],
-        "产品": [["name", "parts", "tech"]] + [list(x) for x in PRODUCTS],
-        "载具": [["name", "fuel", "path_types", "fuel_consumption_per_km", "max_cargo", "price",
-                  "carbon_emission"]] + [list(x) for x in VEHICLES],
-        "消费者需求": [["region", "product", "quantity", "note"]] + [list(x) for x in DEMANDS],
-        "区域总览卡片": [["region", "company", "field_key", "display_name"]]
-                        + [list(x) for x in CARDS],
-        "合同类型": [["key", "name", "description", "script"]] + [list(x) + [CONTRACT_SCRIPT] for x in CONTRACT_TYPES],
-        "合同实例": [["contract_type", "name", "parties", "inputs", "status"]]
-                    + [list(x) for x in CONTRACT_INSTANCES],
-        "消息": [["title", "content", "to_all"]] + [[t, c, "是"] for t, c in MESSAGES],
-        "账号": [["username", "role", "display_name", "company_scopes", "view_company_scopes",
-                  "contract_view_company_scopes", "stock_company_scopes", "permissions"]]
-                + [list(x) for x in USERS],
+        "地图节点类型": [_h("地图节点类型")] + [list(x) for x in NODE_TYPES],
+        "路径类型": [_h("路径类型")] + [list(x) for x in PATH_TYPES],
+        "地图节点": [_h("地图节点")] + [list(x) for x in MAP_NODES],
+        "地图连线": [_h("地图连线")] + [list(x) for x in MAP_EDGES],
+        "燃料": [_h("燃料")] + [list(x) for x in FUELS],
+        "原料": [_h("原料")] + [list(x) for x in MATERIALS],
+        "科技": [_h("科技")] + [list(x) for x in TECH],
+        "生产线": [_h("生产线")] + [list(x) for x in LINES],
+        "基建": [_h("基建")] + [list(x) for x in INFRASTRUCTURES],
+        "仓库": [_h("仓库")] + [list(x) for x in WAREHOUSES],
+        "零件": [_h("零件")] + [list(x) for x in PARTS],
+        "产品": [_h("产品")] + [list(x) for x in PRODUCTS],
+        "载具": [_h("载具")] + [list(x) for x in VEHICLES],
+        "消费者需求": [_h("消费者需求")] + [list(x) for x in DEMANDS],
+        "区域总览卡片": [_h("区域总览卡片")] + [list(x) for x in CARDS],
+        "合同类型": [_h("合同类型")] + [list(x) + [CONTRACT_SCRIPT] for x in CONTRACT_TYPES],
+        "合同实例": [_h("合同实例")] + [list(x) for x in CONTRACT_INSTANCES],
+        "消息": [_h("消息")] + [[t, c, "是"] for t, c in MESSAGES],
+        "账号": [_h("账号")] + [list(x) for x in USERS],
     }
 
 
 def _industry_field_rows() -> list[list]:
-    header = ["industry_type", "name", "field_key", "field_type", "default_value", "is_calculated",
-              "graph", "timer_enabled", "timer_trigger", "timer_value", "sort_order", "visible", "config"]
-    rows: list[list] = [header]
+    rows: list[list] = [_h("产业字段")]
     for code, _name, _desc in INDUSTRIES:
         for index, (fname, key, ftype, default, calc, graph, config) in enumerate(COMMON_FIELDS, start=1):
             rows.append([str(code), fname, key, ftype, default, calc, graph, "", "", "",
@@ -320,12 +313,90 @@ def _industry_field_rows() -> list[list]:
     return rows
 
 
+def minimal_tables() -> dict[str, list[list]]:
+    """最小可用示例（教程用）：2 个产业、2 家公司、1 份能真正执行的购销合同。
+
+    刻意只用最少的 9 张表 —— 复制这份就能改成自己的比赛。
+    """
+    fields = [
+        _h("产业字段"),
+        ["9001", "所在地", "location", "STRING", "", "", "", "", "", "", "1", "是", ""],
+        ["9001", "现金", "cash", "NUMBER", "0", "", "", "", "", "", "2", "是", ""],
+        ["9001", "库存", "inventory", "DICTIONARY", "{}", "", "", "", "", "", "3", "是", "NUMBER"],
+        ["9002", "所在地", "location", "STRING", "", "", "", "", "", "", "1", "是", ""],
+        ["9002", "现金", "cash", "NUMBER", "0", "", "", "", "", "", "2", "是", ""],
+        ["9002", "库存", "inventory", "DICTIONARY", "{}", "", "", "", "", "", "3", "是", "NUMBER"],
+    ]
+    sale_effects = [
+        {"kind": "FIELD", "party": "buyer", "fieldKey": "cash", "op": "SUB",
+         "value": {"type": "INPUT", "key": "amount"}},
+        {"kind": "FIELD", "party": "seller", "fieldKey": "cash", "op": "ADD",
+         "value": {"type": "INPUT", "key": "amount"}},
+    ]
+    sale_conditions = [
+        {"kind": "FIELD_COMPARE", "party": "buyer", "fieldKey": "cash", "op": "GTE",
+         "value": {"type": "INPUT", "key": "amount"}, "errorMessage": "买方现金不足以支付货款"},
+    ]
+    return {
+        "说明": [
+            ["最小可用示例（教程用）"],
+            ["2 个产业 / 2 家公司 / 1 份能真正执行的购销合同；只用了 9 张表。"],
+            ["用法：python examples/excel/build_from_sheets.py examples/excel/最小示例.xlsx --create-competition"],
+        ],
+        "比赛": [_h("比赛"), ["微型测试赛（教程示例）", "ACTIVE"]],
+        "财年": [_h("财年"), ["2026", "ACTIVE"]],
+        "产业类型": [_h("产业类型"),
+                     ["9001", "原料开采", "上游：矿石"],
+                     ["9002", "零件加工", "中游：毛坯"]],
+        "产业字段": fields,
+        "区域": [_h("区域"), ["东区", "矿区"], ["西区", "厂区"]],
+        "公司": [_h("公司") + ["所在地", "现金", "库存"],
+                 ["甲矿场", "原料开采", "东区", "ACTIVE", "东矿", "500000", '{"矿石": 100}'],
+                 ["乙工厂", "零件加工", "西区", "ACTIVE", "西厂", "500000", "{}"]],
+        "地图节点类型": [_h("地图节点类型"), ["城市", "通用节点", "#3b82f6"]],
+        "路径类型": [_h("路径类型"), ["公路", "通用公路", "#94a3b8"]],
+        "地图节点": [_h("地图节点"), ["东矿", "城市", "东区", "100", "100"],
+                     ["西厂", "城市", "西区", "400", "100"]],
+        "地图连线": [_h("地图连线"), ["东矿", "西厂", "100", "公路"]],
+        "燃料": [_h("燃料"), ["柴油", "7.5"]],
+        "原料": [_h("原料"), ["矿石", "东矿", "0.5", "NORMAL", "东矿:120"]],
+        "零件": [_h("零件"), ["毛坯", "矿石*2", ""]],
+        "产品": [_h("产品"), ["成品", "毛坯*1", ""]],
+        "载具": [_h("载具"), ["卡车", "柴油", "公路", "0.3", "30", "200000", "0.8"]],
+        "合同类型": [
+            _h("合同类型"),
+            ["mini-sale", "简易购销合同", "买方付钱给卖方", "", "seller=卖方; buyer=买方",
+             json.dumps([{"key": "amount", "label": "成交金额", "type": "NUMBER",
+                          "required": True, "default": "1000"}], ensure_ascii=False),
+             json.dumps(sale_effects, ensure_ascii=False),
+             json.dumps(sale_conditions, ensure_ascii=False), "是"],
+        ],
+        "合同实例": [
+            _h("合同实例"),
+            ["mini-sale", "简易购销合同", "seller=甲矿场|S-001; buyer=乙工厂|B-001",
+             "amount=1200", "DRAFT"],
+        ],
+        "账号": [_h("账号"),
+                 ["demo_player", "PLAYER", "演示玩家", "甲矿场; 乙工厂", "甲矿场; 乙工厂",
+                  "甲矿场; 乙工厂", "", "", "是"]],
+    }
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="生成汽车产业链测试赛的表格建包文件")
     parser.add_argument("--out", default=str(DEFAULT_XLSX), help="写出的 xlsx 路径")
     parser.add_argument("--csv-out", default=None, help="同时写出一套 CSV 表集目录")
     parser.add_argument("--csv-only", action="store_true", help="只写 CSV 表集，不写 xlsx")
+    parser.add_argument("--minimal", action="store_true",
+                        help="改为生成「最小示例.xlsx」（教程用的 9 张表小样例）")
     args = parser.parse_args(argv)
+
+    if args.minimal:
+        tables = minimal_tables()
+        out = Path(args.out) if args.out != str(DEFAULT_XLSX) else HERE / "最小示例.xlsx"
+        write_xlsx(out, tables)
+        print(f"已写出最小示例：{out}（{out.stat().st_size / 1024:.1f} KB，{len(tables)} 张表）")
+        return 0
 
     tables = sample_tables()
     if args.csv_out:

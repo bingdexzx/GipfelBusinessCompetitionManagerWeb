@@ -26,22 +26,22 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from sheet_spec import KIND_LABELS, SHEETS, summarize_spec  # noqa: E402
+from sheet_spec import KIND_LABELS, SHEETS, header_for, summarize_spec  # noqa: E402
 from xlsx_io import load_tables, save_tables, write_xlsx  # noqa: E402
 
 #: 空白模板里每张表预留的空行数
 BLANK_ROWS = 3
 
-#: 「公司」表额外列示例（列名即 field_key，值是该公司的字段初始值）
-COMPANY_EXTRA_COLUMNS = ("location", "cash", "bank_deposit", "quota", "inventory")
+#: 「公司」表额外列示例（中文表头；程序按产业字段的显示名/字段键识别）
+COMPANY_EXTRA_COLUMNS = ("所在地", "现金", "银行存款", "许可配额", "库存台账")
 
 
 def template_tables() -> dict[str, list[list]]:
-    """空白模板：说明表 + 每张规范表的表头 / 示例行 / 空行。"""
+    """空白模板：说明表 + 每张规范表的**中文表头** / 示例行 / 空行。"""
     tables: dict[str, list[list]] = {}
     tables["说明"] = _notes_rows()
     for spec in SHEETS:
-        header = [col.key for col in spec.columns]
+        header = [header_for(spec.name, col.key) for col in spec.columns]
         if spec.allow_extra_columns:
             header += list(COMPANY_EXTRA_COLUMNS)
         rows: list[list] = [header]
@@ -58,26 +58,31 @@ def _notes_rows() -> list[list]:
         [""],
         ["怎么用"],
         ["1. 一张表 = 一类内容；只填你要建的表，没填的表完全不参与产出（表与表相互隔离）。"],
-        ["2. 第一行是表头，列名不要改（就是建包库的参数名）；列顺序随意，多余列会被拒绝（公司表除外）。"],
+        ["2. 第一行是中文表头，**不要改**；需要对照代码时看最后一栏「参数名」。列顺序随意。"],
         ["3. 以 # 开头的行是注释行；整行空白会被忽略。"],
         ["4. 单元格语法：是/否 表示布尔；分号分隔表示列表；`名称:数量` 或 `名称*数量` 表示键值；以 { 或 [ 开头的单元格按 JSON 解析。"],
-        ["5. 建包命令：python examples/excel/build_from_sheets.py 本文件.xlsx --competition <比赛id> [--dry-run]"],
+        ["5. 建包命令：python examples/excel/build_from_sheets.py 本文件.xlsx --create-competition [--dry-run]"],
         ["6. 股票系统不在本规范内（没有股票 / 资金账户 / 股票参数三类表）。"],
+        ["7. 英文参数名同样可用（老文件兼容）；中文表头与参数名指向同一列，不要同时写两列。"],
         [""],
         ["表清单"],
         ["表名", "分组", "用途", "列（* = 必填）"],
     ]
     for spec in SHEETS:
         cols = "、".join(
-            f"{col.key}*" if col.required else col.key for col in spec.columns
+            (header_for(spec.name, col.key) + "*") if col.required else header_for(spec.name, col.key)
+            for col in spec.columns
         )
         if spec.allow_extra_columns:
-            cols += "、（额外列：列名 = field_key，填公司的产业字段初始值）"
+            cols += "、（额外列：列名写字段键或字段显示名，填公司的产业字段初始值）"
         rows.append([spec.name, spec.scope, spec.purpose, cols])
     rows.append([""])
-    rows.append(["列类型说明"])
-    for kind, label in KIND_LABELS.items():
-        rows.append([kind, label])
+    rows.append(["表头 ↔ 参数名对照"])
+    rows.append(["表名", "中文表头", "参数名", "类型", "必填"])
+    for spec in SHEETS:
+        for col in spec.columns:
+            rows.append([spec.name, header_for(spec.name, col.key), col.key,
+                         KIND_LABELS.get(col.kind, col.kind), "是" if col.required else ""])
     return rows
 
 

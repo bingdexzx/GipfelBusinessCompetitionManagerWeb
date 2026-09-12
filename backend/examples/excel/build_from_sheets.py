@@ -67,6 +67,8 @@ from sheet_spec import (  # noqa: E402
     UNSUPPORTED_SHEETS,
     SheetContext,
     SheetFormatError,
+    header_aliases,
+    header_for,
     summarize_spec,
 )
 from xlsx_io import load_tables  # noqa: E402
@@ -278,32 +280,42 @@ def _competition_meta(tables: dict[str, list[list[str]]], fallback_name: str,
 
 
 def _table_rows(spec, table: list[list[str]]) -> list[tuple[int, dict]]:
-    """把工作表切成 [(行号, {列名: 单元格文本})]：校验表头、跳过注释行与空行。"""
+    """把工作表切成 [(行号, {参数名: 单元格文本})]。
+
+    - 表头可以是**中文**（推荐，见 `sheet_spec.HEADERS`）或英文参数名，两者等价；
+    - 规范之外的列会报错（「公司」表例外：额外列当作该公司的产业字段初始值）；
+    - 以 `#` / `//` 开头的行是注释行，整行空白跳过。
+    """
     header_index = None
-    headers: list[str] = []
+    raw_headers: list[str] = []
     for index, raw in enumerate(table):
         cells = [str(c or "").strip() for c in raw]
         if any(cells):
-            header_index, headers = index, cells
+            header_index, raw_headers = index, cells
             break
     if header_index is None:
         return []
 
+    alias = header_aliases(spec)
+    headers = [alias.get(h, h) for h in raw_headers]   # 中文表头 → 参数名
     known = {col.key for col in spec.columns}
+
     unknown = [h for h in headers if h and h not in known]
     if unknown and not spec.allow_extra_columns:
         raise SheetFormatError(
-            f"[{spec.name}] 表头里有规范之外的列：{'、'.join(unknown)}；"
-            f"本表可用列：{'、'.join(col.key for col in spec.columns)}"
+            f"[{spec.name}] 表头里有规范之外的列：{'、'.join(unknown)}；本表可用列："
+            + "、".join(f"{header_for(spec.name, col.key)}（{col.key}）" for col in spec.columns)
         )
-    missing_required = [col.key for col in spec.columns if col.required and col.key not in headers]
+    missing_required = [header_for(spec.name, col.key) for col in spec.columns
+                        if col.required and col.key not in headers]
     if missing_required:
-        raise SheetFormatError(
-            f"[{spec.name}] 缺少必填列：{'、'.join(missing_required)}"
-        )
+        raise SheetFormatError(f"[{spec.name}] 缺少必填列：{'、'.join(missing_required)}")
     duplicated = sorted({h for h in headers if h and headers.count(h) > 1})
     if duplicated:
-        raise SheetFormatError(f"[{spec.name}] 表头有重复列：{'、'.join(duplicated)}")
+        raise SheetFormatError(
+            f"[{spec.name}] 表头重复（中文表头与英文参数名指向同一列，只保留一个即可）："
+            f"{'、'.join(duplicated)}"
+        )
 
     out: list[tuple[int, dict]] = []
     for offset, raw in enumerate(table[header_index + 1:], start=header_index + 2):
@@ -319,7 +331,9 @@ def _table_rows(spec, table: list[list[str]]) -> list[tuple[int, dict]]:
         }
         for col in spec.columns:
             if col.required and not row.get(col.key):
-                raise SheetFormatError(f"[{spec.name}] 第 {offset} 行的必填列「{col.key}」为空")
+                raise SheetFormatError(
+                    f"[{spec.name}] 第 {offset} 行的必填列「{header_for(spec.name, col.key)}」为空"
+                )
         out.append((offset, row))
     return out
 
