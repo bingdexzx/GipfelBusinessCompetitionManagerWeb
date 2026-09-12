@@ -243,7 +243,7 @@ sudo systemctl restart gipfel
 
 Windows 不提供独立生产部署脚本；生产部署请使用方案一的 Linux 脚本 [deploy-linux.sh](../scripts/deploy-linux.sh)。
 
-开发启动器 [scripts/start-dev.bat](../scripts/start-dev.bat) 会并行拉起：
+开发启动器 [scripts/start-dev.bat](../scripts/start-dev.bat)（校验前置条件后交给监管进程 [scripts/dev.py](../scripts/dev.py)）会并行拉起：
 
 - Django `:8000`（runserver）
 - Vite `:5173`（前端开发服务器）
