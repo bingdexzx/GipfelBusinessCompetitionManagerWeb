@@ -558,3 +558,135 @@ export interface IncrementalResult<T> {
   serverTime: string;
   existingIds?: number[];
 }
+
+// ===================== 比赛准备总览与归档 =====================
+/** 准备事项状态：empty=待准备（必填项无数据）/ ready=就绪 / warning=提醒（有风险项） */
+export type PrepStatus = "empty" | "ready" | "warning";
+
+export interface PrepStat {
+  label: string;
+  value: string | number;
+}
+
+/** 明细表：rows 已按后端上限截断，total 为截断前总条数 */
+export interface PrepTable {
+  title?: string;
+  columns: string[];
+  rows: unknown[][];
+  total?: number;
+}
+
+export interface PrepItemPlan {
+  key: string;
+  categoryKey: string;
+  title: string;
+  required: boolean;
+  description: string;
+  route: string;
+  steps: string[];
+  status: PrepStatus;
+  statusLabel: string;
+  stats: PrepStat[];
+  warnings: string[];
+  notes: string[];
+  details: PrepTable | null;
+  extraTables: PrepTable[];
+}
+
+export interface PrepCategoryPlan {
+  /** 与导出/导入分组（PrepScope）同名，"all" 仅用于「全部」选项，分组本身不会是 all */
+  key: Exclude<PrepScope, "all">;
+  title: string;
+  description: string;
+  items: PrepItemPlan[];
+  summary: { ready: number; warning: number; empty: number };
+}
+
+export interface PrepSummary {
+  total: number;
+  required: number;
+  ready: number;
+  warning: number;
+  empty: number;
+  requiredWarning: number;
+  requiredEmpty: number;
+  warningCount: number;
+}
+
+export interface CompetitionPreparationPlan {
+  generatedAt: string;
+  competition: { id: number; name: string; status: string } | null;
+  summary: PrepSummary;
+  categories: PrepCategoryPlan[];
+}
+
+/** 导出文件类型：markdown=人类可读报告，json=可再导入的归档 */
+export type PrepExportFormat = "markdown" | "json";
+
+/** 导出/导入分组（与后端 archive.SCOPES 对齐；all 表示全部） */
+export type PrepScope =
+  | "all"
+  | "competition"
+  | "industry"
+  | "company"
+  | "supply"
+  | "geo"
+  | "tech"
+  | "market"
+  | "access";
+
+export interface PrepScopeOption {
+  value: PrepScope;
+  label: string;
+  description: string;
+}
+
+/** 导入结果（逐资源统计 + 问题/提示） */
+export interface PrepImportResourceStat {
+  resource: string;
+  label: string;
+  created: number;
+  updated: number;
+  skipped: number;
+  /** 追加模式下「已存在、保留未改动」的条数 */
+  kept?: number;
+}
+
+/** 导入方式：append=追加（已存在的保留不动）/ overwrite=覆盖（已存在的按归档更新） */
+export type PrepImportMode = "append" | "overwrite";
+
+export interface PrepImportResult {
+  dryRun: boolean;
+  /** dryRun 时若目标比赛非空且未开启 allowNonEmpty，则为 true（表示会被拒绝） */
+  blocked: boolean;
+  created: number;
+  updated: number;
+  skipped: number;
+  /** 追加模式下保留未改动的条数 */
+  kept?: number;
+  mode?: PrepImportMode;
+  modeLabel?: string;
+  resources: PrepImportResourceStat[];
+  /** 本次未勾选、因此未导入的资源 */
+  skippedResources?: { resource: string; label: string }[];
+  /** 需要用户处理的问题（影响导入完整性） */
+  problems: string[];
+  /** 中性提示（幂等行为说明等） */
+  notes?: string[];
+  problemCount: number;
+  noteCount?: number;
+  targetCompetitionId: number;
+  sourceCompetition?: { id: number; name: string } | null;
+  scope?: string;
+  /** 目标比赛已有数据占用情况 */
+  occupancy?: { label: string; count: number }[];
+}
+
+/** 导入配置（随请求体一起提交） */
+export interface PrepImportConfig {
+  mode: PrepImportMode;
+  /** 只导入这些资源；缺省 = 归档里有什么就导什么 */
+  resources?: string[];
+  dryRun?: boolean;
+  allowNonEmpty?: boolean;
+}
