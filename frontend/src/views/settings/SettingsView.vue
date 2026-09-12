@@ -21,6 +21,17 @@
       <el-button @click="openAnnManager">管理更新公告</el-button>
       <el-button @click="openWidgetPkg">管理控件包</el-button>
     </div>
+    <div class="settings-section" v-if="isSuperAdmin">
+      <h3>比赛准备</h3>
+      <p>
+        开赛前的准备清单与开赛前体检：逐项列出比赛基础、行业口径、参赛主体、物资与产能、
+        地理与物流、科技与需求、市场与规则、账号与权限、开赛前验收共 35 项，
+        并自动提示配置风险。可一键导出为 Markdown 报告或 JSON 快照，用于复用比赛设置与赛后归档。
+      </p>
+      <el-button type="primary" @click="prepVisible = true">比赛准备总览 / 导出</el-button>
+    </div>
+
+    <PreparationOverviewDialog v-model="prepVisible" :competition-id="compStore.competitionId" />
 
     <!-- 管理更新公告弹窗 -->
     <el-dialog v-model="annDialogVisible" title="管理更新公告" width="700px" append-to-body destroy-on-close>
@@ -132,12 +143,18 @@ import api, { announcementsApi, type AnnouncementItem, widgetPackagesApi, type W
 import { removeAccountItem } from "@/utils/accountStorage";
 import { useVersionStore } from "@/stores/version";
 import { useAuthStore } from "@/stores/auth";
+import { useCompetitionStore } from "@/stores/competition";
 import AnnouncementHistoryDialog from "@/components/AnnouncementHistoryDialog.vue";
+import PreparationOverviewDialog from "@/components/preparation/PreparationOverviewDialog.vue";
 
 const historyVisible = ref(false);
 const versionStore = useVersionStore();
 const authStore = useAuthStore();
+const compStore = useCompetitionStore();
 const isSuperAdmin = computed(() => authStore.isSuperAdmin);
+
+// ===== 比赛准备总览 / 导出 =====
+const prepVisible = ref(false);
 
 // ===== 管理更新公告 =====
 const annDialogVisible = ref(false);
