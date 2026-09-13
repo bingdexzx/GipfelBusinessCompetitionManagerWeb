@@ -46,6 +46,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import zipfile
 from pathlib import Path
 
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -111,6 +112,7 @@ def main(argv: list[str]) -> int:
     if not args.source:
         parser.error("请给出表格文件（.xlsx）或存放 CSV 的目录；用 --spec 查看规范")
 
+    out_written: Path | None = None
     try:
         builder, stats, notes = build_from_tables(
             Path(args.source), only_sheets=args.sheets, fallback_name=args.name,
@@ -119,18 +121,36 @@ def main(argv: list[str]) -> int:
         if args.competition is not None:
             _try_resolve_card_fields(builder, args.competition, notes)
         archive = builder.build()
+
+        competition_id = args.competition
+        if args.create_competition and competition_id is None:
+            competition_id = _create_competition(archive["sourceCompetition"]["name"],
+                                                 archive["resources"].get("competitionMeta", {}))
+            args.competition = competition_id
+
+        if args.out:
+            out_path = Path(args.out)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(
+                json.dumps(archive, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
+            )
+            out_written = out_path
+    except (zipfile.BadZipFile, OSError) as exc:
+        # 审计 Z-05：损坏文件 / 被 Excel 占用 / 无权限 / --out 写盘失败 / 建比赛失败
+        # 原本直接抛 Python 堆栈，与规范承诺的「中文可读提示」不符
+        print(
+            f"✗ 读取或写出文件失败：{type(exc).__name__}: {exc}\n"
+            f"  请确认：① 文件是 .xlsx/.xlsm（Excel 2003 的 .xls 请先用 Excel「另存为」.xlsx）；"
+            f"② 该文件当前没有被 Excel 打开占用；③ 当前用户对源文件与 --out 目标目录有读写权限。",
+            file=sys.stderr,
+        )
+        return 1
     except (SheetFormatError, SheetBuildError, BuilderError, ValueError) as exc:
         print(f"✗ {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
 
     print(f"表格来源：{args.source}")
     print(f"比赛名：{archive['sourceCompetition']['name']}")
-
-    competition_id = args.competition
-    if args.create_competition and competition_id is None:
-        competition_id = _create_competition(archive["sourceCompetition"]["name"],
-                                             archive["resources"].get("competitionMeta", {}))
-        args.competition = competition_id
 
     print("已处理的工作表：")
     for name, count in stats.items():
@@ -146,11 +166,8 @@ def main(argv: list[str]) -> int:
         for text in warnings:
             print(f"  · {text}")
 
-    if args.out:
-        out_path = Path(args.out)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps(archive, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-        print(f"已写出归档：{out_path}")
+    if out_written is not None:
+        print(f"已写出归档：{out_written}")
 
     if args.inspect or (not args.out and args.competition is None):
         _print_summary(archive)
