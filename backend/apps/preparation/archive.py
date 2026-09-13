@@ -157,14 +157,16 @@ IMPORT_ORDER: list[str] = [
     # 科技与需求
     "techPrerequisites",
     "consumerDemands",
+    # 账号：必须在它的两个消费方（资金账户的 ownerId、消息的指定收件人）之前导入，
+    # 否则用户引用永远解析不到（审计 R-06：资金账户归属丢失、消息收件人被清空）。
+    # 账号引用公司（companyScopes），而公司在更前面，顺序仍然成立。
+    "users",
     # 市场
     "stocks",
     "stockFundsAccounts",
     "contractInstances",
     "overviewCards",
     "messages",
-    # 账号
-    "users",
 ]
 
 # 全局资源（不属于任何比赛，跨比赛共享）
@@ -1235,9 +1237,14 @@ def _imp_competition_meta(rows: list[dict], ctx: ImportContext) -> None:
             f"源比赛名称为「{src_name}」，目标比赛名称为「{comp.name}」；为避免重名冲突未自动改名，"
             "如需一致请手动修改比赛名称。"
         )
+    # 审计 R-05：状态不再静默覆盖目标比赛 —— 函数 docstring 与文档都声称「只在目标比赛上补空缺」，
+    # 而归档常常来自上一届（CLOSED）比赛，覆盖会把新建的 ACTIVE 比赛静默改成已结束
+    # （前端「进行中」标记与比赛准备页随之变化，且绕过了正常更新入口）。如需同步请手动改。
     if src.get("status") and comp.status != src["status"]:
-        comp.status = src["status"]
-        changed.append("status")
+        ctx.note(
+            f"源比赛状态为 {src['status']}，目标比赛状态为 {comp.status}：为避免影响目标比赛的"
+            "进行中状态，未自动覆盖（如需同步请在「比赛管理」里手动修改）。"
+        )
     bg = src.get("mapBackground")
     if bg and not comp.map_background:
         comp.map_background = json.dumps(bg, ensure_ascii=False)
@@ -2317,7 +2324,7 @@ def _imp_overview_cards(rows: list[dict], ctx: ImportContext) -> None:
 
 
 def _imp_messages(rows: list[dict], ctx: ImportContext) -> None:
-    from apps.messages.models import Message
+    from apps.messages.models import Message, MessageRecipient
     from apps.users.models import User
 
     # 发布者必填：优先按用户名映射，其次用导入操作者，最后回退任一超管
@@ -2357,7 +2364,7 @@ def _imp_messages(rows: list[dict], ctx: ImportContext) -> None:
                 f"消息「{title}」的部分指定收件人不在导入包内，已从收件人中移除"
                 "（如需完整收件人，请连同「账号与权限」分组一起导入）"
             )
-        Message.objects.create(
+        message = Message.objects.create(
             competition_id=ctx.competition_id,
             title=title,
             content=row.get("content") or "",
@@ -2365,6 +2372,31 @@ def _imp_messages(rows: list[dict], ctx: ImportContext) -> None:
             targets_all=bool(row.get("targetsAll")),
             target_user_ids=json.dumps(new_ids, ensure_ascii=False),
         )
+        # 审计 R-07：收件箱与未读数以 MessageRecipient 为权威来源（messages/views.py 的
+        # InboxView / UnreadCountView 只读它）。改前这里只写 Message 行、从不写收件人，
+        # 于是导入的消息对任何角色都不可见（含 targetsAll 的全体消息），而统计仍显示「新增 N」。
+        if row.get("targetsAll"):
+            from django.db.models import Q
+
+            recipient_ids = list(
+                User.objects.filter(
+                    Q(competition_id=ctx.competition_id) | Q(competition_id__isnull=True)
+                )
+                .values_list("id", flat=True)
+                .order_by("id")
+            )
+            if not recipient_ids:
+                ctx.problem(f"消息「{title}」为全体消息，但目标比赛没有任何账号可接收，收件人为空")
+        else:
+            recipient_ids = list(dict.fromkeys(new_ids))
+        if recipient_ids:
+            MessageRecipient.objects.bulk_create(
+                [
+                    MessageRecipient(message_id=message.id, user_id=uid)
+                    for uid in recipient_ids
+                ]
+            )
+            ctx.note(f"消息「{title}」已写入 {len(recipient_ids)} 位收件人（收件箱可见）")
         ctx.bump("messages", "created")
 
 

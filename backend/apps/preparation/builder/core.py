@@ -155,14 +155,15 @@ RESOURCE_ORDER: tuple[str, ...] = (
     # 科技与需求
     "techPrerequisites",
     "consumerDemands",
+    # 账号：必须在资金账户（ownerId）与消息（targetUserIds）之前，否则用户引用解析不到
+    # （审计 R-06）；顺序必须与 apps.preparation.archive.IMPORT_ORDER 完全一致
+    "users",
     # 市场
     "stocks",
     "stockFundsAccounts",
     "contractInstances",
     "overviewCards",
     "messages",
-    # 账号
-    "users",
 )
 
 # 分组（scope）→ 资源名：与 archive.SCOPES 一致，供 build(scope=...) 使用
