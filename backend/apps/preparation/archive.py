@@ -396,8 +396,17 @@ class RefResolver:
                 qs = qs.filter(competition_id=self.ctx.competition_id)
             except Exception:  # noqa: BLE001 - 模型无 competition 字段
                 pass
-            found = qs.values_list("id", flat=True).first()
-            if found is not None:
+            # 审计 R-09：改前直接 .first()（无排序）—— 目标比赛存在同名公司时会随机绑到其中一家
+            # （公司字段值 / 合同参与方 / 概览卡片 / 股票归属 / 资金账户 / 账号范围全都可能挂错），
+            # 而且毫无提示。现在按 id 升序取（结果确定）并在命中多条时记 problem。
+            matches = list(qs.order_by("id").values_list("id", flat=True)[:2])
+            if matches:
+                if len(matches) > 1:
+                    self.ctx.problem(
+                        f"{resource} 的资源「{name}」在目标比赛里有多条同名记录（id={matches[0]}、"
+                        f"{matches[1]}…）：已按 id 最小的一条绑定，请核对是否指向预期的对象"
+                    )
+                found = matches[0]
                 self.ctx.ids.put(resource, old_id, found)
                 return found
 
@@ -1426,15 +1435,30 @@ def _imp_companies(rows: list[dict], ctx: ImportContext) -> None:
                 # 区域不在本包内（只导了 company 分组）：按名建一个，保证归属不丢
                 region_id = Region.objects.create(competition_id=ctx.competition_id, name=region_name).id
                 ctx.note(f"区域「{region_name}」不在导入包内，已按名称自动创建")
-        obj, created = Company.objects.get_or_create(
-            competition_id=ctx.competition_id,
-            name=name,
-            defaults={
-                "industry_type_id": type_id,
-                "region_id": region_id,
-                "status": row.get("status") or "ACTIVE",
-            },
-        )
+        # 审计 R-09：改前用 get_or_create(competition_id=…, name=…) —— companies 没有
+        # (competition, name) 唯一约束，目标比赛存在同名公司时 get_or_create 内部的 get()
+        # 抛 MultipleObjectsReturned（不是数据库错误、无法自愈），被 apply_import 的
+        # per-resource except 捕获 ⇒ **整个「公司」资源全部跳过**，只留一条「导入失败」。
+        # 现在显式先查后建（按 id 升序，结果确定），命中多条时记 problem。
+        existing_qs = Company.objects.filter(
+            competition_id=ctx.competition_id, name=name
+        ).order_by("id")
+        duplicates = list(existing_qs.values_list("id", flat=True)[:2])
+        obj = existing_qs.first()
+        created = obj is None
+        if duplicates and len(duplicates) > 1:
+            ctx.problem(
+                f"目标比赛里有多家同名公司「{name}」（id={duplicates[0]}、{duplicates[1]}…）："
+                f"本行按 id 最小的一条（#{duplicates[0]}）处理，请核对是否指向预期的公司"
+            )
+        if created:
+            obj = Company.objects.create(
+                competition_id=ctx.competition_id,
+                name=name,
+                industry_type_id=type_id,
+                region_id=region_id,
+                status=row.get("status") or "ACTIVE",
+            )
         if created:
             ctx.bump("companies", "created")
         else:
