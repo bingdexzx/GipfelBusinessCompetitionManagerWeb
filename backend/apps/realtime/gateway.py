@@ -76,6 +76,10 @@ def _resolve_user(payload: dict):
         return None
     if payload.get("tv") != user.token_version:
         return None
+    # 禁用账号：Socket.IO 握手同样拒绝（HTTP 认证层的 is_active 校验见
+    # apps/auth/authentication.py；两处必须一致，否则禁用后 socket 仍在线，审计 I-02）
+    if not getattr(user, "is_active", True):
+        return None
     return user
 
 

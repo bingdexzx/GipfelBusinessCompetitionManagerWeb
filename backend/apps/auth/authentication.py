@@ -107,6 +107,13 @@ class JWTAuthentication(authentication.BaseAuthentication):
                 "登录已过期，请重新登录", code="invalid_user"
             )
 
+        # 账号已被禁用：立即失效。禁用是管理动作（PATCH /api/users/:id {"isActive": false}），
+        # 若只在登录时校验，被禁用账号仍可用旧 token 访问全部接口直至 token 过期（审计 I-02）。
+        if not getattr(user, "is_active", True):
+            raise exceptions.AuthenticationFailed(
+                "该账号已被禁用，请联系管理员", code="inactive"
+            )
+
         # 顶号下线：token 中 tv 与用户当前 token_version 不一致
         if payload.get("tv") != user.token_version:
             raise exceptions.AuthenticationFailed(
