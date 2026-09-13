@@ -23,14 +23,29 @@ REM    4. python manage.py check + migrate   first migrate seeds admin/admin23
 REM    5. npm install in frontend
 REM
 REM  Optional: pass --skip-frontend to skip Node/npm steps.
+REM  Optional: pass --no-keep-open to run inline and return the real exit
+REM            code (use this from scripts/CI; it never spawns cmd /k).
 REM ========================================================================
 
 REM --- keep the window open even if the script dies on a syntax error -----
-if not "%GIPFEL_NOEXIT%"=="1" (
-  set "GIPFEL_NOEXIT=1"
-  cmd /k call "%~f0" %*
-  exit /b
-)
+REM Audit X-18: the old guard used a GLOBAL ENV VAR as its "already re-entered"
+REM marker and ran before setlocal, so `set "GIPFEL_NOEXIT=1"` was written into
+REM the PARENT cmd.exe environment. Running this script a second time in the
+REM same window therefore found GIPFEL_NOEXIT already 1, skipped the guard and
+REM ran as a plain batch file - and if it then died before reaching pause, the
+REM window flashed away (exactly the failure rule 1 above exists to prevent).
+REM `cmd /k` also never returns, so any caller that chains scripts hangs.
+REM The marker is now a dedicated ARGUMENT, which only affects this one process
+REM tree and never leaks. Automation should pass --no-keep-open: that path runs
+REM inline and returns the real exit code instead of the always-0 of cmd /k.
+if /i "%~1"=="--no-keep-open" goto :guard_done
+if /i "%~1"=="__kept__" goto :guard_done
+cmd /k call "%~f0" __kept__ %*
+exit /b
+
+:guard_done
+if /i "%~1"=="--no-keep-open" shift
+if /i "%~1"=="__kept__" shift
 
 setlocal
 chcp 65001 >nul
@@ -199,7 +214,7 @@ echo.
 cd /d "%~dp0"
 echo [TIP]  Press any key to close this window...
 pause
-exit 0
+exit /b 0
 
 :fail
 echo.
@@ -208,7 +223,7 @@ echo.
 cd /d "%~dp0"
 echo [TIP]  Press any key to close this window...
 pause
-exit 1
+exit /b 1
 
 REM ---------- subroutine: probe one Python candidate ----------
 REM  Sets PYVER and PYCMD when PYPROBE points at a working interpreter.
