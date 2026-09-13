@@ -169,15 +169,20 @@ _STYLES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 </styleSheet>"""
 
 
+# XML 1.0 允许的字符：Tab(0x09)/LF(0x0A)/CR(0x0D) 以及 >=0x20；其余控制字符（含 \x00、\x0b、\x0c、
+# \x0e-\x1f）写进 XML 就是非法 token。审计 Z-10：改前只删了 \x00，于是带 \x0b 等字符的文本写出的
+# xlsx 会被本工具自己的读取器 ParseError、被 Excel/WPS 报「文件已损坏」（`make_template.py
+# --from-sheets` 这种「转一手」会把原本能读的文件变成打不开的文件）。
+_XML_ILLEGAL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
 def _xml_escape(text: str) -> str:
     return (
-        str(text)
+        _XML_ILLEGAL_RE.sub("", str(text))
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
         .replace('"', "&quot;")
-        # XML 1.0 不允许的控制字符（Excel 会直接报文件损坏）
-        .replace("\x00", "")
     )
 
 
