@@ -237,6 +237,12 @@ def transport_contract() -> ContractType:
 
     ct.check(rate_per_km >= 0, label="运价校验", error="单公里运价不能为负")
     ct.check(cargo_weight >= 0, label="货重校验", error="货物总重不能为负")
+    # 审计 Z-14：`trips` 原本没有任何下界 —— 填 -100 会让 freight 变负，
+    # `ct.sub_number(client.cash, 负值)` 给委托方**加钱**、`ct.add_number(carrier.cash, 负值)`
+    # 给承运方**扣钱**，而 `client.cash >= freight + carbon_tax` 也拦不住（负数恒小于现金），
+    # 即玩家可以把运费"刷"成反向转账。碳税税率同理必须非负。
+    ct.check(trips >= 0, label="车次校验", error="车次不能为负（负车次会把运费算成反向转账）")
+    ct.check(carbon_tax_rate >= 0, label="碳税税率校验", error="碳税税率不能为负")
     # 用原始值源比较（不要用 assign 出来的变量：前置检查在效果之前求值，那时变量还不存在）
     ct.check(client.field(F["cash"]) >= freight + carbon_tax, label="运费校验",
              error="委托方货币资金不足以支付运费与碳税")

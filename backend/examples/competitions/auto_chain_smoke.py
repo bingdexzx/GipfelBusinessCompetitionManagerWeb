@@ -115,8 +115,35 @@ def _fill_smoke_inputs(cid: int, contract_key: str, inputs: dict) -> None:
         inputs["route"] = _route_node_ids(cid, DEFAULT_ROUTE_NODES)
     if not inputs.get("vehicles"):
         inputs["vehicles"] = {"重型卡车": 2}
-    if not inputs.get("cargo_weight"):
-        inputs["cargo_weight"] = 20
+    # 审计 Z-14：文档把「超重 +10%」列为该合同主要效果，但预置实例是 `cargo_weight: 20`
+    # 而两辆重型卡车合计载重 60 吨 ⇒ `cargo_weight > capacity` 永远为假，该分支不可复现
+    # （`:126` 的参考金额 6,858 也正是"未超重"的结果）。这里覆盖成「合计载重 + 10 吨」，
+    # 让冒烟真的跑到超重分支；预置实例本身不动（不改变比赛经济模型）。
+    if inputs.get("vehicles"):
+        cap = _vehicle_capacity(cid, inputs["vehicles"])
+        if cap > 0 and float(inputs.get("cargo_weight") or 0) <= cap:
+            inputs["cargo_weight"] = cap + 10
+            print(f"  （冒烟：货重调整为 {cap + 10:g} 吨 > 合计载重 {cap:g} 吨，以覆盖「超重 +10%」分支）")
+
+
+def _vehicle_capacity(cid: int, vehicles: dict) -> float:
+    """按 `{载具名: 数量}` 算合计载重（`maxCargo`，与引擎 `sum_of(vehicles, "maxCargo")` 同源）。"""
+    from apps.vehicles.models import Vehicle
+
+    total = 0.0
+    for name, count in (vehicles or {}).items():
+        cargo = (
+            Vehicle.objects.filter(competition_id=cid, name=name)
+            .values_list("max_cargo", flat=True)
+            .first()
+        )
+        if cargo is None:
+            continue
+        try:
+            total += float(cargo) * float(count)
+        except (TypeError, ValueError):
+            continue
+    return total
 
 
 def _route_node_ids(cid: int, names: tuple[str, ...]) -> list[int]:
