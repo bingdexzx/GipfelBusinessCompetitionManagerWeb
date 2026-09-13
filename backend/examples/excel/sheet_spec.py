@@ -128,17 +128,32 @@ def as_items(text: str | None) -> list[str]:
     return smart_split(s)
 
 
+_FULLWIDTH_DIGIT_RE = re.compile(r"[０-９]")
+_ASCII_INT_RE = re.compile(r"[+-]?[0-9]+")
+_ASCII_DECIMAL_RE = re.compile(r"[+-]?(?:[0-9]+\.[0-9]*|\.[0-9]+)")
+
+
 def _as_scalar(text: str) -> Any:
-    """标量：能当数字就当数字（配比/价格），否则保留文本。"""
+    """标量：能当数字就当数字（配比/价格），否则保留文本。
+
+    审计 Z-03：改前用 `re.fullmatch(r"[+-]?\\d+", s)` —— Python 的 `\\d` 也匹配**全角数字**，
+    于是 `１００` 被静默归一成 `100`；`int(float("００１０"))` 变成 `10`：标识（产业类型 code、
+    地点价键名）被悄悄改写，跨表引用随之错位，甚至与库里既有 code 撞车后被按 code 复用覆盖。
+    同时 `float()` 还接受 `1e3` / `1_000` 等写法，把「文本保精度」变成二进制浮点。
+    现在：只认半角数字；全角数字直接报错；其余（含指数/下划线写法）一律按文本原样保留。
+    """
     s = str(text).strip()
     if s == "":
         return ""
-    try:
-        if re.fullmatch(r"[+-]?\d+", s):
-            return int(s)
+    if _FULLWIDTH_DIGIT_RE.search(s):
+        raise SheetFormatError(
+            f"检测到全角数字「{s}」：请改用半角数字（0-9），本工具不再自动归一化数字标识"
+        )
+    if _ASCII_INT_RE.fullmatch(s):
+        return int(s)
+    if _ASCII_DECIMAL_RE.fullmatch(s):
         return float(s)
-    except ValueError:
-        return s
+    return s
 
 
 # ------------------------------ 数值下界校验（审计 Z-02） ------------------------------
@@ -148,17 +163,20 @@ def _as_scalar(text: str) -> Any:
 # 这里统一在 handler 里拦下：报错由调用方补上「[表名] 第 N 行」前缀。
 
 def _num_or_none(value: Any) -> float | None:
-    """把单元格值转成 float；空值/非数字返回 None。"""
+    """把单元格值转成 float；空值/非数字返回 None。
+
+    只接受**半角**数字（审计 Z-03）：`float("００１０")` 在 Python 里等于 10，会让全角写法
+    被静默归一；这里改为不识别（由调用方报「必须是数字」），避免悄悄改写数字标识。
+    """
     try:
         s = str(value).strip()
     except Exception:  # noqa: BLE001 - 极端输入（对象等）按非数字处理
         return None
     if s == "":
         return None
-    try:
-        n = float(s)
-    except ValueError:
+    if not (_ASCII_INT_RE.fullmatch(s) or _ASCII_DECIMAL_RE.fullmatch(s)):
         return None
+    n = float(s)
     if n != n or n in (float("inf"), float("-inf")):   # NaN / inf 不是合法业务数值
         return None
     return n
@@ -509,7 +527,10 @@ def _h_industry_type(ctx: SheetContext, row: dict) -> None:
     name = row.get("name")
     if not code or not name:
         raise SheetFormatError("产业类型表的 code 与 name 必填")
-    ctx.builder.industry_type(int(float(code)), name,
+    # 审计 Z-03：code 是跨表引用的**全局标识**。改前 int(float(code)) 会把全角 `００１０`
+    # 悄悄变成 10（float 接受全角数字），与库里既有 code 撞车后按 code 复用并覆盖对方名称。
+    _check_num("code（产业类型 code，须为半角数字）", code, 0)
+    ctx.builder.industry_type(int(_num_or_none(code)), name,
                               description=row.get("description") or None,
                               icon=row.get("icon") or None)
 
