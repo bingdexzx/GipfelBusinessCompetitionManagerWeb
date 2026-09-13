@@ -2264,6 +2264,46 @@ def _imp_stocks(rows: list[dict], ctx: ImportContext) -> None:
         )
         if created:
             ctx.bump("stocks", "created")
+        elif ctx.is_overwrite:
+            # 审计 R-10：改前覆盖模式同样只记 skipped —— 股票初始价/总股本/行业 PE/轮次等行情参数
+            # 不会被归档刷新（用户以为「覆盖」生效，rollup 里 updated=0 也容易被忽略）。
+            from decimal import Decimal
+
+            overwrite_fields = {
+                "company_id": company_id,
+                "total_shares": row.get("totalShares"),
+                "init_net_profit": row.get("initNetProfit"),
+                "init_price": row.get("initPrice"),
+                "current_price": row.get("currentPrice") or row.get("initPrice"),
+                "industry_pe": row.get("industryPe"),
+                "current_carbon": row.get("currentCarbon"),
+                "industry_avg_carbon": row.get("industryAvgCarbon"),
+                "happiness": row.get("happiness"),
+                "round": row.get("round"),
+                "carbon_field_ref": row.get("carbonFieldRef"),
+                "happiness_field_ref": row.get("happinessFieldRef"),
+                "industry_avg_carbon_refs": row.get("industryAvgCarbonRefs"),
+                "pb_random": row.get("pbRandom"),
+            }
+            touched = False
+            for field, value in overwrite_fields.items():
+                if value is None:
+                    continue
+                current = getattr(obj, field, None)
+                if isinstance(current, Decimal):
+                    try:
+                        value = Decimal(str(value))
+                    except Exception:  # noqa: BLE001 - 非法金额保持原值
+                        ctx.problem(f"股票「{code}」的 {field}「{value}」不是合法数字，已保持原值")
+                        continue
+                if current != value:
+                    setattr(obj, field, value)
+                    touched = True
+            if touched:
+                obj.save()
+                ctx.bump("stocks", "updated")
+            else:
+                ctx.bump("stocks", "skipped")
         else:
             ctx.bump("stocks", "skipped")
         ctx.ids.put("stocks", row.get("_id"), obj.id)
@@ -2298,6 +2338,37 @@ def _imp_stock_funds_accounts(rows: list[dict], ctx: ImportContext) -> None:
         )
         if created:
             ctx.bump("stockFundsAccounts", "created")
+        elif ctx.is_overwrite:
+            # 审计 R-10：改前覆盖模式同样只记 skipped —— 账户初始现金（清单里明确写「开赛前是
+            # 最后一次可自由设定」的字段）不会被归档刷新。现在按归档更新归属与现金余额。
+            touched = False
+            new_company = company_id if owner_type == "COMPANY" else None
+            new_user = user_id if owner_type == "USER" else None
+            for field, value in (
+                ("owner_type", owner_type),
+                ("company_id", new_company),
+                ("user_id", new_user),
+            ):
+                if value is not None and getattr(obj, field) != value:
+                    setattr(obj, field, value)
+                    touched = True
+            cash = row.get("cashBalance")
+            if cash is not None:
+                from decimal import Decimal, InvalidOperation
+
+                try:
+                    cash_val = Decimal(str(cash))
+                except (InvalidOperation, TypeError, ValueError):
+                    cash_val = None
+                    ctx.problem(f"资金账户「{name}」的现金余额「{cash}」不是合法数字，已保持原值")
+                if cash_val is not None and obj.cash_balance != cash_val:
+                    obj.cash_balance = cash_val
+                    touched = True
+            if touched:
+                obj.save()
+                ctx.bump("stockFundsAccounts", "updated")
+            else:
+                ctx.bump("stockFundsAccounts", "skipped")
         else:
             ctx.bump("stockFundsAccounts", "skipped")
         ctx.ids.put("stockFundsAccounts", row.get("_id"), obj.id)
