@@ -284,12 +284,29 @@ def _competition_meta(tables: dict[str, list[list[str]]], fallback_name: str,
     return {"name": name, "status": status, "map_background": background}
 
 
+def is_comment_row(cells: list[str]) -> bool:
+    """整行注释判定：首格以 `#` / `//` 开头，**且该行没有其它非空单元格**。
+
+    审计 Z-01：改前只要首格以 `#` 开头就整行丢弃，于是
+      - 公式错误值（`#N/A` `#REF!` `#DIV/0!` …）所在的数据行整行消失（恰恰是最该被看见的行）；
+      - 以 `#` 开头的正式名称（`#1 号矿区`）无法录入；
+    且 `--inspect` 的「已处理 N 行」、归档、导入结果会一致地少一行 —— 用户完全看不到。
+    现在只有真正的「整行注释」才跳过，其余照常当数据行解析（必要时由必填列校验报错）。
+    """
+    if not cells:
+        return False
+    first = cells[0]
+    if not (first.startswith("#") or first.startswith("//")):
+        return False
+    return all(c == "" for c in cells[1:])
+
+
 def _table_rows(spec, table: list[list[str]]) -> list[tuple[int, dict]]:
     """把工作表切成 [(行号, {参数名: 单元格文本})]。
 
     - 表头可以是**中文**（推荐，见 `sheet_spec.HEADERS`）或英文参数名，两者等价；
     - 规范之外的列会报错（「公司」表例外：额外列当作该公司的产业字段初始值）；
-    - 以 `#` / `//` 开头的行是注释行，整行空白跳过。
+    - 整行空白跳过；整行注释（首格以 `#` / `//` 开头且该行无其它非空单元格）跳过。
     """
     header_index = None
     raw_headers: list[str] = []
@@ -327,7 +344,7 @@ def _table_rows(spec, table: list[list[str]]) -> list[tuple[int, dict]]:
         cells = [str(c or "").strip() for c in raw]
         if not any(cells):
             continue
-        if cells[0].startswith("#") or cells[0].startswith("//"):
+        if is_comment_row(cells):
             continue
         row = {
             headers[i]: cells[i]
