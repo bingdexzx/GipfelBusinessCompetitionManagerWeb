@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 import api, { authApi } from "@/api";
-import { setSessionRefreshing } from "@/api/request";
+import { resetRequestMemo, setSessionRefreshing } from "@/api/request";
 import { getAccountItem, setAccountItem, removeAccountItem, setActiveUser } from "@/utils/accountStorage";
 import { logger } from "@/utils/logger";
 import { disconnectRealtime } from "@/realtime/socket";
@@ -184,6 +184,11 @@ export const useAuthStore = defineStore("auth", () => {
     stopHeartbeat();
     token.value = "";
     user.value = null;
+    // 清空请求层内存 memo（登出 / 换账号 / 被顶号都走这里）：memo 是模块级共享状态且键不含
+    // 账号，不清空则新账号在 15s 窗口内会命中上一账号的响应（如按 companyScopes 裁剪过的
+    // 公司列表）且不发请求——审计 F-06。resetRequestMemo() 同时递增会话 epoch，
+    // 使登出前已发出的在途请求返回后无法把旧账号数据写回（见 api/responseMemo.ts）。
+    resetRequestMemo();
     // 断开实时 WebSocket 通道：被顶号 / 登录过期后旧 socket 若不断开，会以失效 token 无限重连，
     // 产生大量 401 噪声且实时事件在登录态恢复前可能错乱（见 request.ts 拦截器 401 处理）。
     disconnectRealtime();

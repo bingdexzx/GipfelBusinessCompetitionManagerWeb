@@ -7,6 +7,18 @@ import { getAccountItem, removeAccountItem } from "@/utils/accountStorage";
 import { applyLocalPaging as reconstruct } from "./localPaging";
 // 响应体归类（纯函数）：blob 下载与非信封 2xx 不再被判为失败（审计 F-01）。
 import { interpretResponse } from "./envelope";
+// 请求层内存 memo（登出/换账号清空 + epoch 防旧响应回填，见模块注释；审计 F-06）。
+import {
+  bumpResourceEvent,
+  getMemoEntry,
+  isMemoFresh,
+  memoEpoch,
+  resetResponseMemo,
+  writeMemo,
+} from "./responseMemo";
+
+// 实时事件到达时标记资源「最近有变更」的实现来自 ./responseMemo，这里保持对外导出不变。
+export { bumpResourceEvent };
 
 // axios 自定义请求配置字段类型增强（request.ts 与 stores/version.ts 均使用这些字段）。
 declare module "axios" {
@@ -223,10 +235,7 @@ function _deriveResourceKey(url: string): string {
 // ---------- O3：跨挂载新鲜度窗口（stale-while-revalidate）----------
 // 内存 memo：按「请求键」缓存最近一次成功响应；窗口内（且无该资源实时事件）直接返回，
 // 避免同一资源在多个组件/多次挂载被重复发往服务端（仍是后台增量请求，但能省则省）。
-const STALE_WINDOW_MS = 15 * 1000;
-const _memo = new Map<string, { time: number; value: unknown }>();
-// 各资源最近一次实时事件时间；事件后该资源的 memo 立即失效（绕过新鲜度窗口），保证及时刷新。
-const _lastEventAt = new Map<string, number>();
+// 状态与读写器在 ./responseMemo.ts（含「登出/换账号清空」与 epoch 防旧响应回填）。
 
 function _resourceOf(url: string): string {
   const path = (url || "").split("?")[0];
@@ -234,23 +243,9 @@ function _resourceOf(url: string): string {
   return SEG_TO_RESOURCE[seg] || seg;
 }
 
-/** 实时事件到达时调用：标记该资源「最近有变更」，使 O3 memo 立即失效并触发刷新。 */
-export function bumpResourceEvent(resource: string): void {
-  if (!resource) return;
-  _lastEventAt.set(resource, Date.now());
-  // 防止无界增长：条目超过 100 时清理 1 小时前的旧条目
-  if (_lastEventAt.size > 100) {
-    const cutoff = Date.now() - 3600_000;
-    for (const [k, v] of _lastEventAt) {
-      if (v < cutoff) _lastEventAt.delete(k);
-    }
-  }
-}
-
 /** 写操作 / 登录失效后清空内存 memo，避免返回被写失效前的陈旧数据。 */
 function _resetMemo(): void {
-  _memo.clear();
-  _lastEventAt.clear();
+  resetResponseMemo();
 }
 
 /** 对外暴露：清空内存 memo（设置页「清空本地缓存」等场景调用，配合清空 IndexedDB 后重载页面）。 */
@@ -690,19 +685,20 @@ async function _cachedGet<T = unknown>(url: string, config?: AxiosRequestConfig)
 
   // O3：窗口内且无该资源实时事件 → 直接返回内存副本，不打网络（含后台增量请求）。
   const resource = _resourceOf(url);
-  const m = _memo.get(key);
-  const lastEvt = _lastEventAt.get(resource) ?? -Infinity;
-  if (m && Date.now() - m.time < STALE_WINDOW_MS && lastEvt <= m.time) {
-    return unwrap(m.value) as Promise<T>;
+  const m = getMemoEntry(key);
+  if (isMemoFresh(m, resource)) {
+    return unwrap(m!.value) as Promise<T>;
   }
 
   // F2 修复：记录请求发起时刻（而非完成时刻），确保事件晚于发起时刻时 memo 失效
   const startedAt = Date.now();
+  // 记录发起时的会话 epoch：登出/换账号会递增它，旧响应返回后不得再写回 memo（审计 F-06）
+  const epoch = memoEpoch();
   const p = cachedGetImpl(url, silentConfig).finally(() => _getInflight.delete(key));
   _getInflight.set(key, p);
   const result = await p;
   // 使用 startedAt 而非 Date.now()，消除时序竞态窗口；memo 存原始结构（保留分页 total 等）
-  _memo.set(key, { time: startedAt, value: result });
+  writeMemo(key, { time: startedAt, value: result }, epoch);
   // 对外返回：列表统一降维为裸数组（normalize=false 时保留分页对象），兼容下游 `Array.isArray(res)` 写法
   return unwrap(result);
 }
