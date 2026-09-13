@@ -12,6 +12,7 @@ Decimal 按引擎口径转换（整数值 → int 继续判断，非整数值 �
 """
 from __future__ import annotations
 
+import math
 from decimal import Decimal
 from typing import Any
 
@@ -32,7 +33,10 @@ def _convert_big_numbers(obj: Any) -> Any:
             return _convert_big_numbers(int(obj))
         return format(obj, "f")
     if isinstance(obj, float):
-        return obj
+        # 非有限浮点（inf/nan）无法以 allow_nan=False 出站：DRF JSONRenderer 会抛
+        # ValueError 让整个接口 500。历史脏数据（审计 D-08）兜底为 null，
+        # 避免一行脏数据打挂该模块的所有读接口；写入侧由 FiniteFloatField 拦截。
+        return obj if math.isfinite(obj) else None
     if isinstance(obj, list):
         return [_convert_big_numbers(x) for x in obj]
     if isinstance(obj, dict):

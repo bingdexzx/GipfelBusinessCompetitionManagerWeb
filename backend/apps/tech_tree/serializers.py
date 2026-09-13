@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
+from apps.common.drf_fields import FiniteFloatField
+
 from .models import TechNode, TechPrerequisite
 
 
@@ -14,8 +16,8 @@ class TechNodeSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)
     name = serializers.CharField(max_length=128, trim_whitespace=True)
     description = serializers.CharField(allow_null=True, required=False, allow_blank=True)
-    tier = serializers.FloatField(default=0)
-    researchCost = serializers.FloatField(default=0)
+    tier = FiniteFloatField(default=0)
+    researchCost = FiniteFloatField(default=0)
     competitionId = serializers.IntegerField()
     prerequisites = serializers.ListField(
         child=serializers.DictField(), required=False, allow_empty=True

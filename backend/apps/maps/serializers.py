@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
+from apps.common.drf_fields import FiniteFloatField
+
 from .models import MapEdge, MapNode, MapNodeType, PathType
 
 
@@ -92,8 +94,8 @@ class MapNodeSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=128, trim_whitespace=True)
     region = serializers.CharField(max_length=128, default="")
     nodeTypeId = serializers.IntegerField()
-    x = serializers.FloatField(default=0)
-    y = serializers.FloatField(default=0)
+    x = FiniteFloatField(default=0)
+    y = FiniteFloatField(default=0)
     competitionId = serializers.IntegerField()
     nodeType = serializers.DictField(read_only=True)
     createdAt = serializers.DateTimeField(read_only=True)
@@ -150,7 +152,7 @@ class MapEdgeSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)
     fromNodeId = serializers.IntegerField()
     toNodeId = serializers.IntegerField()
-    distance = serializers.FloatField(default=0)
+    distance = FiniteFloatField(default=0)
     pathTypeId = serializers.IntegerField()
     competitionId = serializers.IntegerField()
     fromNode = serializers.DictField(read_only=True)
