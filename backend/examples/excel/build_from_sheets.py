@@ -382,6 +382,12 @@ def _competition_meta(tables: dict[str, list[list[str]]], fallback_name: str,
     return {"name": name, "status": status, "map_background": background}
 
 
+# Excel 公式错误值（审计 Z-12）：这些不是用户想写进比赛的内容，必须显式拒绝而不是当普通文本
+EXCEL_ERROR_VALUES = frozenset({
+    "#DIV/0!", "#N/A", "#NAME?", "#NULL!", "#NUM!", "#REF!", "#VALUE!", "#GETTING_DATA",
+})
+
+
 def is_comment_row(cells: list[str]) -> bool:
     """整行注释判定：首格以 `#` / `//` 开头，**且该行没有其它非空单元格**。
 
@@ -444,6 +450,24 @@ def _table_rows(spec, table: list[list[str]]) -> list[tuple[int, dict]]:
             continue
         if is_comment_row(cells):
             continue
+        # 审计 Z-12：Excel 错误值（#DIV/0! / #N/A / #REF! …）改前被当普通文本 —— 落在文本列上会
+        # 原样写进比赛（库里出现一个叫「#DIV/0!」的原料/公司名）。这里显式拒绝，指出是哪一格，
+        # 让用户去修公式；比静默丢弃（Z-01）或静默写脏数据都更安全。
+        err = next(
+            (i for i, c in enumerate(cells) if c in EXCEL_ERROR_VALUES),
+            None,
+        )
+        if err is not None:
+            if err < len(raw_headers) and raw_headers[err]:
+                col = raw_headers[err]          # 用表格里的原始表头（中文），便于用户定位
+            elif err < len(headers) and headers[err]:
+                col = headers[err]
+            else:
+                col = f"第 {err + 1} 列"
+            raise SheetFormatError(
+                f"第 {offset} 行的「{col}」是 Excel 错误值 {cells[err]}"
+                f"（公式算错或引用为空）——请先在表格里修正该公式，本工具不会把错误值写进比赛"
+            )
         row = {
             headers[i]: cells[i]
             for i in range(min(len(headers), len(cells)))

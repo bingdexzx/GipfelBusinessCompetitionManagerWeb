@@ -23,7 +23,7 @@ if str(EXAMPLES_DIR) not in sys.path:
     sys.path.insert(0, str(EXAMPLES_DIR))
 
 from build_from_sheets import _table_rows  # noqa: E402
-from sheet_spec import SHEET_BY_NAME  # noqa: E402
+from sheet_spec import SHEET_BY_NAME, SheetFormatError  # noqa: E402
 
 try:  # 改前不存在该函数（只有内联的 startswith 判断）
     from build_from_sheets import is_comment_row  # noqa: E402
@@ -37,21 +37,35 @@ class CommentRowTests(SimpleTestCase):
     def rows(self, table):
         return _table_rows(REGION, table)
 
-    def test_formula_error_row_is_kept(self):
-        """#N/A 数据行必须保留（改前整行消失，且 --inspect 计数也少一行）。"""
+    def test_formula_error_row_is_rejected_loudly(self):
+        """#N/A 数据行：改前被当注释静默丢弃，现在**显式报错**（Z-12 收紧：错误值不得写进比赛）。
+
+        Z-01 的底线是「不得静默丢弃」；Z-12 进一步要求错误值不能被当成普通文本落库，
+        故最终采用「明确报错并指出是哪一格」——不再静默丢，也不再静默写脏数据。
+        """
         table = [
             ["区域名称", "说明"],
             ["甲", ""],
             ["#N/A", "公式没匹配到的区域"],
             ["乙", ""],
         ]
+        with self.assertRaises(SheetFormatError) as cm:
+            self.rows(table)
+        msg = str(cm.exception)
+        self.assertIn("#N/A", msg, f"错误应指出具体的错误值：{msg}")
+        self.assertIn("第 3 行", msg, f"错误应指出行号：{msg}")
+        self.assertIn("区域名称", msg, f"错误应指出列名：{msg}")
+
+    def test_rows_without_error_values_are_still_parsed(self):
+        """回归：没有错误值的行照常解析（行号与内容一致）。"""
+        table = [
+            ["区域名称", "说明"],
+            ["甲", ""],
+            ["乙", "公式算出的人文名称"],
+        ]
         data = self.rows(table)
-        names = [row.get("name") for _no, row in data]
-        self.assertEqual(
-            names, ["甲", "#N/A", "乙"],
-            f"公式错误值所在行不得被当注释丢弃，实际解析出 {names}",
-        )
-        self.assertEqual([no for no, _row in data], [2, 3, 4], "行号必须与表格一致")
+        self.assertEqual([row.get("name") for _no, row in data], ["甲", "乙"])
+        self.assertEqual([no for no, _row in data], [2, 3], "行号必须与表格一致")
 
     def test_hash_prefixed_real_name_is_kept(self):
         """以 # 开头的正式名称必须能录入（改前被当注释）。"""
