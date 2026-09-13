@@ -281,6 +281,7 @@ def build_from_tables(
     )
     stats: dict[str, int] = {}
     empty_sheets: list[str] = []   # 审计 Z-12 余项：表头在、数据为空的工作表
+    skipped_by_filter: list[str] = []   # 审计 Z-17：被 --sheets 过滤掉、未参与产出的表
     problems: list[str] = []      # 审计 Z-13：收集全部行级错误后一次性报出
 
     # 审计 Z-12 余项：隐藏工作表/隐藏行里的数据**照常会被建进比赛**（不改读取行为，
@@ -313,6 +314,10 @@ def build_from_tables(
         if spec.handler is None:      # 「比赛」表已在构造构建器时消费
             continue
         if selected is not None and spec.name not in selected:
+            # 审计 Z-17：被 --sheets 过滤掉的表要在总结里显式说明，否则
+            # 「共处理 N 张表」会被误读成「表格里的表都处理了」。
+            if spec.name in tables:
+                skipped_by_filter.append(spec.name)
             continue
         if spec.name not in tables:
             continue
@@ -357,6 +362,13 @@ def build_from_tables(
         )
     notes.append(f"共处理 {len(stats)} 张表、{sum(stats.values())} 行数据"
                  "（只处理出现在表格里的表，其余表完全不参与产出）")
+    if skipped_by_filter:
+        # 审计 Z-17：改前这条统计口径会让人误读成「表格里的表都处理了」
+        skipped = "、".join(sorted(skipped_by_filter))
+        notes.append(
+            f"另有 {len(skipped_by_filter)} 张表因 --sheets 过滤**未参与产出**：{skipped}"
+            "（它们的资源不会出现在归档里，别用这份归档替换完整归档）"
+        )
     return builder, stats, notes
 
 

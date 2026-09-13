@@ -502,9 +502,9 @@ python examples/competitions/auto_chain_setup.py --finish                 # 计�
 
 | 文件 | 内容 |
 | --- | --- |
-| `backend/examples/excel/最小示例.xlsx` | 最小框架（16 张表，本教程第 1 节） |
-| `backend/examples/excel/汽车产业链示例.xlsx` | 汽车产业链完整框架（20 张表） |
-| `backend/examples/excel/比赛建包模板.xlsx` | 空白模板（含表头、示例行、说明表、表头↔参数名对照） |
+| `backend/examples/excel/最小示例.xlsx` | 最小框架（17 张工作表 = 16 张业务表 + 1 张「说明」表，本教程第 1 节） |
+| `backend/examples/excel/汽车产业链示例.xlsx` | 汽车产业链完整框架（21 张工作表 = 20 张业务表 + 1 张「说明」表） |
+| `backend/examples/excel/比赛建包模板.xlsx` | 空白模板（22 张工作表 = 21 张业务表 + 1 张「说明」表；含表头、示例行、表头↔参数名对照） |
 
 ### 10.3 还想深入
 

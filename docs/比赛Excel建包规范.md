@@ -100,7 +100,7 @@ $env:PYTHONUTF8='1'
 现成可用的例子：[`backend/examples/excel/汽车产业链示例.xlsx`](../backend/examples/excel/汽车产业链示例.xlsx)
 （汽车产业链完整框架：3 产业 / 8 节点 / 5 原料 / 5 零件 / 3 产品 / 3 合同类型）、
 空白模板 [`比赛建包模板.xlsx`](../backend/examples/excel/比赛建包模板.xlsx)、
-教程用的 [`最小示例.xlsx`](../backend/examples/excel/最小示例.xlsx)（最小框架，17 张表）。
+教程用的 [`最小示例.xlsx`](../backend/examples/excel/最小示例.xlsx)（最小框架，17 张工作表 = 16 张业务表 + 1 张「说明」表）。
 
 命令参数一览：
 
@@ -614,9 +614,9 @@ python manage.py build_contract_types examples/contracts/mini_contracts.py --com
 | [`backend/examples/excel/make_template.py`](../backend/examples/excel/make_template.py) | 生成空白模板；xlsx ↔ CSV 目录互转 |
 | [`backend/examples/excel/make_sample_auto_chain.py`](../backend/examples/excel/make_sample_auto_chain.py) | 生成汽车产业链框架示例 / 最小框架示例 |
 | [`backend/examples/excel/xlsx_io.py`](../backend/examples/excel/xlsx_io.py) | 极简 xlsx / CSV 读写（纯标准库） |
-| [`backend/examples/excel/比赛建包模板.xlsx`](../backend/examples/excel/比赛建包模板.xlsx) | 空白模板（含「说明」表、边界说明与表头↔参数名对照） |
-| [`backend/examples/excel/汽车产业链示例.xlsx`](../backend/examples/excel/汽车产业链示例.xlsx) | 汽车产业链完整框架（20 张表） |
-| [`backend/examples/excel/最小示例.xlsx`](../backend/examples/excel/最小示例.xlsx) | 教程用的最小框架（16 张表） |
+| [`backend/examples/excel/比赛建包模板.xlsx`](../backend/examples/excel/比赛建包模板.xlsx) | 空白模板（22 张工作表 = 21 张业务表 + 1 张「说明」表；含边界说明与表头↔参数名对照） |
+| [`backend/examples/excel/汽车产业链示例.xlsx`](../backend/examples/excel/汽车产业链示例.xlsx) | 汽车产业链完整框架（21 张工作表 = 20 张业务表 + 1 张「说明」表） |
+| [`backend/examples/excel/最小示例.xlsx`](../backend/examples/excel/最小示例.xlsx) | 教程用的最小框架（17 张工作表 = 16 张业务表 + 1 张「说明」表） |
 | [`backend/examples/contracts/auto_chain_contracts.py`](../backend/examples/contracts/auto_chain_contracts.py) | 开采 / 购销 / 运输三大合同类型（示例表格引用它） |
 | [`backend/examples/contracts/mini_contracts.py`](../backend/examples/contracts/mini_contracts.py) | 最小合同类型脚本（最小示例引用它） |
 | [`docs/CONTRACT_TYPE_BY_CODE.md`](CONTRACT_TYPE_BY_CODE.md) | **合同类型代码化**完整说明（具名效果、实体访问器、体检与试算） |
