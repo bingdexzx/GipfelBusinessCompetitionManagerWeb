@@ -19,9 +19,14 @@ PASS=0
 FAIL=0
 WARN=0
 
-check_pass() { echo -e "  ${GREEN}✓${NC} $*"; ((PASS++)); }
-check_fail() { echo -e "  ${RED}✗${NC} $*"; ((FAIL++)); }
-check_warn() { echo -e "  ${YELLOW}⚠${NC} $*"; ((WARN++)); }
+# 审计 X-01：改前是 `((PASS++))` / `((FAIL++))` / `((WARN++))` —— 在 `set -e` 下，
+# 后置自增表达式的**返回值是自增前的旧值**，第一次自增时旧值为 0 ⇒ 算术命令返回非零
+# ⇒ bash 立即中止脚本。结果是「第一项检查通过后脚本就退出，且退出码 0」，
+# 调用方/CI 会把它误判为「迁移成功」。
+# 现在改用 POSIX 赋值形式（赋值永远返回 0），计数照常累加。
+check_pass() { echo -e "  ${GREEN}✓${NC} $*"; PASS=$((PASS + 1)); }
+check_fail() { echo -e "  ${RED}✗${NC} $*"; FAIL=$((FAIL + 1)); }
+check_warn() { echo -e "  ${YELLOW}⚠${NC} $*"; WARN=$((WARN + 1)); }
 
 INSTALL_DIR="${1:-/opt/gipfel}"
 
@@ -40,6 +45,42 @@ if [[ -f "$INSTALL_DIR/backend/db.sqlite3" ]]; then
         check_pass "数据库文件存在 ($(numfmt --to=iec $size 2>/dev/null || echo "$size bytes"))"
     else
         check_fail "数据库文件为空"
+    fi
+    # 审计 X-09：改前只测**文件大小** —— 一个损坏的 SQLite（例如复制到一半）或只有空
+    # schema 的库同样 size>0，会被判为「迁移成功」。这里真正打开库并查一张业务表。
+    if command -v python3 >/dev/null 2>&1; then
+        if db_msg=$(python3 - "$INSTALL_DIR/backend/db.sqlite3" <<'PY' 2>&1
+import sqlite3, sys
+path = sys.argv[1]
+try:
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        rows = con.execute(
+            "select name from sqlite_master where type='table' and name not like 'sqlite_%'"
+        ).fetchall()
+        if not rows:
+            print("EMPTY_SCHEMA")
+            sys.exit(2)
+        # 业务库至少要有 Django 迁移表与一个业务表
+        names = {r[0] for r in rows}
+        if "django_migrations" not in names:
+            print("NO_DJANGO_MIGRATIONS")
+            sys.exit(3)
+        n = con.execute("select count(*) from django_migrations").fetchone()[0]
+        print(f"OK tables={len(names)} migrations={n}")
+    finally:
+        con.close()
+except sqlite3.DatabaseError as exc:
+    print(f"BROKEN: {exc}")
+    sys.exit(4)
+PY
+        ); then
+            check_pass "数据库可打开且 schema 非空 ($db_msg)"
+        else
+            check_fail "数据库不可用：$db_msg"
+        fi
+    else
+        check_warn "python3 未安装，无法校验数据库结构（只检查了文件大小）"
     fi
 else
     check_fail "数据库文件不存在: $INSTALL_DIR/backend/db.sqlite3"
@@ -98,6 +139,22 @@ if command -v curl >/dev/null 2>&1; then
         check_pass "API 健康检查通过 (HTTP 200)"
     else
         check_fail "API 健康检查失败 (HTTP $response)"
+    fi
+
+    # 审计 X-09：改前只验证主应用的 `/api/health` —— 日志查看器（`gipfel-logviewer`）
+    # 只有 systemctl 状态检查，进程活着但 HTTP 不可用时会被判为「迁移成功」。
+    # 端口取 backend/.env 的 LOG_VIEWER_PORT（与 deploy-linux.sh 的 nginx 监听口同源）。
+    lv_port=""
+    if [[ -f "$INSTALL_DIR/backend/.env" ]]; then
+        lv_port=$(grep -E '^[[:space:]]*LOG_VIEWER_PORT[[:space:]]*=' "$INSTALL_DIR/backend/.env" \
+            | tail -1 | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//' || true)
+    fi
+    lv_port="${lv_port:-8120}"
+    lv_response=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${lv_port}/api/health" 2>/dev/null || echo "000")
+    if [[ "$lv_response" == "200" ]]; then
+        check_pass "日志查看器健康检查通过 (HTTP 200, 端口 $lv_port)"
+    else
+        check_fail "日志查看器健康检查失败 (HTTP $lv_response, 端口 $lv_port)"
     fi
 else
     check_warn "curl 未安装，跳过 API 检查"
