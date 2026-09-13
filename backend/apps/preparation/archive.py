@@ -1544,10 +1544,20 @@ def _imp_regions(rows: list[dict], ctx: ImportContext) -> None:
         if created:
             ctx.bump("regions", "created")
         elif ctx.keep_existing_id("regions", row.get("_id"), obj.id, f"区域「{name}」"):
+            # 追加模式：区域已存在 → 保留不动（keep_existing_id 在覆盖模式恒返回 False，
+            # 所以走到这里就是追加路径）
+            ctx.bump("regions", "skipped")
             ctx.ids.put("regions", row.get("_id"), obj.id)
             continue
         else:
-            ctx.bump("regions", "skipped")
+            # 审计 R-10：覆盖模式下这里原本也直接 skipped —— `regions.description` 永远不更新。
+            desc = row.get("description")
+            if desc is not None and obj.description != desc:
+                obj.description = desc
+                obj.save(update_fields=["description", "updated_at"])
+                ctx.bump("regions", "updated")
+            else:
+                ctx.bump("regions", "skipped")
         ctx.ids.put("regions", row.get("_id"), obj.id)
 
 
@@ -1728,6 +1738,24 @@ def _imp_map_nodes(rows: list[dict], ctx: ImportContext) -> None:
         )
         if created:
             ctx.bump("mapNodes", "created")
+        elif ctx.is_overwrite:
+            # 审计 R-10：改前覆盖模式同样只记 skipped —— 节点坐标/所属区域/节点类型不会被刷新
+            # （用户在前端选「覆盖」是期待把源比赛的地图布局刷过来，实际坐标保持旧值）。
+            touched = False
+            for field, value in (
+                ("region", row.get("region") or ""),
+                ("node_type_id", type_id),
+                ("x", row.get("x") or 0),
+                ("y", row.get("y") or 0),
+            ):
+                if getattr(obj, field) != value:
+                    setattr(obj, field, value)
+                    touched = True
+            if touched:
+                obj.save()
+                ctx.bump("mapNodes", "updated")
+            else:
+                ctx.bump("mapNodes", "skipped")
         else:
             ctx.bump("mapNodes", "skipped")
         ctx.ids.put("mapNodes", row.get("_id"), obj.id)
