@@ -38,6 +38,9 @@ frontend-dist/
 vite.config.ts.timestamp-*.mjs
 vite.config.js.timestamp-*.mjs
 
+# ===== 验证用例的临时目录（TempDir 用；沙箱下偶尔清理失败会残留）=====
+tests/fix_verify/watcher/.tmp/
+
 # ===== 日志（保留项目根 logs/ 空目录）=====
 logs/
 !logs/.gitkeep

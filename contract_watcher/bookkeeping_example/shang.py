@@ -1,10 +1,14 @@
 import datetime as dt
+import logging
 import xlwings as xw
 from datetime import datetime, timezone as _timezone
 from pathlib import Path
 from decimal import Decimal,getcontext
 from enum import Enum
 import re as _re
+
+# 审计 CW-19：模块级 logger —— check() 的结果不能只 print（后台运行时 stdout 通常无处可去）
+log = logging.getLogger("shang")
 
 class things(Enum):
     RAWMETRIAL = 1
@@ -181,6 +185,8 @@ class xledit:
     # 审计 CW-22：本进程启动过的 Excel PID（供 run_branch_tests 只回收「自己启动的」进程，
     # 而不是把用例期间新出现的所有 EXCEL.EXE 一律 taskkill —— 那会误杀用户自己的 Excel）。
     owned_pids: set = set()
+    # 审计 CW-19：最近一次平衡校验结果（结构化，后台程序可读）
+    last_check_result: dict = {}
     def __init__(self,file:str,debug:bool = False):
         p = Path(file)
         if(p.is_file() != True):
@@ -223,14 +229,29 @@ class xledit:
             pass
         self.xlapp = None
         self.wb = None
-    def check(self):
+    def check(self) -> dict:
+        """资产负债表平衡校验（审计 CW-19：结果必须可被后台程序看见）。
+
+        改前只 `print()` 三个分支、既不返回也不记日志 —— 监听程序后台运行时 stdout 通常
+        无处可去，文档宣称的「内置平衡校验」实际不可见。现在：
+          - 保留原有 print（命令行兼容）；
+          - 同时写 INFO 日志（监听程序会把日志落到 watcher.log）；
+          - 返回 `{"status": ..., "message": ..., "value": ...}` 并记录到 `last_check_result`，
+            便于 handler/脚本按结构化结果判断。
+        """
         sht = self.wb.sheets[7]
-        if sht.range('H80').value == 0:
-            print("right")
-        if sht.range('H80').value > 0:
-            print("资产>负债+所有者权益")
-        if sht.range('H80').value < 0:
-            print("资产<负债+所有者权益")
+        value = sht.range('H80').value
+        if value == 0:
+            status, message = "balanced", "right"
+        elif value > 0:
+            status, message = "assets_over", "资产>负债+所有者权益"
+        else:
+            status, message = "assets_under", "资产<负债+所有者权益"
+        print(message)
+        log.info("资产负债表平衡校验：%s（H80=%s）", message, value)
+        result = {"status": status, "message": message, "value": value}
+        type(self).last_check_result = result
+        return result
     def save(self):
         self.wb.save()
         self.wb.close()

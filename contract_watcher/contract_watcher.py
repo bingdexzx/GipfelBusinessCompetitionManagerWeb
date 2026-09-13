@@ -59,6 +59,119 @@ DEFAULT_CATALOG_INTERVAL = 60.0
 MARKER_RE = re.compile(r"^# ===== \[auto\] ContractType\.key = (.*?) =====$", re.MULTILINE)
 _SLUG_RE = re.compile(r"\W+")
 
+# 审计 CW-19：在模块导入时绑定真实 `time.sleep`。用例常把 `模组.time.sleep` 换成「跑够轮数就抛
+# 停止信号」的假实现（见 tests/fix_verify/watcher），看门狗线程若用被替换的版本会误触发那个信号 ——
+# 线程里的异常不会中断主循环，只会让看门狗静默失效。
+_REAL_SLEEP = time.sleep
+# 审计 CW-19：心跳与停滞看门狗默认值
+DEFAULT_HEARTBEAT_INTERVAL = 30.0
+DEFAULT_STALL_TIMEOUT = 300.0
+
+
+class LoopHeartbeat:
+    """主循环的「心跳 + 停滞看门狗」（审计 CW-19）。
+
+    改前轮询与处理在**同一线程串行**：处理期间完全不轮询（`--interval 3` 形同虚设），一旦
+    handler 里的 Excel COM 调用永久挂起，整个程序停摆 —— 不写日志、不退出、没有心跳，
+    运维只能靠「账本没更新」发现（`SOAK_REPORT.md:14-17` 实测过 `RPC 服务器不可用`）。
+
+    这里不重写 Excel 自动化的线程模型（风险大于收益），而是给主循环装上**可观测性与自愈**：
+      - `tick()`：每完成一轮就刷新一次（写心跳文件 + 记日志）；
+      - `is_stalled()`：距上次心跳超过 `stall_timeout` 秒即判定停滞（0/负数=关闭）；
+      - 看门狗线程周期调用 `check_stalled()`，停滞时写 ERROR 日志并以非零码退出进程
+        （`--no-exit-on-stall` 可改为只告警），交给任务计划/守护进程重启。
+    """
+
+    def __init__(
+        self,
+        interval: float,
+        stall_timeout: float,
+        heartbeat_file=None,
+        exit_on_stall: bool = True,
+    ):
+        self.interval = max(1.0, float(interval))
+        self.stall_timeout = float(stall_timeout)
+        self.heartbeat_file = Path(heartbeat_file) if heartbeat_file else None
+        self.exit_on_stall = bool(exit_on_stall)
+        self.last_tick = time.monotonic()
+        self.rounds = 0
+        self.stalled = False
+        self.stop_event = None
+
+    def tick(self, detail: str = "") -> None:
+        """刷新心跳（每轮主循环结束调用一次）。"""
+        self.last_tick = time.monotonic()
+        self.rounds += 1
+        if self.heartbeat_file is not None:
+            try:
+                self.heartbeat_file.parent.mkdir(parents=True, exist_ok=True)
+                self.heartbeat_file.write_text(
+                    json.dumps(
+                        {"rounds": self.rounds, "at": now_iso(), "detail": detail},
+                        ensure_ascii=False,
+                    ),
+                    encoding="utf-8",
+                )
+            except OSError:
+                log.debug("心跳文件写入失败：%s", self.heartbeat_file, exc_info=True)
+        log.info("心跳 #%d%s", self.rounds, f"：{detail}" if detail else "")
+
+    def age(self) -> float:
+        """距上次心跳的秒数。"""
+        return max(0.0, time.monotonic() - self.last_tick)
+
+    def is_stalled(self) -> bool:
+        if self.stall_timeout <= 0:
+            return False
+        return self.age() > self.stall_timeout
+
+    def check_stalled(self) -> bool:
+        """看门狗周期调用：停滞则置位并告警，返回是否停滞。"""
+        if self.stalled or not self.is_stalled():
+            return self.stalled
+        self.stalled = True
+        log.error(
+            "主循环已 %.0f 秒没有推进（超过 --stall-timeout=%.0f 秒）："
+            "疑似 handler 里的 Excel 调用挂起，已记录停滞告警%s",
+            self.age(), self.stall_timeout,
+            "，本进程即将退出以便守护进程重启"
+            if self.exit_on_stall else "（--no-exit-on-stall：只告警）",
+        )
+        return True
+
+    def watchdog_loop(self, sleep_fn=None) -> bool:
+        """看门狗线程主体：停滞且启用退出时返回 True。"""
+        sleeper = sleep_fn or _REAL_SLEEP
+        while True:
+            if self.stop_event is not None and self.stop_event.is_set():
+                return False
+            sleeper(self.interval)
+            if self.check_stalled() and self.exit_on_stall:
+                return True
+
+
+def start_watchdog(hb: LoopHeartbeat, sleep_fn=_REAL_SLEEP):
+    """启动看门狗线程；返回 (thread, stop_event)。
+
+    停滞时用 `os._exit(3)` 结束进程：主线程此刻正卡在 COM 调用里，`sys.exit` 无法可靠生效，
+    而「带着共享锁静默挂死」正是本缺陷要消灭的状态。
+    """
+    import threading
+
+    sleeper = sleep_fn or _REAL_SLEEP
+    stop_event = threading.Event()
+    hb.stop_event = stop_event
+
+    def _run():
+        if hb.watchdog_loop(sleeper):
+            log.error("看门狗判定主循环停滞：进程退出（退出码 3），请由守护进程重启")
+            sys.stderr.flush()
+            os._exit(3)
+
+    thread = threading.Thread(target=_run, name="watcher-watchdog", daemon=True)
+    thread.start()
+    return thread, stop_event
+
 
 # ==================== 小工具 ====================
 
@@ -870,6 +983,23 @@ def main() -> int:
     )
     ap.add_argument("--backfill", action="store_true", help="首次运行也处理存量已执行合同")
     ap.add_argument("--verbose", action="store_true", help="控制台同步输出明细")
+    # 审计 CW-19：心跳与停滞看门狗（轮询/处理同线程串行时，挂起的唯一可观测信号）
+    ap.add_argument(
+        "--heartbeat-interval", type=float, default=DEFAULT_HEARTBEAT_INTERVAL,
+        help="心跳/看门狗检查周期（秒）",
+    )
+    ap.add_argument(
+        "--stall-timeout", type=float, default=DEFAULT_STALL_TIMEOUT,
+        help="主循环多久没推进就判定停滞并退出（秒；0=关闭看门狗）",
+    )
+    ap.add_argument(
+        "--heartbeat-file", default=str(WATCHER_DIR / "data" / "heartbeat.json"),
+        help="心跳文件路径（外部监控可读；留空则只写日志）",
+    )
+    ap.add_argument(
+        "--no-exit-on-stall", action="store_true",
+        help="检测到停滞时只告警、不退出（默认退出以便守护进程重启）",
+    )
     args = ap.parse_args()
 
     # 审计 CW-11：`--competition 0` / 负数会被下游的 `if competition_id:` 当成「不筛选」，
@@ -955,6 +1085,23 @@ def main() -> int:
     log.info("监听启动 server=%s competition=%s out=%s backfill=%s",
              args.server, args.competition, out_dir, args.backfill)
 
+    # 审计 CW-19：心跳 + 停滞看门狗（轮询与处理同线程串行，挂起时这是唯一的可观测信号）
+    heartbeat = LoopHeartbeat(
+        args.heartbeat_interval, args.stall_timeout,
+        heartbeat_file=args.heartbeat_file or None,
+        exit_on_stall=not args.no_exit_on_stall,
+    )
+    if args.stall_timeout > 0:
+        start_watchdog(heartbeat)
+        log.info(
+            "已启用停滞看门狗：每 %.0f 秒检查一次，超过 %.0f 秒无进展即%s；心跳文件 %s",
+            heartbeat.interval, heartbeat.stall_timeout,
+            "退出进程（退出码 3）" if heartbeat.exit_on_stall else "仅告警",
+            heartbeat.heartbeat_file or "（只写日志）",
+        )
+    else:
+        log.info("未启用停滞看门狗（--stall-timeout 0）")
+
     # 审计 CW-12：失败退避 —— 后端不可用时按指数+抖动退避，成功后立刻恢复常规节奏
     consecutive_failures = 0
     current_delay = max(0.5, args.interval)
@@ -986,7 +1133,16 @@ def main() -> int:
                 # 2) 类型目录同步（新 key 生成 / key 改名自动改名；按 --catalog-interval 节流）
                 sync_catalog(backend, state, registry, args.catalog_interval)
                 # 3) 检测合同通过并处理；水位只在成功处理后推进（失败进待处理队列重试）
+                before_watermark = state.get("lastExecutedAt")
                 process_fresh_contracts(backend, state, registry[0], out_dir, args.competition)
+                # 审计 CW-19：每完成一轮就刷新心跳（看门狗据此判断主循环是否还在推进）
+                advanced = state.get("lastExecutedAt") != before_watermark
+                heartbeat.tick(
+                    f"水位={state.get('lastExecutedAt') or '（空）'}"
+                    + ("（本轮有推进）" if advanced else "")
+                    + (f"、待处理 {len(state.get('pendingExecuted') or [])} 个"
+                       if state.get("pendingExecuted") else "")
+                )
             except urllib.error.HTTPError as e:
                 round_failed = True
                 if e.code == 401:
