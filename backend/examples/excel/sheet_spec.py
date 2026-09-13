@@ -4,13 +4,14 @@
 只建框架，不建运行数据
 ----------------------
 
-本规范只覆盖**换一场比赛仍然成立**的东西：比赛本身、财年、行业口径（产业类型 / 产业字段）、
-地图与路径、物资与产能（燃料 / 原料 / 科技 / 零件 / 产品 / 载具 / 生产线 / 基建 / 仓库）、
-消费者需求、合同类型（模板）。
+本规范只覆盖**换一场比赛仍然成立**的东西：比赛本身、财年、**股票市场规则（股票参数）**、
+行业口径（产业类型 / 产业字段）、地图与路径、物资与产能（燃料 / 原料 / 科技 / 零件 / 产品 /
+载具 / 生产线 / 基建 / 仓库）、消费者需求、合同类型（模板）。
 
 **参赛主体与运行期内容不走 Excel**（见 `OUT_OF_SCOPE_SHEETS`）：公司、公司字段值、账号、
-区域总览卡片、比赛内的合同实例、消息 —— 它们都绑定具体公司、具体人和具体主键，
-请在前端界面（公司管理 / 账号管理 / 合同管理 / 消息中心）维护，
+区域总览卡片、比赛内的合同实例、消息，以及**个股 / 资金账户 / 持仓 / 委托 / K 线** ——
+它们都绑定具体公司、具体人、具体主键或只在运行时产生，
+请在前端界面（公司管理 / 账号管理 / 合同管理 / 消息中心 / 股票管理 / 股票行情）维护，
 或用代码建包脚本 `examples/competitions/auto_chain_competition.py`。
 工作簿里若出现这些表名，程序会明确告诉你「该去哪里维护」，而不是静默忽略。
 
@@ -33,7 +34,7 @@
 工作表清单（按依赖顺序处理，worksheet 在文件里的先后不影响结果）
 ------------------------------------------------------------
 
-    比赛 → 财年
+    比赛 → 财年 → 股票参数
     产业类型 → 产业字段
     区域
     地图节点类型 → 路径类型 → 地图节点 → 地图连线
@@ -41,7 +42,8 @@
     消费者需求
     合同类型（只写脚本路径 + 类型标识，四份 JSON 由代码脚本产出）
 
-**股票系统同样不在本规范内**（按要求不动）：没有股票 / 资金账户 / 股票参数三类表。
+**个股 / 资金账户 / 持仓 / 委托 / K 线不在本规范内**：它们绑定具体公司、具体人或具体主键，
+只在「股票管理」「股票行情」里维护/产生。
 """
 from __future__ import annotations
 
@@ -330,6 +332,7 @@ HEADERS: dict[str, dict[str, str]] = {
         "map_background_width": "背景图宽", "map_background_height": "背景图高",
     },
     "财年": {"year": "年份", "status": "状态"},
+    "股票参数": {"param": "参数", "value": "值"},
     "产业类型": {"code": "编码", "name": "产业名称", "description": "说明", "icon": "图标"},
     "产业字段": {
         "industry_type": "所属产业", "name": "字段名称", "field_key": "字段键",
@@ -392,6 +395,22 @@ def header_aliases(spec: "SheetSpec") -> dict[str, str]:
         alias[col.key] = col.key
         alias[header_for(spec.name, col.key)] = col.key
     return alias
+
+
+def example_rows(spec: "SheetSpec") -> list[tuple[str, ...]]:
+    """取某张表的示例行（模板与文档用）。
+
+    `SheetSpec.example` 支持两种写法：
+    - 一行：`("2026", "ACTIVE")`；
+    - 多行：`(("白云鄂博矿区", …), ("上游集运站", …))` —— 需要注册两个引用对象时用
+      （例如「地图节点」要给出两个节点，「地图连线」的示例才引用得到）。
+    """
+    ex = spec.example
+    if not ex:
+        return []
+    if all(isinstance(item, (list, tuple)) for item in ex):
+        return [tuple(item) for item in ex]
+    return [tuple(ex)]
 
 
 @dataclass(frozen=True)
@@ -672,6 +691,84 @@ def _h_contract_type(ctx: SheetContext, row: dict) -> None:
         ctx.note(f"合同类型 {key}（{payload['name']}）来自脚本 {Path(script).name}")
 
 
+def _h_stock_config(ctx: SheetContext, row: dict) -> None:
+    """股票参数表：**键值两列**，每行一个参数；本表只描述市场规则，不涉及任何公司/人/主键。
+
+    - 参数名必须是 `apps.stock.engine.DEFAULT_STOCK_CONFIG` 里的键（写错会报错并给出最相近的名字）；
+    - 值按该键的默认值类型解析：布尔用 `是/否`，其余为数值（`interventionMode` 为 `regression` / `expand-limit`）；
+    - 整表为空 / 没有这张表 = 不产出 `stockConfig`，目标比赛沿用系统默认（个股与资金账户也不在表格内）；
+    - 每行都会并进同一份配置，最终由建包库 `stock_config_set()` 产出归档里的 `stockConfig`。
+    """
+    from apps.stock.engine import DEFAULT_STOCK_CONFIG
+
+    param = str(row.get("param") or "").strip()
+    raw_value = str(row.get("value") or "").strip()
+    if not param:
+        raise SheetFormatError("股票参数表的「参数」必填（键名见规范，如 limitPct / mmMinQty）")
+    if param not in DEFAULT_STOCK_CONFIG:
+        import difflib
+
+        near = difflib.get_close_matches(param, list(DEFAULT_STOCK_CONFIG), n=3, cutoff=0.4)
+        hint = f"；是不是想写：{'、'.join(near)}？" if near else ""
+        raise SheetFormatError(
+            f"未知的股票参数「{param}」{hint}"
+            f"（可用参数：{'、'.join(DEFAULT_STOCK_CONFIG)}）"
+        )
+    if raw_value == "":
+        raise SheetFormatError(
+            f"股票参数「{param}」的值不能为空；想沿用系统默认就不要写这一行"
+            f"（系统默认 = {DEFAULT_STOCK_CONFIG[param]!r}）"
+        )
+
+    value = _stock_config_value(param, raw_value, DEFAULT_STOCK_CONFIG[param])
+
+    # 逐行并入：与已登记的配置合并后再交给建包库（stock_config_set 是整份替换语义）
+    merged = dict(getattr(ctx.builder, "stock_config", None) or {})
+    merged[param] = value
+    _assert_stock_config_sane(merged, ctx)
+    ctx.builder.stock_config_set(merged)
+
+
+def _stock_config_value(param: str, raw: str, default: Any) -> Any:
+    """按默认值的类型解析单元格：布尔 / 枚举 / 数值（整数位保留 int，便于与默认值同形）。"""
+    if isinstance(default, bool):
+        parsed = as_bool(raw)
+        if parsed is None:
+            raise SheetFormatError(f"股票参数「{param}」是开关，请填 是/否（默认 {default}）")
+        return bool(parsed)
+    if isinstance(default, str):
+        text = raw.strip()
+        allowed = ("regression", "expand-limit")
+        if text not in allowed:
+            raise SheetFormatError(
+                f"股票参数「{param}」只接受 {' / '.join(allowed)}，收到「{text}」"
+            )
+        return text
+    number = _as_scalar(raw)
+    if isinstance(number, str):        # 不是数字
+        raise SheetFormatError(f"股票参数「{param}」需要数字，收到「{raw}」")
+    if number < 0:
+        raise SheetFormatError(f"股票参数「{param}」不能为负（收到 {number}）")
+    if isinstance(default, int) and float(number).is_integer():
+        return int(number)
+    return float(number)
+
+
+def _assert_stock_config_sane(config: dict, ctx: SheetContext) -> None:
+    """建包库只校验「非空字典」，这里补上引擎口径的两条硬约束与一条风险提示。"""
+    limit, move = config.get("limitPct"), config.get("maxMovePct")
+    if limit is not None and move is not None and float(limit) < float(move):
+        raise SheetFormatError(
+            f"limitPct（单轮限幅 {limit}）不能小于 maxMovePct（单轮最大波动 {move}）"
+        )
+    low, high = config.get("mmMinQty"), config.get("mmMaxQty")
+    if low is not None and high is not None and float(low) > float(high):
+        raise SheetFormatError(f"mmMinQty（做市商最小数量 {low}）不能大于 mmMaxQty（{high}）")
+    if limit is not None and float(limit) > 0.1:
+        ctx.note(f"股票参数：limitPct={limit} 已高于 10%，玩家更容易把价格拉到涨停"
+                 f"（引擎的防连板机制仍会兜底，但建议不超过 0.10）")
+
+
 def _contract_types_from_script(ctx: SheetContext, script: str) -> list:
     """执行「合同类型代码化」脚本，取回它产出的 ContractType 列表。"""
     import importlib.util
@@ -728,6 +825,17 @@ SHEETS: tuple[SheetSpec, ...] = (
         _h_fiscal_year,
     ),
     SheetSpec(
+        "股票参数", "competition",
+        "股票市场的**规则**（单轮限幅 / 最大波动 / 做市商 / 随机事件…）：键值两列，每行一个参数；"
+        "留空表示沿用系统默认。个股与资金账户绑定公司/人/主键，不在表格内（去「股票管理」维护）",
+        (
+            Column("param", "参数（键名与系统默认配置一致）", required=True),
+            Column("value", "值（数值 / 是·否 / regression·expand-limit）", required=True),
+        ),
+        ("limitPct", "0.10"),
+        _h_stock_config,
+    ),
+    SheetSpec(
         "产业类型", "industry", "全局资源：行业口径（按 code 跨比赛复用，不要给不同行业用同一个 code）",
         (
             Column("code", "数字编码（全局唯一）", "number", True),
@@ -768,7 +876,8 @@ SHEETS: tuple[SheetSpec, ...] = (
         "地图节点类型", "geo", "地图节点分类（矿区 / 港口 / 城市 …）",
         (Column("name", "类型名", required=True), Column("description", "说明"),
          Column("color", "颜色，如 #b45309")),
-        ("矿区", "原矿开采地", "#b45309"),
+        (("矿区", "原矿开采地", "#b45309"),
+         ("物流枢纽", "集运站 / 港口 / 铁路货场", "#0ea5e9")),
         _h_node_type,
     ),
     SheetSpec(
@@ -786,7 +895,8 @@ SHEETS: tuple[SheetSpec, ...] = (
             Column("x", "画布 x 坐标", "number"),
             Column("y", "画布 y 坐标", "number"),
         ),
-        ("白云鄂博矿区", "矿区", "上游资源区", "140", "120"),
+        (("白云鄂博矿区", "矿区", "上游资源区", "140", "120"),
+         ("上游集运站", "物流枢纽", "上游资源区", "360", "300")),
         _h_node,
     ),
     SheetSpec(
@@ -876,7 +986,7 @@ SHEETS: tuple[SheetSpec, ...] = (
             Column("materials", "原料配比：`锂矿石*4; 铝土矿*1`", "map"),
             Column("tech", "所需科技：`电池成组技术`", "list"),
         ),
-        ("动力电池包", "锂矿石*4; 铝土矿*1", "电池成组技术"),
+        ("动力电池包", "锂矿石*4", "电池成组技术"),
         _h_part,
     ),
     SheetSpec(
@@ -886,7 +996,7 @@ SHEETS: tuple[SheetSpec, ...] = (
             Column("parts", "零件配比：`动力电池包*1; 驱动电机*1`", "map"),
             Column("tech", "所需科技", "list"),
         ),
-        ("纯电轿车", "动力电池包*1; 驱动电机*1", "整车平台化"),
+        ("纯电轿车", "动力电池包*1", "电池成组技术"),
         _h_product,
     ),
     SheetSpec(
@@ -942,9 +1052,11 @@ OUT_OF_SCOPE_SHEETS: dict[str, str] = {
     "区域总览卡片": "卡片绑定具体公司与产业字段主键：请在「区域总览」界面配置",
     "合同实例": "比赛内的预置合同要绑定具体公司：请在「合同管理」界面创建",
     "消息": "消息是开赛后发布的运行内容：请在「消息中心」发布",
-    "股票": "本规范不覆盖股票系统（按要求不动股票）：请用代码建包或前端维护",
-    "资金账户": "本规范不覆盖股票系统（按要求不动股票）：请用代码建包或前端维护",
-    "股票参数": "本规范不覆盖股票系统（按要求不动股票）：请用代码建包或前端维护",
+    "股票": "个股绑定具体公司（PE 联动公司/字段、碳排·幸福度绑定卡片主键）：请在「股票管理」维护",
+    "资金账户": "资金账户绑定具体公司或用户（含绑定的产业字段主键）：请在「股票管理」维护",
+    "持仓": "持仓由撮合引擎在运行时生成，无法预置",
+    "委托": "委托由玩家在「股票行情」下单产生，无法预置",
+    "K线": "K 线由「推进轮次」在运行时生成，无法预置",
 }
 
 #: 说明表（自由文本，解析时忽略）
@@ -973,8 +1085,10 @@ def summarize_spec() -> str:
             lines.append(
                 "| （额外列，可自定义） | — | 列名写**字段键或字段显示名**，作为该公司字段初始值 | 文本 | |"
             )
-        if spec.example:
+        rows = example_rows(spec)
+        if rows:
             lines.append("")
-            lines.append("示例行：" + " | ".join(str(x) for x in spec.example))
+            for row in rows:
+                lines.append("示例行：" + " | ".join(str(x) for x in row))
         lines.append("")
     return "\n".join(lines)
