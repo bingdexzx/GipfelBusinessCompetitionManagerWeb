@@ -3,6 +3,7 @@ import xlwings as xw
 from pathlib import Path
 from decimal import Decimal,getcontext
 from enum import Enum
+import re as _re
 
 class things(Enum):
     RAWMETRIAL = 1
@@ -43,6 +44,46 @@ class BOOOKTYPE(Enum):
     ASSETS = 1
     LIABILITIES = 2
     EQUITY = 3
+
+
+# 审计 CW-14：金额输入的严格形态（拒绝全角数字、下划线、千分位、nan/inf 等意外写法）。
+# Decimal(str) 会把这些"看起来像数字"的串悄悄接受（`'１２３'`→123、`'1_000'`→1000），
+# 记账金额不能靠这种宽容解析。
+_AMOUNT_RE = _re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)")
+
+
+def amount_to_float(value, field: str = "金额") -> float:
+    """把合同里的金额输入项转成写入 Excel 的 float；形态非法即抛中文 ValueError。
+
+    审计 CW-14：改前是裸 `float(add)` / `float(minus)`：
+      - `None`（`DATA_GUIDE.md`：「未填写的输入项不会出现」）⇒ `None != 0` 为真 ⇒ **TypeError**；
+      - `""` / `"1,000"` ⇒ **ValueError**；
+      两者都被 `contract_watcher.py` 的 `dispatch` 吞掉 ⇒ 合同被标记「已处理」但**一条分录都没写**
+      （静默漏账且永不重试）。而 `float` 对超 15 位有效数字还会**静默丢低位**：
+      `12345678901234567890` → `1.23456789012346E+19`。
+
+    现在的规则（先 Decimal 保精度，再判可无损落入 Excel 的 double）：
+      - `None` / 空串 / 纯空白 → 拒绝（并提示「未填写」）；
+      - 形态不匹配 `_AMOUNT_RE`（千分位、全角数字、`1_000`、`nan`、`inf` 等）→ 拒绝；
+      - 超出 IEEE-754 double 精确表示范围 → 拒绝（宁可报错让上层重试，也不静默改金额）；
+      - 其余（含 0 与负数）→ 返回 float。负数金额是合法业务值（借贷方向由列决定），不拦。
+    """
+    if isinstance(value, bool) or value is None:
+        raise ValueError(f"{field}未填写或取值非法（{value!r}）：请检查合同输入项，确认后再处理")
+    text = str(value).strip() if isinstance(value, str) else str(value)
+    if not text:
+        raise ValueError(f"{field}为空字符串：请检查合同输入项，确认后再处理")
+    if not _AMOUNT_RE.fullmatch(text):
+        raise ValueError(f"{field}不是合法数字（收到 {value!r}）：不接受千分位/全角数字等写法")
+    dec = Decimal(text)
+    as_float = float(dec)
+    # 反向校验：float → Decimal(repr) 必须还原成同一个值，否则说明超过 double 精度、低位已被丢弃
+    if Decimal(repr(as_float)) != dec:
+        raise ValueError(
+            f"{field} {value!r} 超出 Excel 数值可精确表示的范围（double 15~17 位有效数字）："
+            "请拆分或按文本记录，避免静默丢失低位"
+        )
+    return as_float
 
 
 # 审计 CW-08：这里原本有 `getcontext().prec = 2`，把**进程级** Decimal 精度改成 2 位有效数字。
@@ -104,6 +145,9 @@ class xledit:
         self.xlapp.quit()
     def add_book_entries(self,add:Decimal,minus:Decimal,number:str,about:str):
         sht = self.wb.sheets[0]
+        # 审计 CW-14：先做金额校验，非法输入在**写任何单元格之前**就抛出（避免留下半行脏数据）
+        add_value = amount_to_float(add, "借方金额")
+        minus_value = amount_to_float(minus, "贷方金额")
         cdt = dt.date.today()
         dtstr = cdt.strftime("%Y/%m/%d")
         i = 2
@@ -114,10 +158,12 @@ class xledit:
             sht[i,2].value = 1
         if (sht[i,2].options(numbers=int).value != 1):
             sht[i,2].value =  sht[i-1,2].value + 1
-        if (add != 0):
-            sht[i,3].value = float(add)
-        if (minus != 0):
-            sht[i,4].value = float(minus)
+        # 审计 CW-14：改前是 `if (add != 0): float(add)` ——
+        # ① 金额为 0 时两列都不写，只留摘要与余额公式，形成借贷不对齐的「空金额行」；
+        # ② 非法输入要走到这里才炸，前面的日期/序号已经写进表里。
+        # 现在两列都写（0 也写），非法输入在方法开头就被拒绝。
+        sht[i,3].value = add_value
+        sht[i,4].value = minus_value
         if (sht[i,2].options(numbers=int).value != 1):
             sht[i,5].formula = f'=F{i}+D{i+1}-E{i+1}'
         elif (sht[i,2].options(numbers=int).value == 1):
@@ -278,19 +324,22 @@ class xledit:
             i += 1
         self.wb.save()
     def add_book_assets(self,type:BOOOKTYPE,name:ASSET,add:Decimal,minus:Decimal):
+        # 审计 CW-14：与 add_book_entries 同一类金额（改前同样是裸 float()），先校验再动工作表
+        add_value = amount_to_float(add, "借方金额")
+        minus_value = amount_to_float(minus, "贷方金额")
         #
         if type == BOOOKTYPE.ASSETS:
             sht = self.wb.sheets[4]
         elif type == BOOOKTYPE.LIABILITIES:
             sht = self.wb.sheets[5]
-            n = minus
-            minus = add
-            add = n
+            n = minus_value
+            minus_value = add_value
+            add_value = n
         elif type == BOOOKTYPE.EQUITY:
             sht = self.wb.sheets[6]
-            n = minus
-            minus = add
-            add = n
+            n = minus_value
+            minus_value = add_value
+            add_value = n
         search_range = sht.api.UsedRange
         found_cell = search_range.Find(What=name.value,LookIn=xw.constants.FindLookIn.xlValues)
         colunmT = 0
@@ -300,16 +349,16 @@ class xledit:
         rowT += 3
         while True:
             if(sht[rowT,colunmT].formula == '') and (sht[rowT,colunmT+1].formula == '') and (sht[rowT,colunmT-1].value == None):
-                sht[rowT,colunmT].value = float(add)
-                sht[rowT,colunmT+1].value = float(minus)
+                sht[rowT,colunmT].value = add_value
+                sht[rowT,colunmT+1].value = minus_value
                 break
             if sht[rowT,colunmT-1].value != None:
                 sht.range(f'{sht[rowT,colunmT-1].address}:{sht[rowT+1,colunmT+1].address}').api.Cut()
                 sht.range(f'{sht[rowT+1,colunmT]}').paste()
                 if name.value == '银行存款':
                     sht[rowT+2,colunmT+1].formula = f'{sht[rowT+2,colunmT].address}-{self.entries_to_assets_money}'
-                sht[rowT,colunmT].value = float(add)
-                sht[rowT,colunmT+1].value = float(minus)
+                sht[rowT,colunmT].value = add_value
+                sht[rowT,colunmT+1].value = minus_value
                 break
             rowT += 1
         self.wb.save()
