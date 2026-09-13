@@ -21,15 +21,22 @@ EnvironmentFile=-__INSTALL_DIR__/backend/.env
 ExecStart=__INSTALL_DIR__/backend/.venv/bin/daphne \
     -b 127.0.0.1 \
     -p 8121 \
-    --access-log /var/log/gipfel/logviewer.access.log \
+    --access-log ${LOGS_DIRECTORY}/logviewer.access.log \
     --proxy-headers \
     logviewer.asgi:application
 
-# 运行目录（.sock + .pid）与日志目录；systemd 在启动前自动创建
-RuntimeDirectory=gipfel
-RuntimeDirectoryMode=0755
-LogsDirectory=gipfel
-LogsDirectoryMode=0755
+# 运行目录与日志目录；systemd 在启动前自动创建
+#
+# 审计 X-13：改前两个 unit **共用** RuntimeDirectory=gipfel 且模式 0755 ——
+#   ① `/run/gipfel` 对同机任意用户可遍历，目录里的 daphne Unix socket（不校验对端 UID）
+#      可被绕过 nginx 直连；
+#   ② 共用运行目录时，`systemctl restart gipfel` 会连带清理/重建该目录，影响另一个服务。
+# 现在日志查看器用独立目录、模式收紧为 0750，并补 UMask=0027。
+RuntimeDirectory=gipfel-logviewer
+RuntimeDirectoryMode=0750
+LogsDirectory=gipfel-logviewer
+LogsDirectoryMode=0750
+UMask=0027
 
 Restart=always
 RestartSec=3s
@@ -50,7 +57,11 @@ LockPersonality=true
 # 被 RestrictAddressFamilies 以 EAFNOSUPPORT（Errno 97）拒绝导致服务无法启动。
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 CapabilityBoundingSet=
-ReadWritePaths=__INSTALL_DIR__/backend/uploads __INSTALL_DIR__/backend/logs __INSTALL_DIR__/backend/db.sqlite3 /run/gipfel /var/log/gipfel
+# 审计 X-13：日志查看器是「只读看日志」的独立站点，改前却被授予主应用的
+# `backend/uploads` 与 **`backend/db.sqlite3`** 写权限 —— 一旦日志查看器被拿下，
+# 攻击者可直接改写主业务数据库。现在只保留它自己需要的：自己的运行目录与日志目录
+# （前者放 daphne 的 .pid/.sock，后者给 --access-log 落盘）。
+ReadWritePaths=/run/gipfel-logviewer /var/log/gipfel-logviewer
 
 [Install]
 WantedBy=multi-user.target

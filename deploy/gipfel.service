@@ -19,15 +19,21 @@ ExecStart=__INSTALL_DIR__/backend/.venv/bin/daphne \
     -u /run/gipfel/gipfel.sock \
     -b 127.0.0.1 \
     -p 8000 \
-    --access-log /var/log/gipfel/access.log \
+    --access-log ${LOGS_DIRECTORY}/access.log \
     --proxy-headers \
     backend.asgi:application
 
 # 运行目录（.sock + .pid）与日志目录；systemd 在启动前自动创建
+#
+# 审计 X-13：改前 RuntimeDirectoryMode=0755 —— `/run/gipfel` 对**所有本地用户**可遍历，
+# 而该目录里放着 daphne 的 Unix socket `gipfel.sock`（daphne 不校验对端 UID），
+# 于是同机任意用户都能绕过 nginx 直接连后端。现在收紧为 0750（仅 gipfel 组可进入）。
+# 同时补 UMask=0027，确保服务自身新建的文件也不对其他用户开放。
 RuntimeDirectory=gipfel
-RuntimeDirectoryMode=0755
+RuntimeDirectoryMode=0750
 LogsDirectory=gipfel
-LogsDirectoryMode=0755
+LogsDirectoryMode=0750
+UMask=0027
 
 Restart=always
 RestartSec=3s
@@ -49,6 +55,8 @@ LockPersonality=true
 # 创建套接字，daphne 任一监听失败即整体退出，服务无限重启。
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 CapabilityBoundingSet=
+# 审计 X-13：这里只保留主应用真正需要可写的路径。
+# （注意：两服务同用户，故文件属主权限是主要边界，本行是 systemd 沙箱侧的显式白名单。）
 ReadWritePaths=__INSTALL_DIR__/backend/uploads __INSTALL_DIR__/backend/logs __INSTALL_DIR__/backend/db.sqlite3 /run/gipfel /var/log/gipfel
 
 [Install]
