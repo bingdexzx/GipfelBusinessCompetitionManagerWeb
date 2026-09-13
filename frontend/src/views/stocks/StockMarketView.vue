@@ -206,6 +206,7 @@ import { useCompetitionStore } from "@/stores/competition";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import { formatMoney } from "@/utils/format";
 import BigNumberInput from "@/components/common/BigNumberInput.vue";
+import { computeEstAmount } from "./estAmount";
 
 const compStore = useCompetitionStore();
 
@@ -342,28 +343,8 @@ const priceLimit = computed(() => {
 // 实际委托以字符串原样提交，由后端精确撮合
 // P1-#9: 使用字符串化避免大数精度丢失，formatMoney 会处理格式化
 const estAmount = computed(() => {
-  try {
-    const p = String(trade.value.price || 0);
-    const q = String(trade.value.quantity || 0);
-    // 验证输入是否为合法数字
-    if (isNaN(Number(p)) || isNaN(Number(q))) return 0;
-    // 将价格和数量转为整数运算再还原，避免浮点精度丢失
-    const pParts = p.split('.');
-    const qParts = q.split('.');
-    const pDecimals = pParts[1]?.length || 0;
-    const qDecimals = qParts[1]?.length || 0;
-    const pInt = BigInt(p.replace('.', '').replace(/[^0-9]/g, '') || '0');
-    const qInt = BigInt(q.replace('.', '').replace(/[^0-9]/g, '') || '0');
-    const result = pInt * qInt;
-    const totalDecimals = pDecimals + qDecimals;
-    const resultStr = result.toString().padStart(totalDecimals + 1, '0');
-    const intPart = resultStr.slice(0, -totalDecimals) || '0';
-    const decPart = resultStr.slice(-totalDecimals).slice(0, 2);
-    return Number(`${intPart}.${decPart}`);
-  } catch {
-    // 降级到普通乘法
-    return Math.round(Number(trade.value.price || 0) * Number(trade.value.quantity || 0) * 100) / 100;
-  }
+  // 计算实现见 ./estAmount.ts（整数价 × 整数数量时改前会显示成 0.xx，审计 T-01）
+  return computeEstAmount(trade.value.price, trade.value.quantity);
 });
 const canTrade = computed(
   () =>
