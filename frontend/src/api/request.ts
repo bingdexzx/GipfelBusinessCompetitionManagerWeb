@@ -2,6 +2,9 @@ import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
 import { ElMessage } from "element-plus";
 import { getApiBaseUrl, versionBlocked } from "@/config";
 import { getAccountItem, removeAccountItem } from "@/utils/accountStorage";
+// 本地全量副本 → 响应形态（纯函数，独立成模块以便单测）：
+// 未显式传 pageSize 时返回本地全量，不再按 50 条静默截断（审计 A-01/V-04/W-05）。
+import { applyLocalPaging as reconstruct } from "./localPaging";
 
 // axios 自定义请求配置字段类型增强（request.ts 与 stores/version.ts 均使用这些字段）。
 declare module "axios" {
@@ -332,15 +335,8 @@ function mapSubKey(resource: string, competitionId: string | number | undefined)
   return `${resource}|competitionId=${competitionId ?? ""}`;
 }
 
-/** 按集合的 shape 与请求的分页参数，把本地全量副本「还原」成组件期望的响应形态。 */
-function reconstruct(items: unknown[], shape: "array" | "paged", params: Record<string, unknown>): unknown {
-  if (shape === "array") return items;
-  const page = params.page != null ? parseInt(String(params.page), 10) : 1;
-  const pageSize = params.pageSize != null ? parseInt(String(params.pageSize), 10) : 50;
-  const total = items.length;
-  const start = (page - 1) * pageSize;
-  return { items: items.slice(start, start + pageSize), total, page, pageSize };
-}
+/** 按集合的 shape 与请求的分页参数，把本地全量副本「还原」成组件期望的响应形态。
+ *  实现见 ./localPaging.ts 的 applyLocalPaging（顶部已别名导入为 reconstruct）。 */
 
 /** 全量同步：循环分页拉取，直到取满 total，避免单集合超过 LARGE_PAGE_SIZE 时本地副本被截断。
  *  返回合并后的响应（items 为全量，total 为真实总数），供 storeAndReturn 写入本地全量副本。 */
