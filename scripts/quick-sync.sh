@@ -54,14 +54,100 @@ log_info "目标: $REMOTE"
 log_info "目录: $INSTALL_DIR"
 echo ""
 
+# 审计 X-05：改前直接 rsync 正在被服务写入的 `db.sqlite3`（没有 WAL/SHM、没有锁、也不停服）——
+# 目标端可能收到一个缺页/半写的数据库文件，打开时报损坏或静默丢最近事务。
+# 现在：同步数据库前先用 SQLite 的 `VACUUM INTO` 做一次**一致性快照**（不需要停服），
+# 再把快照发出去；拉取方向则在落盘后校验完整性。
+DB_ITEMS=("backend/db.sqlite3")
+SNAP_DIR=""
+
+cleanup_snapshot() {
+    if [[ -n "$SNAP_DIR" && -d "$SNAP_DIR" ]]; then
+        rm -rf "$SNAP_DIR"
+    fi
+}
+trap cleanup_snapshot EXIT INT TERM
+
+snapshot_sqlite() {
+    # 把 $1（活库）一致性地导出到 $2；需要 python3
+    local src="$1"
+    local dst="$2"
+    if ! command -v python3 >/dev/null 2>&1; then
+        log_error "缺少 python3，无法做数据库一致性快照（直接拷贝活库可能损坏目标库）"
+        return 1
+    fi
+    python3 - "$src" "$dst" <<'PY'
+import sqlite3, sys
+src, dst = sys.argv[1], sys.argv[2]
+try:
+    con = sqlite3.connect(f"file:{src}?mode=ro", uri=True, timeout=30)
+    try:
+        con.execute("VACUUM INTO ?", (dst,))
+    finally:
+        con.close()
+except sqlite3.Error as exc:
+    print(f"VACUUM INTO 失败: {exc}", file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
+check_sqlite_file() {
+    # 校验 $1 是合法且完整的 SQLite 库
+    local path="$1"
+    [[ -s "$path" ]] || { log_error "数据库文件为空: $path"; return 1; }
+    if [[ "$(head -c 15 "$path" 2>/dev/null || true)" != "SQLite format 3" ]]; then
+        log_error "不是合法 SQLite 文件: $path"
+        return 1
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        if ! python3 - "$path" <<'PY'
+import sqlite3, sys
+try:
+    con = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+    try:
+        row = con.execute("pragma integrity_check").fetchone()
+    finally:
+        con.close()
+except sqlite3.Error as exc:
+    print(f"打开失败: {exc}", file=sys.stderr)
+    sys.exit(1)
+if not row or row[0] != "ok":
+    print(f"integrity_check: {row}", file=sys.stderr)
+    sys.exit(1)
+PY
+        then
+            log_error "数据库完整性校验未通过: $path"
+            return 1
+        fi
+    fi
+    return 0
+}
+
 for item in "${SYNC_ITEMS[@]}"; do
     src="$INSTALL_DIR/$item"
     dst="$INSTALL_DIR/$(dirname "$item")/"
 
     if [[ "$ACTION" == "push" ]]; then
         if [[ -e "$src" ]]; then
-            log_info "推送: $item"
-            rsync -avz --progress -e "ssh -o StrictHostKeyChecking=accept-new" "$src" "$REMOTE:$dst"
+            if [[ "$item" == "backend/db.sqlite3" ]]; then
+                SNAP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gipfel-sync-XXXXXX")"
+                snap="$SNAP_DIR/db.sqlite3"
+                log_info "为数据库创建一致性快照（VACUUM INTO，无需停服）..."
+                snapshot_sqlite "$src" "$snap"
+                check_sqlite_file "$snap"
+                log_info "推送: $item（快照）"
+                rsync -avz --progress -e "ssh -o StrictHostKeyChecking=accept-new" \
+                    "$snap" "$REMOTE:$dst"
+            else
+                log_info "推送: $item"
+                # 审计 X-02 同类：`.env` 含全部密钥，强制 600
+                if [[ "$item" == *".env" ]]; then
+                    rsync -avz --progress --chmod=F600 \
+                        -e "ssh -o StrictHostKeyChecking=accept-new" "$src" "$REMOTE:$dst"
+                else
+                    rsync -avz --progress -e "ssh -o StrictHostKeyChecking=accept-new" "$src" "$REMOTE:$dst"
+                fi
+            fi
         else
             log_warn "跳过（不存在）: $item"
         fi
@@ -69,6 +155,13 @@ for item in "${SYNC_ITEMS[@]}"; do
         log_info "拉取: $item"
         mkdir -p "$(dirname "$src")"
         rsync -avz --progress -e "ssh -o StrictHostKeyChecking=accept-new" "$REMOTE:$src" "$(dirname "$src")/"
+        if [[ "$item" == "backend/db.sqlite3" ]]; then
+            check_sqlite_file "$src" || {
+                log_error "拉取到的数据库不可用: $src —— 请勿在此状态下启动后端（会新建空库）"
+                exit 1
+            }
+            log_info "数据库完整性校验通过"
+        fi
     else
         log_error "未知操作: $ACTION（应为 push 或 pull）"
         exit 1
