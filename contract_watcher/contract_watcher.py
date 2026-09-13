@@ -356,7 +356,17 @@ def rename_handler_key(old_key: str, new_key: str) -> bool:
             lines[i] = marker_line(new_key)
             changed = True
         elif line.lstrip().startswith("def ") and old_func in line:
-            lines[i] = line.replace(old_func, new_func)
+            # 审计 CW-25：改前是 `line.replace(old_func, new_func)` 的子串替换 ——
+            # 当另一个 key 的函数名把 old_func 作为前缀时（如 key `a` → handle_a_passed、
+            # key `a_passed` → handle_a_passed_passed），改名 `a` 会连带把另一个函数改成
+            # handle_b_passed_passed，而它的标注行仍是 a_passed ⇒ 该 key 的 handler 静默失效。
+            # 只替换「def <old_func>(」这一处，且要求函数名完整匹配。
+            lines[i] = re.sub(
+                rf"(def\s+){re.escape(old_func)}(\s*\()",
+                lambda m: f"{m.group(1)}{new_func}{m.group(2)}",
+                line,
+                count=1,
+            )
             changed = True
     if changed:
         return write_handlers_atomic("\n".join(lines))
