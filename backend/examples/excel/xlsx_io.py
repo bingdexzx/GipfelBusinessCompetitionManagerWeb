@@ -69,8 +69,50 @@ def _read_shared_strings(zf: zipfile.ZipFile) -> list[str]:
     return out
 
 
-def _sheet_files(zf: zipfile.ZipFile) -> list[tuple[str, str]]:
-    """返回 [(工作表名, zip 内路径)]，顺序与工作簿里一致。"""
+def inspect_workbook(path: str | Path) -> dict:
+    """只读体检：报告**被隐藏但仍会被读取**的工作表与行（审计 Z-12 余项）。
+
+    改前 `_sheet_files` 只读 `name`/`r:id`，不看 `state="hidden"`；`read_xlsx` 也不看
+    `row/@hidden`。于是藏在隐藏工作表里的旧数据、被隐藏的草稿行都会照常被建进比赛，
+    用户在界面上"看不到"这些数据却已经在库里了，事后极难追查。
+
+    本函数不改读取行为（隐藏表仍然要读，否则会静默丢数据），只把事实**报出来**，
+    由 `--inspect` 提示用户。返回：
+
+        {"sheets": [{"name", "hidden", "rows", "hidden_rows", "hidden_cols"}, ...],
+         "hidden_sheets": [名称...], "sheets_with_hidden_rows": [名称...]}
+    """
+    path = Path(path)
+    info: dict = {"sheets": [], "hidden_sheets": [], "sheets_with_hidden_rows": []}
+    if not path.is_file():
+        return info
+    with zipfile.ZipFile(path) as zf:
+        names = zf.namelist()
+        for name, target, hidden in _sheet_entries(zf):
+            entry = {
+                "name": name, "hidden": hidden, "rows": 0,
+                "hidden_rows": 0, "hidden_cols": 0,
+            }
+            if target in names:
+                root = ET.fromstring(zf.read(target))
+                for row_node in root.iter():
+                    tag = _strip_ns(row_node.tag)
+                    if tag == "row":
+                        entry["rows"] += 1
+                        if str(row_node.get("hidden") or "").strip() in ("1", "true"):
+                            entry["hidden_rows"] += 1
+                    elif tag == "col" and str(row_node.get("hidden") or "").strip() in ("1", "true"):
+                        entry["hidden_cols"] += 1
+            if hidden:
+                info["hidden_sheets"].append(name)
+            if entry["hidden_rows"]:
+                info["sheets_with_hidden_rows"].append(name)
+            info["sheets"].append(entry)
+    return info
+
+
+def _sheet_entries(zf: zipfile.ZipFile) -> list[tuple[str, str, bool]]:
+    """[(工作表名, zip 内路径, 是否隐藏)]，顺序与工作簿里一致（审计 Z-12：读 `state`）。"""
     wb = ET.fromstring(zf.read("xl/workbook.xml"))
     rels_root = ET.fromstring(zf.read("xl/_rels/workbook.xml.rels"))
     rel_target = {
@@ -79,7 +121,7 @@ def _sheet_files(zf: zipfile.ZipFile) -> list[tuple[str, str]]:
         if _strip_ns(rel.tag) == "Relationship"
     }
     names = zf.namelist()
-    out: list[tuple[str, str]] = []
+    out: list[tuple[str, str, bool]] = []
     for node in wb.iter():
         if _strip_ns(node.tag) != "sheet":
             continue
@@ -92,8 +134,14 @@ def _sheet_files(zf: zipfile.ZipFile) -> list[tuple[str, str]]:
         if target not in names:  # 兜底：按顺序猜
             guess = f"xl/worksheets/sheet{len(out) + 1}.xml"
             target = guess if guess in names else target
-        out.append((name, target))
+        hidden = str(node.get("state") or "").strip().lower() in ("hidden", "veryhidden")
+        out.append((name, target, hidden))
     return out
+
+
+def _sheet_files(zf: zipfile.ZipFile) -> list[tuple[str, str]]:
+    """返回 [(工作表名, zip 内路径)]，顺序与工作簿里一致。"""
+    return [(name, target) for name, target, _hidden in _sheet_entries(zf)]
 
 
 def _cell_text(cell: ET.Element, shared: list[str]) -> str:

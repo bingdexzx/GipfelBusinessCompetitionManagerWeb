@@ -78,7 +78,7 @@ from sheet_spec import (  # noqa: E402
     header_for,
     summarize_spec,
 )
-from xlsx_io import load_tables  # noqa: E402
+from xlsx_io import inspect_workbook, load_tables  # noqa: E402
 
 
 class SheetBuildError(Exception):
@@ -228,14 +228,14 @@ def main(argv: list[str]) -> int:
         print(f"已写出归档：{out_written}")
 
     if args.inspect or (not args.out and args.competition is None):
-        _print_summary(archive)
+        _print_summary(archive, empty_sheets=_empty_sheet_names(stats))
         return 0
 
     if args.competition is not None and args.competition < 0:
         # Z-09：dry-run 且比赛尚不存在 —— 没有可导入的目标（也不该为了预演去建库），
         # 只做建包预览
         print("预演：比赛尚不存在（dry-run 不落库），本次只做建包预览")
-        _print_summary(archive)
+        _print_summary(archive, empty_sheets=_empty_sheet_names(stats))
         return 0
 
     if args.competition is not None:
@@ -280,7 +280,25 @@ def build_from_tables(
         run_scripts=run_scripts,
     )
     stats: dict[str, int] = {}
+    empty_sheets: list[str] = []   # 审计 Z-12 余项：表头在、数据为空的工作表
     problems: list[str] = []      # 审计 Z-13：收集全部行级错误后一次性报出
+
+    # 审计 Z-12 余项：隐藏工作表/隐藏行里的数据**照常会被建进比赛**（不改读取行为，
+    # 否则会静默丢数据），但必须让用户知道"界面上看不到的东西已经进库了"。
+    try:
+        wb_info = inspect_workbook(source)
+    except Exception:  # noqa: BLE001 - 体检失败不影响建包
+        wb_info = {"hidden_sheets": [], "sheets_with_hidden_rows": []}
+    if wb_info["hidden_sheets"]:
+        notes.append(
+            "以下工作表在工作簿里被**隐藏**，但其内容仍会被读取并建进比赛："
+            + "、".join(wb_info["hidden_sheets"])
+        )
+    if wb_info["sheets_with_hidden_rows"]:
+        notes.append(
+            "以下工作表里有**被隐藏的行**，这些行也会被读取（请确认不是草稿/废弃数据）："
+            + "、".join(wb_info["sheets_with_hidden_rows"])
+        )
 
     for name in tables:
         if name in NOTES_SHEET_NAMES:
@@ -299,6 +317,11 @@ def build_from_tables(
         if spec.name not in tables:
             continue
         rows = _table_rows(spec, tables[spec.name])
+        if not rows:
+            # 审计 Z-12 余项：表格里放了一张「稍后再填」的空表（只有表头）时，改前它既不出现在
+            # 归档里、也没有任何提示 —— 用户以为"空段"已经建好，导入后却发现比赛根本没有该段。
+            # 这里明确提示：本次不会产出该资源的任何行。
+            empty_sheets.append(spec.name)
         for row_no, row in rows:
             ctx.row_no = row_no
             try:
@@ -324,6 +347,14 @@ def build_from_tables(
         )
 
     notes.extend(ctx.notes)
+    if empty_sheets:
+        # 审计 Z-12 余项：空表（只有表头）不会产出任何行 —— 归档里**没有该资源段**，
+        # 与"段存在但 0 行"在导入侧的语义不同（缺段会被忽略）。必须显式提示。
+        notes.append(
+            "以下工作表只有表头、没有任何数据行，本次**不会**产出对应资源"
+            "（归档里没有该段，导入后比赛也没有该部分）："
+            + "、".join(sorted(empty_sheets))
+        )
     notes.append(f"共处理 {len(stats)} 张表、{sum(stats.values())} 行数据"
                  "（只处理出现在表格里的表，其余表完全不参与产出）")
     return builder, stats, notes
@@ -512,7 +543,17 @@ def _table_rows(spec, table: list[list[str]]) -> list[tuple[int, dict]]:
 # =============================================================================
 
 
-def _print_summary(archive: dict) -> None:
+def _empty_sheet_names(stats: dict[str, int]) -> list[str]:
+    """只保留表头、没有数据行的工作表名（审计 Z-12 余项）。"""
+    return [name for name, count in stats.items() if not count]
+
+
+def _print_summary(archive: dict, *, empty_sheets: list[str] | None = None) -> None:
+    """打印产出资源概览。
+
+    审计 Z-12 余项：改前只列**非空**资源，用户看不出"我放了表却没产出"—— 空表（只有表头）
+    的段既不出现也没有提示。现在把已知为空的工作表单独列出来并说明「归档里没有该段」。
+    """
     resources = archive.get("resources") or {}
     print("产出资源：")
     total = 0
@@ -523,6 +564,10 @@ def _print_summary(archive: dict) -> None:
         total += block.get("count", 0)
         print(f"  - {block.get('label', res):<16} {block.get('count', 0):>5} 条  [{res}]")
     print(f"合计 {total} 条")
+    if empty_sheets:
+        print("以下工作表只有表头、没有任何数据行（归档里**没有**对应资源段）：")
+        for name in sorted(empty_sheets):
+            print(f"  - {name}")
 
 
 def _try_resolve_card_fields(builder, competition_id: int, notes: list[str]) -> None:
