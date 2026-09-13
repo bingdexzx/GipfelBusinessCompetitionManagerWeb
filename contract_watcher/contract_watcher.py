@@ -35,6 +35,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 log = logging.getLogger("contract_watcher")
@@ -69,6 +70,49 @@ def now_iso() -> str:
     from datetime import datetime, timezone
 
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def parse_executed_at(value):
+    """把 executedAt 解析为可比较的 datetime（无法解析返回 None）。
+
+    审计 CW-05：改前水位线用**字符串**比较（`t > last_seen`），而后端序列化形态不固定：
+    `…:46Z` 与 `…:46.731818Z` 字符串比较会认为后者更小（'.' < 'Z' 且长度不同）→ 同秒内后
+    通过的合同被判为「不新」，永久漏账。
+    """
+    from datetime import datetime, timezone
+
+    if value is None:
+        return None
+    txt = str(value).strip()
+    if not txt:
+        return None
+    try:
+        dt = datetime.fromisoformat(txt.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def max_executed_at(values) -> str:
+    """按解析后的时间取最大 executedAt（返回原始字符串形态）；无法解析的退回字符串比较。"""
+    best = ""
+    best_dt = None
+    for v in values:
+        if not v:
+            continue
+        dt = parse_executed_at(v)
+        if not best:
+            best, best_dt = str(v), dt
+            continue
+        if dt is None or best_dt is None:
+            if str(v) > best:
+                best = str(v)
+            continue
+        if dt > best_dt:
+            best, best_dt = str(v), dt
+    return best
 
 
 # ==================== HTTP（标准库，只读后端） ====================
@@ -122,8 +166,13 @@ class Backend:
         return data if isinstance(data, list) else data.get("items") or []
 
     def fetch_executed_ids(self, competition_id: int | None) -> list[tuple[int, str]]:
-        """EXECUTED 合同 id 与 executedAt 列表（executedAt 用于增量判断）。"""
-        out: list[tuple[int, str]] = []
+        """EXECUTED 合同 id 与 executedAt 列表（executedAt 用于增量判断）。
+
+        审计 CW-04：改前按 offset 分页（page=N）逐页拼接，期间有合同执行/撤销会让分页漂移，
+        同一条合同可能重复出现在两页里 → 同轮重复分发（重复记账）。这里按合同 id 去重，
+        同 id 保留更新的 executedAt。
+        """
+        by_id: dict[int, str] = {}
         page = 1
         while True:
             params = f"status=EXECUTED&page={page}&pageSize=200"
@@ -133,10 +182,14 @@ class Backend:
             batch = data.get("items") or []
             total = data.get("total") or len(batch)
             for it in batch:
-                if it.get("executedAt"):
-                    out.append((int(it["id"]), str(it["executedAt"])))
+                if not it.get("executedAt"):
+                    continue
+                cid = int(it["id"])
+                et = str(it["executedAt"])
+                prev = by_id.get(cid)
+                by_id[cid] = et if prev is None else max_executed_at([prev, et])
             if not batch or len(batch) >= total:
-                return out
+                return list(by_id.items())
             page += 1
 
     def fetch_contract_detail(self, contract_id: int) -> dict:
@@ -332,7 +385,7 @@ def establish_baseline(
             "不会写入空水位（否则历史合同会被全量重放）", e,
         )
         return False
-    state["lastExecutedAt"] = max((t for _, t in rows), default="")
+    state["lastExecutedAt"] = max_executed_at(t for _, t in rows)
     save_state(state)
     log.info(
         "首次运行基线已建立：lastExecutedAt=%r（%d 条历史已执行合同不再处理；如需回填请用 --backfill）",
@@ -356,7 +409,17 @@ def process_fresh_contracts(
     """
     rows = backend.fetch_executed_ids(competition_id)
     watermark = state.get("lastExecutedAt") or ""
+    # 水位线比较必须按时间而非字符串（审计 CW-05）：'…:46Z' vs '…:46.731818Z' 字符串比较会反向
+    watermark_dt = parse_executed_at(watermark)
     pending = state.get("pendingExecuted") or []
+
+    def is_newer(et: str) -> bool:
+        dt = parse_executed_at(et)
+        if dt is None:
+            return False  # 无法解析的时间不当作新合同，避免每轮重放
+        if watermark_dt is None:
+            return True  # 水位不可解析（旧版本写入的异常值）：按「新」处理一次
+        return dt > watermark_dt
 
     # 待处理队列（含上一轮失败的）+ 本轮新出现的，按 executedAt 升序、按合同 id 去重
     queue: dict[int, str] = {}
@@ -366,9 +429,9 @@ def process_fresh_contracts(
         except (KeyError, TypeError, ValueError):
             continue
     for cid, et in rows:
-        if et > watermark:
+        if is_newer(et):
             queue[int(cid)] = str(et)
-    items = sorted(queue.items(), key=lambda kv: (kv[1], kv[0]))
+    items = sorted(queue.items(), key=lambda kv: (parse_executed_at(kv[1]) or datetime.min.replace(tzinfo=timezone.utc), kv[0]))
 
     advanced_to = watermark
     still_pending: list[dict] = []
@@ -387,13 +450,15 @@ def process_fresh_contracts(
             still_pending.append({"id": cid, "executedAt": et})
             continue
         if dispatch(contract, registry, out_dir, competition_id):
-            if et > advanced_to:
+            if parse_executed_at(et) is not None and (
+                parse_executed_at(advanced_to) is None or parse_executed_at(et) > parse_executed_at(advanced_to)
+            ):
                 advanced_to = et
         else:
             still_pending.append({"id": cid, "executedAt": et})
 
     state["pendingExecuted"] = still_pending
-    if advanced_to > watermark:
+    if advanced_to != watermark:
         state["lastExecutedAt"] = advanced_to
         save_state(state)
     elif still_pending:
