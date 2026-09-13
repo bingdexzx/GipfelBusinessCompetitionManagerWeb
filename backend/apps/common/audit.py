@@ -10,6 +10,7 @@ import json
 import logging
 from typing import Any
 from apps.common.helpers import client_ip as _client_ip
+from apps.common.json_util import dumps_json_safe
 
 logger = logging.getLogger("gipfel")
 
@@ -67,7 +68,7 @@ def log_write(
             model=model,
             record_id=str(record_id) if record_id is not None else None,
             competition_id=competition_id,
-            changes=json.dumps(sanitize_changes(changes), ensure_ascii=False)
+            changes=dumps_json_safe(sanitize_changes(changes), ensure_ascii=False)
             if changes is not None
             else None,
             ip=get_request_ip(),
