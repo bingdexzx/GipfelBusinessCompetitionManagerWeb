@@ -218,8 +218,33 @@ def _sheet_xml(rows: list[list]) -> str:
     return "".join(out)
 
 
+def validate_sheet_names(tables: dict[str, list[list]]) -> None:
+    """校验工作表名（审计 Z-11）。
+
+    Excel 对工作表名的硬约束：非空、≤31 字符、不得含 `[ ] : * ? / \\`、不得以单引号开头或结尾。
+    改前完全不校验：超长/带非法字符的名字会写出 Excel 打不开（或自动改名）的文件；
+    **重名**更糟 —— `tables` 是 dict，重名在调用方就已互相覆盖（静默丢表）。
+    """
+    seen: set[str] = set()
+    for name in tables:
+        text = str(name)
+        if not text.strip():
+            raise ValueError("工作表名不能为空")
+        if len(text) > 31:
+            raise ValueError(f"工作表名「{text}」超过 Excel 的 31 字符上限（{len(text)} 字符）")
+        bad = [ch for ch in "[]:*?/\\" if ch in text]
+        if bad:
+            raise ValueError(f"工作表名「{text}」含 Excel 不允许的字符：{'、'.join(bad)}")
+        if text.startswith("'") or text.endswith("'"):
+            raise ValueError(f"工作表名「{text}」不能以单引号开头或结尾（Excel 限制）")
+        if text in seen:
+            raise ValueError(f"工作表名重复：「{text}」（重名会让其中一张表被静默覆盖）")
+        seen.add(text)
+
+
 def write_xlsx(path: str | Path, tables: dict[str, list[list]]) -> Path:
     """写 xlsx（文本按 inlineStr 写入，数字/布尔按原生类型写）。"""
+    validate_sheet_names(tables)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     names = list(tables.keys())
