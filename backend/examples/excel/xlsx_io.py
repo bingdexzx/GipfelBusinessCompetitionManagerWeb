@@ -301,7 +301,34 @@ def read_csv_dir(path: str | Path) -> dict[str, list[list[str]]]:
     return tables
 
 
+_BAD_FILENAME_CHARS = set('<>:"/\\|?*') | {chr(c) for c in range(32)}
+
+
+def validate_csv_file_names(tables: dict[str, list[list]]) -> None:
+    """校验「一张表 = 一个 .csv」时要落地的文件名（审计 Z-16）。
+
+    改前直接 `(path / f"{name}.csv").open("w")`：表名里带 `/` `\\` `:` 等字符时，
+    前面的表已经写进目录、轮到坏名字才抛异常 —— 留下一个**内容参差的半成品目录**，
+    用户以为导出成功（文件确实存在一部分）。这里在写任何文件之前先整体校验。
+    """
+    from pathlib import Path as _Path
+
+    for name in tables:
+        text = str(name)
+        if not text.strip():
+            raise ValueError("工作表名不能为空")
+        bad = sorted(ch for ch in set(text) if ch in _BAD_FILENAME_CHARS)
+        if bad:
+            raise ValueError(
+                f"工作表名「{text}」不能作为文件名：含 {'、'.join(repr(c) for c in bad)}"
+                "（CSV 目录模式下表名就是文件名，请改用不含这些字符的表名）"
+            )
+        if text != _Path(text).name or text in (".", ".."):
+            raise ValueError(f"工作表名「{text}」不是合法的文件名")
+
+
 def write_csv_dir(path: str | Path, tables: dict[str, list[list]]) -> Path:
+    validate_csv_file_names(tables)
     path = Path(path)
     path.mkdir(parents=True, exist_ok=True)
     for name, rows in tables.items():
