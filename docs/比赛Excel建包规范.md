@@ -31,7 +31,13 @@ CSV 目录/         ─┘
 | 地图节点类型 / 路径类型 / 地图节点 / 地图连线 | 世界结构与物流网络 |
 | 燃料 / 原料 / 科技 / 生产线 / 基建 / 仓库 / 零件 / 产品 / 载具 | 物资与产能（配方、地点价、科技前置） |
 | 消费者需求 | 各区域对产品的需求量 |
-| 合同类型 | 合同模板（全局资源） |
+| 合同类型 | 合同模板（全局资源）—— **表格里只写脚本路径**，四份 JSON 由「合同类型代码化」脚本产出（见第 4 节） |
+
+> 合同类型**一律用代码创建**（`apps.contracts.builder` 的具名效果 + 比较表达式），
+> 表格里不再手写参与方 / 输入项 / 效果 / 前置检查这四份 JSON：
+> 手写 JSON 最容易写错，而引擎对写错的形状往往**静默按 0 计算**或让检查**恒不通过**。
+> 写法见 [`docs/CONTRACT_TYPE_BY_CODE.md`](CONTRACT_TYPE_BY_CODE.md)，
+> 现成脚本见 `backend/examples/contracts/`（`auto_chain_contracts.py`、`mini_contracts.py`）。
 
 | **不进表格**（运行期数据） | 去哪里维护 |
 | --- | --- |
@@ -176,9 +182,32 @@ $env:PYTHONUTF8='1'
 | 地图节点 | `所属区域` | 是**文本**（不是外键），区域总览按它归属 |
 | 原料 | `地点价` | `节点名:价格`；同一种原料可在不同节点不同价 |
 | 零件 / 产品 | `原料配比` / `零件配比` | `名称*数量`；依赖方向固定为 原料 → 零件 → 产品 |
-| 合同类型 | `脚本路径` | 指向「合同类型代码化」脚本（如 `examples/contracts/auto_chain_contracts.py`），四份 JSON 由脚本产出；也可以改为直接贴 4 份 JSON |
-| 合同类型 | `参与方` | 紧凑写法 `seller=卖方; bank=银行|host`（`|host` 表示主办方），或直接贴 JSON |
-| 合同类型 | `效果定义` / `前置检查` | 贴引擎格式的 JSON；**老文档里的 `{"from":"input"}` 与检查 `kind:"FIELD"` 会被自动归一**并给出提示（见第 7 节） |
+| 合同类型 | `脚本路径` | **必填**：指向「合同类型代码化」脚本（如 `examples/contracts/auto_chain_contracts.py`）；相对 backend 目录或表格所在目录都可以 |
+| 合同类型 | `类型标识` | 留空 = 引入该脚本产出的**全部**合同类型；填了 = 只引入这一个（写错会列出该脚本实际产出哪些） |
+| 合同类型 | `是否启用` | 对应合同类型的 `enabled` 开关 |
+
+> **合同类型不在表格里手写 JSON**。四份 JSON（参与方 / 输入项 / 效果 / 前置检查）全部由
+> `apps.contracts.builder.ContractType` 产出，脚本可以直接跑体检与试算：
+
+```python
+# examples/contracts/mini_contracts.py（节选）
+from apps.contracts.builder import ContractType
+
+def build():
+    ct = ContractType("mini-sale", "简易购销合同")
+    seller, buyer = ct.party("seller", "卖方"), ct.party("buyer", "买方")
+    amount = ct.input("amount", "成交金额", "number", required=True, default="1000")
+    ct.check(buyer.field("cash") >= amount, error="买方现金不足以支付货款")
+    ct.sub_number(buyer.field("cash"), amount)
+    ct.add_number(seller.field("cash"), amount)
+    return ct
+```
+
+```powershell
+python manage.py build_contract_types examples/contracts/mini_contracts.py --competition <比赛id> --check   # 静态体检
+python manage.py build_contract_types examples/contracts/mini_contracts.py --competition <比赛id> --trial   # 真实引擎试算
+python manage.py build_contract_types examples/contracts/mini_contracts.py --competition <比赛id> --import  # 直接导入
+```
 
 > 计算图的坑：建包库自带的 `calc_node/calc_graph` 产出的是**合同编辑器风格**的图，
 > 产业计算字段求值器不认（字段会永远是空的）。本规范里的 `计算图` 列按求值器认识的
@@ -454,21 +483,15 @@ $env:PYTHONUTF8='1'
 
 ### 合同类型（分组：market）
 
-全局资源：合同模板。四份 JSON 可写 JSON，也可用 `script` 列指向合同类型代码化脚本
+合同类型**只由代码脚本创建**（合同类型代码化建库）：本表只写脚本路径与要引入的类型标识
 
 | 表头 | 参数名 | 说明 | 类型 | 必填 |
 | --- | --- | --- | --- | :---: |
-| 类型标识 | `key` | 合同类型 key（全局唯一） | 文本 | 是 |
-| 合同名称 | `name` | 合同类型名 | 文本 | 是 |
-| 说明 | `description` | 说明 | 文本 |  |
-| 脚本路径 | `script` | 合同类型脚本路径（如 examples/contracts/auto_chain_contracts.py） | 文本 |  |
-| 参与方 | `party_roles` | 参与方：`seller=卖方; bank=银行|host` 或 JSON | JSON 文本 |  |
-| 输入项定义 | `input_schema` | 输入项 JSON | JSON 文本 |  |
-| 效果定义 | `effects` | 效果 JSON | JSON 文本 |  |
-| 前置检查 | `conditions` | 前置检查 JSON | JSON 文本 |  |
+| 脚本路径 | `script` | 脚本路径（相对 backend 或表格所在目录） | 文本 | 是 |
+| 类型标识 | `key` | 类型标识：留空 = 引入该脚本的全部合同类型；填了 = 只引入这一个 | 文本 |  |
 | 是否启用 | `enabled` | 是否启用 | 是/否 |  |
 
-示例行：auto-mining | 开采合同 | 开采企业缴纳权利金并入库原矿 | examples/contracts/auto_chain_contracts.py |  |  |  |  | 是
+示例行：examples/contracts/auto_chain_contracts.py | auto-mining | 是
 
 <!-- SPEC:END -->
 
@@ -489,7 +512,10 @@ $env:PYTHONUTF8='1'
 ### 实测：表格框架 vs 代码建包（同一套汽车产业链内容）
 
 - 表格覆盖 **26 类资源**，其中 **24 类与代码建包逐行完全一致**
-  （比赛信息、财年、产业类型、区域、地图、原料、科技、零件、产品、载具、需求、合同类型…）；
+  （比赛信息、财年、产业类型、区域、地图、原料、科技、零件、产品、载具、需求…）；
+- **合同类型 3 个 key 的四份 JSON 与代码建包逐字段一致**：表格导入后用
+  `manage.py build_contract_types examples/contracts/auto_chain_contracts.py --competition <id> --import`
+  复查，结果是 `[相同] 无需更新` ×3 —— 两条路径同源，不存在「手写 JSON 与代码不一致」的风险；
 - 2 类为**无害差异**：`industryFields`（额外字段排序、计算图节点 id/坐标不同）、
   `pathTypes`（示例表格多写了 description）；
 - 代码建包**多出来的 6 类正是运行期数据**：`companies`、`companyFieldValues`、
@@ -515,14 +541,17 @@ $env:PYTHONUTF8='1'
    - 账号是**全局**的：同一个用户名出现在第二场比赛时只会合并公司范围，不会改归属比赛；
    - 区域总览卡片绑定的是**产业字段主键**，字段是全局资源、跨比赛复用，一般无需重建；
    - 比赛内消息不做判重，重复发布会产生多条，注意清理。
-2. **合同类型是全局模板**：`--mode overwrite` 下会被更新（改了「效果定义」记得加这个参数）；
-   比赛内的**合同实例**由界面创建，不随框架导入。
-3. **老文档的两种写法会被自动归一**（并打印提示），因为引擎不认它们：
-   - 取值范围 `{"from": "input", "key": X}` → `{"type": "INPUT", "key": X}`
-     （不归一的话引擎会**静默按 0 计算**，表现是金额恒为 0）；
-   - 检查种类 `"kind": "FIELD"` → `"FIELD_COMPARE"`（引擎没有 `FIELD` 这个检查种类，
-     写成它会**恒不通过**）。
-   这两处正是建包库文档与 `demo_competition.py` 里的写法，从那里复制 JSON 就会遇到。
+2. **合同类型一律由代码脚本创建**（第 4 节）：表格里只写脚本路径 + 类型标识；
+   脚本本身可以直接体检与试算
+   （`build_contract_types <脚本> --competition <id> --check/--trial/--import`），
+   改完脚本记得用 `--mode overwrite` 刷新已存在的合同类型。
+   比赛内的**合同实例**（绑定具体公司）由界面创建，不随框架导入。
+3. **老文档的两种写法仍会被自动归一**（并打印提示），作为安全网保留：
+   若脚本用 `keep_effects()` 保留了旧 JSON，其中的
+   `{"from": "input", "key": X}` 会被归一成 `{"type": "INPUT", "key": X}`
+   （不归一的话引擎会**静默按 0 计算**），检查种类 `"kind": "FIELD"` 会被归一成
+   `"FIELD_COMPARE"`（引擎没有 `FIELD` 这个检查种类，写成它会**恒不通过**）。
+   这两处正是建包库文档与 `demo_competition.py` 里的写法 —— 新写脚本时不要照抄。
 4. **文件格式**：`.xlsx` 由本仓库的极简读写器生成（纯标准库，未引入 openpyxl/pandas），
    Excel / WPS / LibreOffice 均可打开与另存；也可以用「目录 + CSV」完全绕开 Excel。
 5. **计算字段**：只在「接口写公司字段」与「财年开始」时重算，合同落账不会触发；
@@ -543,7 +572,10 @@ $env:PYTHONUTF8='1'
 | [`backend/examples/excel/比赛建包模板.xlsx`](../backend/examples/excel/比赛建包模板.xlsx) | 空白模板（含「说明」表、边界说明与表头↔参数名对照） |
 | [`backend/examples/excel/汽车产业链示例.xlsx`](../backend/examples/excel/汽车产业链示例.xlsx) | 汽车产业链完整框架（20 张表） |
 | [`backend/examples/excel/最小示例.xlsx`](../backend/examples/excel/最小示例.xlsx) | 教程用的最小框架（16 张表） |
+| [`backend/examples/contracts/auto_chain_contracts.py`](../backend/examples/contracts/auto_chain_contracts.py) | 开采 / 购销 / 运输三大合同类型（示例表格引用它） |
+| [`backend/examples/contracts/mini_contracts.py`](../backend/examples/contracts/mini_contracts.py) | 最小合同类型脚本（最小示例引用它） |
+| [`docs/CONTRACT_TYPE_BY_CODE.md`](CONTRACT_TYPE_BY_CODE.md) | **合同类型代码化**完整说明（具名效果、实体访问器、体检与试算） |
 
 相关文档：[比赛 Excel 建包教程](比赛Excel建包教程.md)、[汽车产业链测试赛准备](汽车产业链测试赛准备.md)、
-[用代码创建比赛内容](BUILD_COMPETITION_BY_CODE.md)、
+[合同类型代码化](CONTRACT_TYPE_BY_CODE.md)、[用代码创建比赛内容](BUILD_COMPETITION_BY_CODE.md)、
 [比赛建包库完整 API 手册](BUILD_COMPETITION_API_REFERENCE.md)。

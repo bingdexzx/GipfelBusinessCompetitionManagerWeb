@@ -76,7 +76,7 @@ scripts\start-dev.bat                    # 仓库根目录执行；浏览器访�
 | 地图节点 / 地图连线 | `东矿`、`西厂`；`东矿 → 西厂 100 公里 公路` |
 | 燃料 / 原料 / 零件 / 产品 / 载具 | `柴油`；`矿石`（地点价 `东矿:120`）；`毛坯 = 矿石*2`；`成品 = 毛坯*1`；`卡车`（公路、载重 30） |
 | 消费者需求 | `西区` 对 `成品` 需求 500 |
-| 合同类型 | `mini-sale 简易购销合同`（买方付钱、卖方收钱，现金不足则拒绝） |
+| 合同类型 | `mini-sale 简易购销合同`（买方付钱、卖方收钱，现金不足则拒绝）——**由脚本 `examples/contracts/mini_contracts.py` 产出**，表格里只写脚本路径 |
 
 **这里没有公司、没有账号、没有合同实例** —— 那些在第 4 节补。
 
@@ -217,32 +217,67 @@ scripts\start-dev.bat                    # 仓库根目录执行；浏览器访�
 
 导入按「区域 + 产品 + 数量」去重 —— **改需求量等于新增一条**，不是修改原记录。
 
-### 3.7 合同类型（最容易踩坑的一节）
+### 3.7 合同类型（只写脚本路径）
 
 合同类型是**框架**（模板），进表格；比赛内的**合同实例**绑定具体公司，属于运行数据（第 4 节）。
 
-两种写法，二选一：
+**合同类型一律由代码脚本创建**（「合同类型代码化」建库），表格里只写「脚本路径 + 类型标识」：
 
-**写法 A：引用代码脚本（推荐）** —— 复杂逻辑留在 `.py` 里，表格只写路径：
+| 脚本路径 | 类型标识 | 是否启用 |
+| --- | --- | --- |
+| examples/contracts/auto_chain_contracts.py | auto-mining | 是 |
+| examples/contracts/auto_chain_contracts.py | auto-purchase-sale | 是 |
+| examples/contracts/auto_chain_contracts.py | auto-transport | 是 |
 
-| 类型标识 | 合同名称 | 说明 | 脚本路径 |
-| --- | --- | --- | --- |
-| auto-mining | 开采合同 | 开采企业缴纳权利金并入库原矿 | examples/contracts/auto_chain_contracts.py |
+- **脚本路径**：必填；相对 `backend` 目录或表格所在目录都行。
+- **类型标识**：填了就只引入这一个；**留空则引入该脚本产出的全部合同类型**（一行搞定）。
+- **是否启用**：对应合同类型的 enabled 开关。
 
-**写法 B：直接贴 JSON** —— 适合简单合同（见最小示例）：
+**为什么不在表格里手写合同 JSON**：参与方 / 输入项 / 效果 / 前置检查这四份 JSON 是引擎的底层格式，
+手写极易写错，而引擎对写错的形状往往**静默按 0 计算**（金额恒为 0）或让检查**恒不通过**。
+代码建库把这四份 JSON 编译出来，还自带字段类型契约与体检：
 
-| 类型标识 | 合同名称 | 参与方 | 输入项定义 | 效果定义 | 前置检查 |
-| --- | --- | --- | --- | --- | --- |
-| mini-sale | 简易购销合同 | seller=卖方; buyer=买方 | `[{"key":"amount","label":"成交金额","type":"NUMBER","required":true,"default":"1000"}]` | `[{"kind":"FIELD","party":"buyer","fieldKey":"cash","op":"SUB","value":{"type":"INPUT","key":"amount"}}, …]` | `[{"kind":"FIELD_COMPARE","party":"buyer","fieldKey":"cash","op":"GTE","value":{"type":"INPUT","key":"amount"}}]` |
+```python
+# backend/examples/contracts/mini_contracts.py（最小示例引用的脚本，全文十来行）
+from apps.contracts.builder import ContractType
 
-三个必须知道的坑（都是引擎既有语义）：
+def build():
+    ct = ContractType("mini-sale", "简易购销合同", description="买方付钱给卖方，现金不足则拒绝")
+    seller = ct.party("seller", "卖方")
+    buyer = ct.party("buyer", "买方")
+    amount = ct.input("amount", "成交金额", "number", required=True, default="1000")
 
-1. **效果的取值范围必须写 `{"type": "INPUT", "key": "amount"}`**。
-   项目文档和 `demo_competition.py` 里的 `{"from": "input", "key": "amount"}` 引擎不认，
-   会**静默按 0 计算**（表现是「金额恒为 0」）。表格工具会自动把它归一成 `{"type":"INPUT"}` 并提示你。
-2. **前置检查的种类是 `FIELD_COMPARE`**（不是 `FIELD`）。写成 `FIELD` 检查会**恒不通过**。
-   表格工具同样会自动归一并提示。
-3. 合同类型是**全局模板**：改了内容再导入时，记得加 `--mode overwrite`，否则已存在的模板会被保留。
+    ct.check(amount > 0, label="金额校验", error="成交金额必须大于 0")
+    ct.check(buyer.field("cash") >= amount, label="付款校验", error="买方现金不足以支付货款")
+
+    ct.sub_number(buyer.field("cash"), amount)      # 具名效果：自带字段类型契约
+    ct.add_number(seller.field("cash"), amount)
+    return ct
+```
+
+**写一个新合同类型的工作流**（详细写法见 [合同类型代码化](CONTRACT_TYPE_BY_CODE.md)）：
+
+```powershell
+cd backend
+# ① 照抄 examples/contracts/mini_contracts.py 写自己的脚本（复杂逻辑见 auto_chain_contracts.py）
+# ② 静态体检（纯只读，不写库、不跑引擎）
+python manage.py build_contract_types 我的合同.py --competition <比赛id> --check
+# ③ 用真实公司试算（事务回滚；能发现「检查不通过」「字段不存在」等问题）
+python manage.py build_contract_types 我的合同.py --competition <比赛id> --trial
+# ④ 两种落地方式，选一个：
+python manage.py build_contract_types 我的合同.py --competition <比赛id> --import   # 直接导入
+#    或：把脚本路径写进「合同类型」表，跟着比赛框架一起导入（本教程的方式）
+```
+
+三个必须知道的点：
+
+1. 合同类型是**全局模板**：改完脚本用表格再导入时记得加 `--mode overwrite`，
+   否则已存在的模板会被保留（`append` 模式只补缺）。
+2. **脚本本身会报错就会立刻失败**：路径写错、脚本里抛异常、类型标识写错，表格工具都会给出明确提示
+   （类型标识写错时会列出该脚本实际产出哪些 key）。
+3. 若脚本里用 `keep_effects()` 保留了从旧文档复制来的 JSON，表格工具仍会自动修正其中
+   `{"from":"input"}`（引擎会静默按 0 算）与检查 `kind:"FIELD"`（引擎没有这个种类，检查恒不通过）
+   两种老写法并打印提示 —— 但**新写脚本不要照抄这些老写法**。
 
 ---
 
@@ -257,7 +292,7 @@ scripts\start-dev.bat                    # 仓库根目录执行；浏览器访�
 | 建账号并授权 | 「账号管理」 | 角色选 PLAYER/裁判；四套公司范围至少给「公司管理范围」，否则登录后什么都看不到 |
 | 交付选手口令 | 「账号管理 → 重置密码」 | 新建账号密码是随机值且强制首登改密 |
 | 配置区域总览卡片 | 「区域总览」 | 卡片绑定「公司 + 产业字段」，字段是全局资源、跨比赛复用 |
-| 建比赛内的合同 | 「合同管理」→ 新建 | 选合同类型 → 选参与方公司 → **把每个输入项都填上**（引擎不套默认值）→ 保持草稿 |
+| 建比赛内的合同 | 「合同管理」→ 新建 | 选合同类型（来自第 3.7 节的脚本）→ 选参与方公司 → **把每个输入项都填上**（引擎不套默认值）→ 保持草稿 |
 | 发布开赛公告 | 「消息中心」 | 发给全体或指定账号 |
 
 > 想跳过界面、可复现地一次建齐（也方便做自动化测试），用代码建包脚本：
@@ -365,11 +400,13 @@ python examples\competitions\auto_chain_setup.py --finish
 | `表头重复（中文表头与英文参数名指向同一列…）` | 同一列写了中英两个表头 | 只留一个 |
 | `引用的 产业类型（全局）「原料开采」尚未在本构建器中登记；本工作簿里没有「产业类型」表` | 少了引用表 | 把 `产业类型` 表放进来（它很小），或别用 `--sheets` 把它过滤掉 |
 | `工作表「公司」不属于表格规范的「比赛框架」，已跳过：… 请在「公司管理」界面维护` | 把运行数据放进了表格 | 这是正常提示：按它去界面维护（第 4 节） |
-| `合同类型 … 找不到合同类型 key=…` | `脚本路径` 或 `类型标识` 写错 | 核对脚本路径（相对 backend 目录或表格所在目录）与 key |
-| 提示「把 N 处老写法 `{"from": "input"}` 归一成了引擎值源」 | 从旧文档复制了合同 JSON | 无需处理（已自动修正）；新写请直接用 `{"type":"INPUT"}` |
-| 提示「把 N 处检查的老写法 `kind="FIELD"` 归一成了 `FIELD_COMPARE"`」 | 同上 | 同上 |
-| 合同执行后金额没变 / 恒为 0 | 效果范围形状不对，或输入项没填 | 检查 `{"type":"INPUT"}`；在「合同管理」里把输入项填全 |
-| 检查总是不过 | 检查种类写成 `FIELD`（应为 `FIELD_COMPARE`），或条件本身不满足 | 改种类；核对金额/配额 |
+| `第 2 行的必填列「脚本路径」为空` | 合同类型表漏了脚本路径 | 合同类型必须来自代码脚本，见第 3.7 节 |
+| `脚本 … 里没有合同类型「xxx」；该脚本产出：…` | `类型标识` 写错 | 按提示改成脚本里真实的 key，或把该格留空（引入全部） |
+| `合同类型脚本不存在：…` / `执行失败：…` | 脚本路径写错，或脚本自身报错 | 核对路径（相对 backend 或表格目录）；先单独跑 `python manage.py build_contract_types <脚本> --check` 排错 |
+| `工作表「公司」不属于表格规范的「比赛框架」，已跳过：… 请在「公司管理」界面维护` | 把运行数据放进了表格 | 这是正常提示：按它去界面维护（第 4 节） |
+| 提示「把 N 处老写法 `{"from": "input"}` 归一成了引擎值源」/「`kind="FIELD"` 归一成了 `FIELD_COMPARE`」 | 脚本里 `keep_effects()` 保留了旧文档的 JSON | 无需处理（已自动修正）；新写脚本请用 `{"type":"INPUT"}` 与 `FIELD_COMPARE` |
+| 合同执行后金额没变 / 恒为 0 | 效果取值范围不对，或输入项没填 | 用代码建库的具名效果（`ct.sub_number(...)` 等）；在「合同管理」里把输入项填全 |
+| 检查总是不过 | 检查种类写成 `FIELD`（应为 `FIELD_COMPARE`），或条件本身不满足 | 用 `ct.check(buyer.field("cash") >= amount)` 这类比较表达式；核对金额/配额 |
 | 改了表格再导入却没生效 | 默认是 `append`（已存在的保留） | 加 `--mode overwrite`（合同类型、原料、配方等都会被刷新） |
 | 卡片没数据 | 卡片绑定的字段主键不对 | 在「区域总览」里重新选字段（字段是全局资源，跨比赛复用） |
 | 账号登录后什么都看不到 | 四套公司范围是空的 | 在「账号管理」里给该账号配「公司管理范围」等 |
@@ -386,8 +423,11 @@ python examples\competitions\auto_chain_setup.py --finish
 2. **字典 / 列表字段**：字典用于库存台账（`{"原矿": 120}`），列表用于已解锁科技等；
    合同里对字典字段的效果只能写常量键值（要按数量累加就用循环，见合同类型脚本里的写法）。
 3. **金额精度**：所有金额、单价按文本写（`0.05`、`600000`），不要写成科学计数法。
-4. **合同类型用代码**：复杂合同（地点价、控制流、循环）建议写成脚本（见
-   `backend/examples/contracts/auto_chain_contracts.py`），表格里只写脚本路径 —— 两边同源，不会漂移。
+4. **合同类型用代码**：所有合同类型都由脚本创建（第 3.7 节）——
+   简单合同照抄 `backend/examples/contracts/mini_contracts.py`，
+   带地点价 / 控制流 / 循环的复杂合同看 `auto_chain_contracts.py`；
+   完整写法与体检说明见 [合同类型代码化](CONTRACT_TYPE_BY_CODE.md)。
+   表格里只写脚本路径，两边同源，不会漂移。
 5. **多比赛复用**：产业类型 / 产业字段 / 合同类型是**全局资源**，第二场比赛导入时会复用；
    想改口径就在表里改完用 `--mode overwrite` 刷新。
 6. **一次建齐（框架 + 主体）**：`examples/competitions/auto_chain_competition.py` 是代码建包，

@@ -27,7 +27,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -40,8 +39,8 @@ HERE = Path(__file__).resolve().parent
 DEFAULT_XLSX = HERE / "汽车产业链示例.xlsx"
 
 COMPETITION_NAME = "2026 汽车产业链测试赛"
-#: 合同类型走「合同类型代码化」脚本：表格里只写脚本路径，复杂逻辑仍留在代码里
 CONTRACT_SCRIPT = "examples/contracts/auto_chain_contracts.py"
+MINI_CONTRACT_SCRIPT = "examples/contracts/mini_contracts.py"
 
 INDUSTRIES = (
     (2001, "原料开采", "汽车产业链上游：锂 / 铝 / 铁矿石与橡胶硅砂开采"),
@@ -177,12 +176,13 @@ DEMANDS = (
     ("上游资源区", "商用电动轻卡", 120, "矿区自用与通勤"),
 )
 
-#: 合同类型属于「比赛框架」，进表格；比赛内的合同实例、区域总览卡片、消息、公司、账号
-#: 属于运行期内容，**不进表格**（由界面或代码建包脚本创建）。
-CONTRACT_TYPES = (
-    ("auto-mining", "开采合同", "开采企业向矿区管理方缴纳权利金与环保费，扣减许可配额并把原矿入库"),
-    ("auto-purchase-sale", "购销合同", "按卖方所在地价结算货款，货物出库 / 入库并登记双方台账"),
-    ("auto-transport", "运输合同", "按最短路径路程与载具计费，超重加价，里程与碳排计入台账"),
+#: 合同类型**只由代码脚本创建**（合同类型代码化建库）：
+#: 表格里只写「脚本路径 + 类型标识」，四份 JSON 全部由 `apps.contracts.builder.ContractType` 产出。
+#: 比赛内的合同实例、区域总览卡片、消息、公司、账号属于运行期内容，**不进表格**。
+CONTRACT_TYPE_REFS = (
+    (CONTRACT_SCRIPT, "auto-mining"),
+    (CONTRACT_SCRIPT, "auto-purchase-sale"),
+    (CONTRACT_SCRIPT, "auto-transport"),
 )
 
 
@@ -229,7 +229,7 @@ def sample_tables() -> dict[str, list[list]]:
         "产品": [_h("产品")] + [list(x) for x in PRODUCTS],
         "载具": [_h("载具")] + [list(x) for x in VEHICLES],
         "消费者需求": [_h("消费者需求")] + [list(x) for x in DEMANDS],
-        "合同类型": [_h("合同类型")] + [list(x) + [CONTRACT_SCRIPT] for x in CONTRACT_TYPES],
+        "合同类型": [_h("合同类型")] + [[script, key, "是"] for script, key in CONTRACT_TYPE_REFS],
     }
 
 
@@ -250,6 +250,7 @@ def minimal_tables() -> dict[str, list[list]]:
     """最小框架示例（教程用）：2 个产业、一条矿区→工厂的物流线、1 份购销合同模板。
 
     刻意只用最少的表 —— 复制这份就能改成自己的比赛框架。
+    合同类型只写脚本路径（由 `examples/contracts/mini_contracts.py` 产出四份 JSON）；
     公司 / 账号 / 预置合同不在表格里（它们属于运行期内容）。
     """
     fields = [
@@ -261,21 +262,12 @@ def minimal_tables() -> dict[str, list[list]]:
         ["9002", "现金", "cash", "NUMBER", "0", "", "", "", "", "", "2", "是", ""],
         ["9002", "库存", "inventory", "DICTIONARY", "{}", "", "", "", "", "", "3", "是", "NUMBER"],
     ]
-    sale_effects = [
-        {"kind": "FIELD", "party": "buyer", "fieldKey": "cash", "op": "SUB",
-         "value": {"type": "INPUT", "key": "amount"}},
-        {"kind": "FIELD", "party": "seller", "fieldKey": "cash", "op": "ADD",
-         "value": {"type": "INPUT", "key": "amount"}},
-    ]
-    sale_conditions = [
-        {"kind": "FIELD_COMPARE", "party": "buyer", "fieldKey": "cash", "op": "GTE",
-         "value": {"type": "INPUT", "key": "amount"}, "errorMessage": "买方现金不足以支付货款"},
-    ]
     return {
         "说明": [
             ["最小框架示例（教程用）"],
             [""],
             ["2 个产业 + 一条「东矿 → 西厂」物流线 + 一份购销合同模板；只用了 14 张表。"],
+            ["合同类型只写脚本路径（examples/contracts/mini_contracts.py），四份 JSON 由代码产出。"],
             ["公司 / 账号 / 预置合同属于运行期内容，不在表格里："],
             ["  · 建完框架后到「公司管理」建公司、到「账号管理」建账号、到「合同管理」建合同；"],
             ["  · 想一次建齐可参考 examples/competitions/auto_chain_competition.py（代码建包）。"],
@@ -302,11 +294,7 @@ def minimal_tables() -> dict[str, list[list]]:
         "消费者需求": [_h("消费者需求"), ["西区", "成品", "500", "厂区需求"]],
         "合同类型": [
             _h("合同类型"),
-            ["mini-sale", "简易购销合同", "买方付钱给卖方", "", "seller=卖方; buyer=买方",
-             json.dumps([{"key": "amount", "label": "成交金额", "type": "NUMBER",
-                          "required": True, "default": "1000"}], ensure_ascii=False),
-             json.dumps(sale_effects, ensure_ascii=False),
-             json.dumps(sale_conditions, ensure_ascii=False), "是"],
+            [MINI_CONTRACT_SCRIPT, "mini-sale", "是"],
         ],
     }
 

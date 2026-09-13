@@ -39,7 +39,7 @@
     地图节点类型 → 路径类型 → 地图节点 → 地图连线
     燃料 → 原料 → 科技 → 生产线 → 基建 → 仓库 → 零件 → 产品 → 载具
     消费者需求
-    合同类型
+    合同类型（只写脚本路径 + 类型标识，四份 JSON 由代码脚本产出）
 
 **股票系统同样不在本规范内**（按要求不动）：没有股票 / 资金账户 / 股票参数三类表。
 """
@@ -48,6 +48,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 # =============================================================================
@@ -375,11 +376,7 @@ HEADERS: dict[str, dict[str, str]] = {
         "price": "单价", "carbon_emission": "碳排系数",
     },
     "消费者需求": {"region": "区域名称", "product": "产品名称", "quantity": "需求量", "note": "备注"},
-    "合同类型": {
-        "key": "类型标识", "name": "合同名称", "description": "说明", "script": "脚本路径",
-        "party_roles": "参与方", "input_schema": "输入项定义", "effects": "效果定义",
-        "conditions": "前置检查", "enabled": "是否启用",
-    },
+    "合同类型": {"script": "脚本路径", "key": "类型标识", "enabled": "是否启用"},
 }
 
 
@@ -622,66 +619,62 @@ def _h_demand(ctx: SheetContext, row: dict) -> None:
 
 
 def _h_contract_type(ctx: SheetContext, row: dict) -> None:
-    b = ctx.builder
-    key, name = row.get("key"), row.get("name")
+    """合同类型**只由代码脚本创建**（「合同类型代码化」建库，见 docs/CONTRACT_TYPE_BY_CODE.md）。
+
+    表格这一行只做两件事：指向脚本、挑选要引入的类型 —— 参与方 / 输入项 / 效果 / 前置检查
+    这四份 JSON 全部由脚本里的 `apps.contracts.builder.ContractType` 产出，
+    表格里不再手写（手写 JSON 极易写错，且引擎对写错的形状会**静默按 0 计算**）。
+
+    - `脚本路径`：必填；相对 backend 目录或表格所在目录都可以；
+    - `类型标识`：留空 = 引入该脚本产出的**全部**合同类型；填了 = 只引入这一个；
+    - `是否启用`：对应合同类型的 enabled 开关。
+    """
     script = (row.get("script") or "").strip()
-    payload: dict[str, Any] = {}
-    if script:
-        payload = _contract_payload_from_script(ctx, script, key)
-        key = key or payload.get("key")
-        name = name or payload.get("name")
-    if not key or not name:
-        raise SheetFormatError("合同类型表的 key 与 name 必填（用 script 列时可留空，由脚本提供）")
-    party_roles = payload.get("partyRoles")
-    if party_roles is None:
-        text = (row.get("party_roles") or "").strip()
-        party_roles = as_map(text) if text and not is_json_cell(text) else (json.loads(text) if text else [])
-        if isinstance(party_roles, dict):  # `seller=卖方; bank=银行|host` 紧凑写法
-            party_roles = [
-                {
-                    "role": role,
-                    "label": str(value).split("|")[0].strip() or role,
-                    **({"isHost": True}
-                       if "|" in str(value) and str(value).split("|", 1)[1].strip().lower()
-                       in ("host", "主办", "主办方", "h") else {}),
-                }
-                for role, value in party_roles.items()
-            ]
-    input_schema = payload.get("inputSchema")
-    if input_schema is None:
-        text = (row.get("input_schema") or "").strip()
-        input_schema = json.loads(text) if text else []
-    effects = payload.get("effects")
-    if effects is None:
-        text = (row.get("effects") or "").strip()
-        effects = json.loads(text) if text else []
-    conditions = payload.get("conditions")
-    if conditions is None:
-        text = (row.get("conditions") or "").strip()
-        conditions = json.loads(text) if text else []
-    # 贴进来的 JSON 可能是老文档形状（{"from": "input", ...} / kind:"FIELD"）
-    # → 归一成引擎认识的形状，否则会静默按 0 计算 / 检查恒不通过
-    legacy = [0]
-    legacy_cond = [0]
-    effects = normalize_value_specs(effects, count=legacy)
-    conditions = normalize_conditions(normalize_value_specs(conditions, count=legacy),
-                                      count=legacy_cond)
-    if legacy[0]:
-        ctx.note(f"合同类型 {key}：把 {legacy[0]} 处老写法 {{\"from\": \"input\"}} 归一成了引擎值源"
-                 f" {{\"type\": \"INPUT\"}}（不归一的话引擎会静默按 0 计算）")
-    if legacy_cond[0]:
-        ctx.note(f"合同类型 {key}：把 {legacy_cond[0]} 处检查的老写法 kind=\"FIELD\" 归一成了"
-                 f" \"FIELD_COMPARE\"（引擎没有 FIELD 这个检查种类，检查会恒不通过）")
-    enabled = as_bool(row.get("enabled"), default=True)
-    b.contract_type(key, name, description=row.get("description") or payload.get("description"),
-                    party_roles=party_roles, input_schema=input_schema,
-                    effects=effects, conditions=conditions, enabled=bool(enabled))
+    if not script:
+        raise SheetFormatError(
+            "合同类型表的「脚本路径」必填：合同类型必须由代码脚本产出"
+            "（写法见 docs/CONTRACT_TYPE_BY_CODE.md 与 backend/examples/contracts/）"
+        )
+    wanted = (row.get("key") or "").strip()
+    enabled = bool(as_bool(row.get("enabled"), default=True))
+
+    types = _contract_types_from_script(ctx, script)
+    matched = [ct for ct in types if not wanted or ct.key == wanted]
+    if not matched:
+        available = "、".join(ct.key for ct in types) or "（脚本没有产出任何合同类型）"
+        raise SheetFormatError(f"脚本 {script} 里没有合同类型「{wanted}」；该脚本产出：{available}")
+
+    for ct in matched:
+        payload = ct.payload()
+        key = payload["key"]
+        # 安全网：脚本若用 keep_effects() 保留了老格式 JSON，这里照样归一并提示
+        legacy = [0]
+        legacy_cond = [0]
+        effects = normalize_value_specs(payload.get("effects") or [], count=legacy)
+        conditions = normalize_conditions(normalize_value_specs(payload.get("conditions") or [],
+                                                              count=legacy), count=legacy_cond)
+        if legacy[0]:
+            ctx.note(f"合同类型 {key}：把 {legacy[0]} 处老写法 {{\"from\": \"input\"}} 归一成了引擎值源"
+                     f" {{\"type\": \"INPUT\"}}（不归一的话引擎会静默按 0 计算）")
+        if legacy_cond[0]:
+            ctx.note(f"合同类型 {key}：把 {legacy_cond[0]} 处检查的老写法 kind=\"FIELD\" 归一成了"
+                     f" \"FIELD_COMPARE\"（引擎没有 FIELD 这个检查种类，检查会恒不通过）")
+        ctx.builder.contract_type(
+            key,
+            payload["name"],
+            description=payload.get("description"),
+            party_roles=payload.get("partyRoles") or [],
+            input_schema=payload.get("inputSchema") or [],
+            effects=effects,
+            conditions=conditions,
+            enabled=enabled,
+        )
+        ctx.note(f"合同类型 {key}（{payload['name']}）来自脚本 {Path(script).name}")
 
 
-def _contract_payload_from_script(ctx: SheetContext, script: str, key: str | None) -> dict:
-    """用「合同类型代码化」脚本产出四份 JSON（Excel 里只写脚本路径，逻辑仍留在代码里）。"""
+def _contract_types_from_script(ctx: SheetContext, script: str) -> list:
+    """执行「合同类型代码化」脚本，取回它产出的 ContractType 列表。"""
     import importlib.util
-    from pathlib import Path
 
     path = Path(script)
     if not path.is_absolute() and ctx.base_dir is not None:
@@ -693,18 +686,23 @@ def _contract_payload_from_script(ctx: SheetContext, script: str, key: str | Non
     if spec is None or spec.loader is None:
         raise SheetFormatError(f"无法加载合同类型脚本：{path}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except Exception as exc:  # noqa: BLE001 - 脚本自身的错误直接暴露给使用者
+        raise SheetFormatError(f"合同类型脚本 {path.name} 执行失败：{type(exc).__name__}: {exc}") from None
     build_fn = getattr(module, "build", None)
     produced = build_fn() if callable(build_fn) else getattr(module, "CONTRACTS", None)
-    items = produced if isinstance(produced, (list, tuple)) else [produced]
-    for item in items:
-        if item is None:
-            continue
-        if key and getattr(item, "key", None) != key:
-            continue
-        ctx.note(f"合同类型 {getattr(item, 'key', '?')} 来自脚本 {path.name}")
-        return item.payload()
-    raise SheetFormatError(f"脚本 {path.name} 里找不到合同类型 key={key}")
+    if produced is None:
+        raise SheetFormatError(
+            f"合同类型脚本 {path.name} 没有产出：请定义 build() 返回 ContractType / 列表 / 字典，"
+            "或模块级 CONTRACTS"
+        )
+    items = produced if isinstance(produced, (list, tuple)) else list(produced.values()) \
+        if isinstance(produced, dict) else [produced]
+    types = [item for item in items if item is not None]
+    if not types:
+        raise SheetFormatError(f"合同类型脚本 {path.name} 没有产出任何合同类型")
+    return types
 
 
 # ------------------------------ 表清单 ------------------------------
@@ -918,20 +916,13 @@ SHEETS: tuple[SheetSpec, ...] = (
     ),
     SheetSpec(
         "合同类型", "market",
-        "全局资源：合同模板。四份 JSON 可写 JSON，也可用 `script` 列指向合同类型代码化脚本",
+        "合同类型**只由代码脚本创建**（合同类型代码化建库）：本表只写脚本路径与要引入的类型标识",
         (
-            Column("key", "合同类型 key（全局唯一）", required=True),
-            Column("name", "合同类型名", required=True),
-            Column("description", "说明"),
-            Column("script", "合同类型脚本路径（如 examples/contracts/auto_chain_contracts.py）"),
-            Column("party_roles", "参与方：`seller=卖方; bank=银行|host` 或 JSON", "json"),
-            Column("input_schema", "输入项 JSON", "json"),
-            Column("effects", "效果 JSON", "json"),
-            Column("conditions", "前置检查 JSON", "json"),
+            Column("script", "脚本路径（相对 backend 或表格所在目录）", required=True),
+            Column("key", "类型标识：留空 = 引入该脚本的全部合同类型；填了 = 只引入这一个"),
             Column("enabled", "是否启用", "bool"),
         ),
-        ("auto-mining", "开采合同", "开采企业缴纳权利金并入库原矿",
-         "examples/contracts/auto_chain_contracts.py", "", "", "", "", "是"),
+        ("examples/contracts/auto_chain_contracts.py", "auto-mining", "是"),
         _h_contract_type,
     ),
 )
