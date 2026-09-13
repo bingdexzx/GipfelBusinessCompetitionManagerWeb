@@ -2598,7 +2598,9 @@ def apply_import(
 
     事务策略：
     - dry_run=True：整体执行后强制回滚，返回与真实导入一致的结果预览。
-    - dry_run=False：整体成功才提交；出现异常则回滚并抛出。
+    - dry_run=False：每个资源在各自的 savepoint 内执行——单个资源失败（含数据库约束错误）只回滚
+      该资源并在 problems 中报告，其余资源照常提交（审计 R-01：改前一处 DB 错误会把整批静默
+      回滚，却仍返回「新增 N」的成功统计）。
 
     安全策略：目标比赛已有数据时，默认拒绝；需显式 allow_non_empty=True 才允许写入。
     """
@@ -2668,7 +2670,13 @@ def apply_import(
             if not rows:
                 continue
             try:
-                fn(rows, ctx)
+                # 审计 R-01：改前直接调用 fn()，一次**数据库**错误（IntegrityError / 约束冲突等）
+                # 会把整个外层事务标记为「需回滚」：后续资源的 ORM 查询全部抛
+                # TransactionManagementError，退出 atomic 时整批数据被静默回滚，而接口仍返回
+                # 「新增 N」的成功统计（计数器在失败前已经加过）。这里给每个资源包一层
+                # savepoint：单个资源失败只回滚它自己，其余资源照常提交，失败进 problems。
+                with transaction.atomic():
+                    fn(rows, ctx)
             except Exception as e:  # noqa: BLE001 - 单资源失败不中断整批
                 ctx.problem(f"资源 {RESOURCE_LABELS.get(res, res)} 导入失败：{type(e).__name__}: {e}")
                 ctx.bump(res, "skipped", len(rows))
