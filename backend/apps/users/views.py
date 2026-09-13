@@ -197,7 +197,12 @@ class UserPasswordView(APIView):
 
 
 class UserPermissionsView(APIView):
-    """POST /api/users/:id/permissions —— 授予权限（按角色模板/授予上限校验）。"""
+    """POST /api/users/:id/permissions —— 授予权限（按角色模板/授予上限校验）。
+
+    请求体的 `permissions` 语义（与 User.permissions_list 一致，审计 I-19）：
+    - 数组：显式权限集合（`[]` = 显式零权限，落库为 "[]"）；
+    - `null`：按角色继承（落库 NULL，读取时返回该角色模板的默认权限）。
+    """
 
     permission_classes = _PERM_CLASSES
 
@@ -205,10 +210,11 @@ class UserPermissionsView(APIView):
     def post(self, request, pk):
         user = _get_user(pk)
         permissions = request.data.get("permissions")
-        if not isinstance(permissions, list):
-            raise BusinessError("permissions 必须是数组", code=400, status_code=400)
-        _assert_grant(request, user.role, permissions)
-        user.permissions = dump_json_scope(permissions) if permissions else None
+        if permissions is not None and not isinstance(permissions, list):
+            raise BusinessError("permissions 必须是数组或 null", code=400, status_code=400)
+        _assert_grant(request, user.role, permissions or [])
+        # null（含字段缺失）= 按角色继承；数组（含空数组）= 显式权限集合
+        user.permissions = None if permissions is None else dump_json_scope(permissions)
         # 每一次赋权都 bump permission_version：前端收到 permissions:changed 后刷新缓存并重算 can()
         user.permission_version = (user.permission_version or 0) + 1
         user.save(update_fields=["permissions", "permission_version", "updated_at"])

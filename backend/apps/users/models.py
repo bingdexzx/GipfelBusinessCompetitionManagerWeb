@@ -99,10 +99,19 @@ class User(AbstractBaseUser):
     # ---------- 权限范围解析（与原 parseCompanyScopes / parsePermissions 一致） ----------
     @property
     def permissions_list(self) -> list:
+        """细粒度权限（`permissions=null` 表示**按 role 继承**）。
+
+        改前对 null 直接返回 `[]`，与模型字段注释的契约不符 —— 结果是"未显式赋权"的
+        账号变成零权限，连基础查看都做不了（审计 I-19）。
+        现在 null → 角色模板的默认权限；显式空数组 `"[]"` 仍是"零权限"（可由
+        授予接口传 `permissions: []` 表达），两者语义区分明确。
+        """
         import json
 
         if not self.permissions:
-            return []
+            from apps.common.permissions import role_default_permissions
+
+            return role_default_permissions(self.role)
         try:
             data = json.loads(self.permissions)
             return data if isinstance(data, list) else []
