@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# ===========================================================================
+# 【非测试脚本】审计 X-16：本文件通篇只有 print，0 个断言、固定以退出码 0 结束，
+# 不构成任何测试覆盖。已由 tests/test_*.py 改名为 tests/explore_*.py —— 既避免被
+# pytest 当作用例收集，也避免与 tests/fix_verify/ 下的真实回归用例混淆。
+# 真实回归入口：backend/.venv/Scripts/python.exe manage.py test apps tests_fix_verify
+# ===========================================================================
 """测试用户交易量对做市商干预的影响"""
 import random
 
