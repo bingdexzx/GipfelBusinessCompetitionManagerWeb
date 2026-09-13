@@ -55,3 +55,14 @@ Thumbs.db
 # 保留 test_output/ 下的报告（*.md）与日志（logs/），只忽略每次运行生成的表格
 contract_watcher/bookkeeping_example/test_output*/*.xlsx
 contract_watcher/bookkeeping_example/test_output*/**/*.xlsx
+
+# ===== contract_watcher 运行产物（审计 CW-26）=====
+# 业务合同 JSON、进度文件与运行日志属本机产物：不应入库（含迁移/浸泡测试产生的存档）
+contract_watcher/records/
+contract_watcher/data/
+contract_watcher/watcher.log
+contract_watcher/handlers.py.bak
+contract_watcher/handlers.py.tmp
+contract_watcher/test_run*/records/
+contract_watcher/test_run*/watcher.log
+contract_watcher/test_run*/handlers.py.*
