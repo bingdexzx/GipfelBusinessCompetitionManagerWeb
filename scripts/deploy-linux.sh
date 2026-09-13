@@ -97,23 +97,37 @@ normalize_ip() {
     printf '%s' "$s"
 }
 
+# 审计 X-08：日志查看器端口解析逻辑抽到 scripts/lib/deploy-common.sh，与
+# update-from-github.sh 共用同一实现（避免两个脚本各写一份而漂移）。
+_DEPLOY_COMMON="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/deploy-common.sh"
+if [[ -f "$_DEPLOY_COMMON" ]]; then
+    # shellcheck source=scripts/lib/deploy-common.sh
+    source "$_DEPLOY_COMMON"
+fi
+
 # 解析日志查看器 nginx 公网监听端口：取 .env 的 LOG_VIEWER_PORT（默认 8120），
 # 缺失/非数字/越界（1-65535）一律兜底 8120 并告警。该端口是 nginx 监听 0.0.0.0:<port>，
 # 跟 daphne 内部 127.0.0.1:8121 是两个端口（前者 .env 控制、后者 service 模板硬编码），
 # 故意不等，避免同机抢端口。
-_log_viewer_port() {
-    local _env="${1:-$INSTALL_DIR/backend/.env}"
-    local _p="8120"
-    if [[ -f "$_env" ]] && grep -qE '^[[:space:]]*LOG_VIEWER_PORT=' "$_env"; then
-        _p=$(grep -E '^[[:space:]]*LOG_VIEWER_PORT=' "$_env" | head -1 | cut -d= -f2- \
-            | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]$//")
-        if ! [[ "$_p" =~ ^[0-9]+$ ]] || (( _p < 1 || _p > 65535 )); then
-            warn "LOG_VIEWER_PORT=$_p 非法（需 1-65535 整数），回退默认 8120"
-            _p="8120"
+# 注：优先用公共库的 `log_viewer_port`；若 lib 缺失则用下面的兜底实现（行为一致）。
+if ! command -v log_viewer_port >/dev/null 2>&1; then
+    log_viewer_port() {
+        local _env="${1:-$INSTALL_DIR/backend/.env}"
+        local _p="8120"
+        if [[ -f "$_env" ]] && grep -qE '^[[:space:]]*LOG_VIEWER_PORT=' "$_env"; then
+            _p=$(grep -E '^[[:space:]]*LOG_VIEWER_PORT=' "$_env" | head -1 | cut -d= -f2- \
+                | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]$//")
+            if ! [[ "$_p" =~ ^[0-9]+$ ]] || (( _p < 1 || _p > 65535 )); then
+                warn "LOG_VIEWER_PORT=$_p 非法（需 1-65535 整数），回退默认 8120"
+                _p="8120"
+            fi
         fi
-    fi
-    printf '%s' "$_p"
-}
+        printf '%s' "$_p"
+    }
+fi
+
+# 兼容本脚本历史函数名
+_log_viewer_port() { log_viewer_port "${1:-$INSTALL_DIR/backend/.env}"; }
 
 # 多服务兜底探测公网 IP：任一可达即返回；用 timeout 硬包裹 curl，连 DNS 解析超时一并杀掉，
 # 避免无外网/异常 DNS 时 curl 卡在解析阶段永不返回（curl --max-time 不限制 DNS 超时）。
@@ -148,8 +162,29 @@ if [[ $SKIP_INSTALL_DEPS -eq 0 ]]; then
         nginx openssl rsync
 
     # NodeSource 20 LTS（apt 默认 node 太老）
+    # 审计 X-06：改前是 `curl -fsSL https://deb.nodesource.com/setup_20.x | bash -` ——
+    # 以 **root** 管道执行远端脚本，既不校验 GPG 也不比对哈希，而 `setup_20.x` 是浮动别名
+    # （上游会原地覆盖同一 URL）。企业 TLS 中间盒、被污染的 DNS 或上游账户被入侵，
+    # 都能在部署机上直接拿到 root。现在改为官方文档的 apt-keyring 方式：
+    #   下载 GPG 公钥 → gpg --dearmor 落到 keyring → sources.list.d 显式 signed-by → apt 校验签名安装。
+    # 全程不使用 `| bash`。
     if ! command -v node >/dev/null 2>&1 || [[ "$(node -v | cut -d. -f1 | tr -d v)" -lt 18 ]]; then
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+        NODESOURCE_KEYRING="/usr/share/keyrings/nodesource.gpg"
+        NODESOURCE_LIST="/etc/apt/sources.list.d/nodesource.list"
+        NODE_MAJOR=20
+        log "添加 NodeSource ${NODE_MAJOR}.x 官方 apt 仓库（GPG 校验，不使用 curl|bash）"
+        curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+            -o /tmp/nodesource-repo.gpg.key \
+            || err "下载 NodeSource GPG 公钥失败（检查网络/DNS；如用内网镜像请手动配置 apt 源）"
+        # 至少把指纹/哈希打印出来，便于事后审计（发布方公布的 key 为 6F71 54B7 7A96 86F0）
+        sha256sum /tmp/nodesource-repo.gpg.key || true
+        gpg --dearmor --yes -o "$NODESOURCE_KEYRING" /tmp/nodesource-repo.gpg.key \
+            || err "gpg --dearmor 失败，无法建立 NodeSource keyring"
+        chmod 0644 "$NODESOURCE_KEYRING"
+        rm -f /tmp/nodesource-repo.gpg.key
+        echo "deb [signed-by=${NODESOURCE_KEYRING}] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
+            > "$NODESOURCE_LIST"
+        apt-get update -y
         apt-get install -y nodejs
     fi
 

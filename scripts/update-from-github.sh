@@ -51,8 +51,10 @@ Usage: $0 [options]
   --source-dir PATH        本地源码 checkout；git pull 后 rsync 同步到 INSTALL_DIR（兼容 deploy-linux.sh 模型）
   --repo URL               仓库地址；当 INSTALL_DIR 非 git 仓库且目录为空时用于克隆
   --domain DOMAIN          公网域名（仅在 --with-nginx 时用于重写 nginx server_name）
-  --public-ip IP           公网 IP（无 --domain 部署时日志查看器使用 http://<IP>:8120/）；
-                          显式传入可跳过自动探测，确保受限网络下也能纠正内网 IP 或补全缺失行
+  --public-ip IP           公网 IP（无 --domain 部署时日志查看器使用 http://<IP>:<LOG_VIEWER_PORT>/；
+                           端口取自 backend/.env 的 LOG_VIEWER_PORT，默认 8120）；
+                           显式传入可跳过自动探测，确保受限网络下也能纠正内网 IP 或补全缺失行
+  --allow-stale-code       git pull 失败时仍继续（默认**中止**，避免「新库结构 + 旧代码」）
   --with-nginx             更新后重新生成 nginx 虚拟主机并 reload
   -h, --help               显示本帮助
 EOF
@@ -66,6 +68,7 @@ while [[ $# -gt 0 ]]; do
         --domain)           DOMAIN="$2"; shift 2 ;;
         --public-ip)        PUBLIC_IP="$2"; shift 2 ;;
         --with-nginx)       WITH_NGINX=1; shift ;;
+        --allow-stale-code) ALLOW_STALE_CODE=1; shift ;;
         -h|--help)          usage; exit 0 ;;
         *) echo "未知参数 $1"; usage; exit 2 ;;
     esac
@@ -112,36 +115,93 @@ normalize_ip() {
 # 多服务兜底探测公网 IP：任一可达即返回；用 timeout 硬包裹 curl，连 DNS 解析超时一并杀掉，
 # 避免无外网/异常 DNS 时 curl 卡在解析阶段永不返回（curl --max-time 不限制 DNS 超时）。
 # 返回空字符串表示全部失败。
-_probe_public_ip() {
-    local ip=""
-    for svc in https://api.ipify.org https://ifconfig.me https://icanhazip.com; do
-        ip="$(timeout 8 curl -s --max-time 6 "$svc" 2>/dev/null)"
-        [[ -n "$ip" ]] && { printf '%s' "$ip"; return 0; }
-    done
-    return 1
-}
+# 审计 X-08：优先用 scripts/lib/deploy-common.sh 的公共实现（与 deploy-linux.sh 同源）。
+_DEPLOY_COMMON="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/deploy-common.sh"
+if [[ -f "$_DEPLOY_COMMON" ]]; then
+    # shellcheck source=scripts/lib/deploy-common.sh
+    source "$_DEPLOY_COMMON"
+fi
+if ! command -v _probe_public_ip >/dev/null 2>&1; then
+    _probe_public_ip() {
+        local ip=""
+        for svc in https://api.ipify.org https://ifconfig.me https://icanhazip.com; do
+            ip="$(timeout 8 curl -s --max-time 6 "$svc" 2>/dev/null)"
+            [[ -n "$ip" ]] && { printf '%s' "$ip"; return 0; }
+        done
+        return 1
+    }
+fi
+# 兜底：lib 缺失时也要有 log_viewer_port（行为与 deploy-linux.sh 一致）
+if ! command -v log_viewer_port >/dev/null 2>&1; then
+    log_viewer_port() {
+        local _env="${1:-}"
+        local _p="8120"
+        if [[ -n "$_env" && -f "$_env" ]] && grep -qE '^[[:space:]]*LOG_VIEWER_PORT=' "$_env"; then
+            _p=$(grep -E '^[[:space:]]*LOG_VIEWER_PORT=' "$_env" | head -1 | cut -d= -f2- \
+                | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]$//")
+            if ! [[ "$_p" =~ ^[0-9]+$ ]] || (( _p < 1 || _p > 65535 )); then
+                warn "LOG_VIEWER_PORT=$_p 非法（需 1-65535 整数），回退默认 8120"
+                _p="8120"
+            fi
+        fi
+        printf '%s' "$_p"
+    }
+fi
+if ! command -v ensure_log_viewer_public_url >/dev/null 2>&1; then
+    ensure_log_viewer_public_url() {
+        local env_file="$1" ip="$2" port="$3"
+        [[ -n "$env_file" && -n "$ip" && -n "$port" ]] || return 1
+        local host="$ip"
+        [[ "$ip" == *:* && "$ip" != \[* ]] && host="[$ip]"
+        local want="LOG_VIEWER_PUBLIC_URL=http://${host}:${port}/"
+        if grep -q '^LOG_VIEWER_PUBLIC_URL=' "$env_file" 2>/dev/null; then
+            local pattern="s|^LOG_VIEWER_PUBLIC_URL=.*|${want//|/\\|}|"
+            sed -i -E "$pattern" "$env_file"
+        else
+            echo "$want" >> "$env_file"
+        fi
+        printf '%s' "$want"
+    }
+fi
 
 # ---------------- 确定代码来源并拉取最新 ----------------
-# 网络容错：git pull 失败（服务器访问 GitHub 抖动，GnuTLS -110 等）时降级为
-# 「使用本地现有代码继续更新」而非中止——masked 自愈、服务恢复等不依赖新代码，
-# 但会明确 WARN 提示当前代码可能不是最新，网络恢复后重跑。
+# 审计 X-07：改前 `git pull --ff-only` 失败只 WARN 一句就继续 —— 而"服务器访问 GitHub 抖动"
+# 正是本脚本注释自述的常见场景。继续下去的后果是**代码一致性被打破**：`migrate` 会用磁盘上的
+# 迁移文件改写生产库结构、`frontend-dist` 被新构建覆盖，而 `deploy/*.service` / `scripts/` /
+# `backend/` 可能仍是旧版；随后脚本无条件 `systemctl restart`。典型坏组合是"新迁移 + 旧代码"。
+# 现在：pull 失败**默认中止**（明确提示网络原因与镜像配置），只有显式加 `--allow-stale-code`
+# 才允许降级继续；降级时记录 HEAD，并在收尾核对「跑迁移/重启前后代码是否被换过」。
+PULL_FAILED=0
+CODE_HEAD_BEFORE=""
+CODE_HEAD_AFTER=""
+_allow_stale="${ALLOW_STALE_CODE:-0}"
+
 _pull_failed_hint() {
-    warn "git pull 失败（多为服务器访问 GitHub 的网络抖动/被墙）。已降级为使用本地现有代码继续更新。"
-    warn "注意：现有代码可能不是最新！可稍后重试，或配置镜像后重跑："
+    warn "git pull 失败（多为服务器访问 GitHub 的网络抖动/被墙）。"
+    warn "为避免「新数据库结构 + 旧代码」这类不一致状态，默认**中止更新**，服务保持原样。"
+    warn "可稍后重试，或配置镜像后重跑："
     warn "  git config --global url.\"https://ghproxy.net/https://github.com/\".insteadOf \"https://github.com/\""
     warn "镜像可用性随时间变化，也可尝试 ghfast.top / gh-proxy.com / mirror.ghproxy.com 等前缀。"
+    warn "确实要在旧代码上只做数据层修复时，可显式加 --allow-stale-code 继续（会全程告警）。"
 }
+
 if [[ -d "$INSTALL_DIR/.git" ]]; then
     # 模式 A：部署目录本身是 clone → 原地 pull
     log "部署目录 $INSTALL_DIR 为 git 仓库，原地拉取最新"
     cd "$INSTALL_DIR"
+    CODE_HEAD_BEFORE="$(git rev-parse HEAD 2>/dev/null || echo '')"
     if ! git pull --ff-only; then
         _pull_failed_hint
+        if [[ "$_allow_stale" == 0 ]]; then
+            err "已中止：git pull 失败（如确认要沿用本地旧代码，请加 --allow-stale-code）"
+        fi
+        PULL_FAILED=1
     fi
+    CODE_HEAD_AFTER="$(git rev-parse HEAD 2>/dev/null || echo '')"
     # 自更新：若本脚本自身被本次 pull 更新，用新版本重新执行，
     #   避免用旧脚本逻辑处理新代码。环境变量哨兵防止无限 re-exec；
     #   git pull --ff-only 幂等，重跑无副作用。仅当脚本位于 INSTALL_DIR 内才 re-exec。
-    if [[ -z "${GIPFEL_UPDATE_REEXEC:-}" && "$0" == "$INSTALL_DIR"/* ]]; then
+    if [[ "$PULL_FAILED" == 0 && -z "${GIPFEL_UPDATE_REEXEC:-}" && "$0" == "$INSTALL_DIR"/* ]]; then
         export GIPFEL_UPDATE_REEXEC=1
         log "更新脚本自身已更新，重新执行新版本"
         exec "$0" "$@"
@@ -149,9 +209,15 @@ if [[ -d "$INSTALL_DIR/.git" ]]; then
 elif [[ -n "$SOURCE_DIR" && -d "$SOURCE_DIR/.git" ]]; then
     # 模式 B：从本地 source checkout pull 后 rsync 到 INSTALL_DIR（同 deploy-linux.sh 模型）
     log "从本地源码目录 $SOURCE_DIR 拉取最新并同步到 $INSTALL_DIR"
+    CODE_HEAD_BEFORE="$(git -C "$SOURCE_DIR" rev-parse HEAD 2>/dev/null || echo '')"
     if ! git -C "$SOURCE_DIR" pull --ff-only; then
         _pull_failed_hint
+        if [[ "$_allow_stale" == 0 ]]; then
+            err "已中止：git pull 失败（如确认要沿用本地旧代码，请加 --allow-stale-code）"
+        fi
+        PULL_FAILED=1
     fi
+    CODE_HEAD_AFTER="$(git -C "$SOURCE_DIR" rev-parse HEAD 2>/dev/null || echo '')"
     mkdir -p "$INSTALL_DIR"
     # 排除数据/构建产物/缓存，确保线上 db/uploads/.env 不被覆盖（同 deploy-linux.sh）
     rsync -a --delete --exclude .venv --exclude __pycache__ --exclude '*.pyc' \
@@ -224,6 +290,12 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
     warn "默认管理员密码已自动生成，请查看 .env 中的 SEED_ADMIN_PASSWORD（首次登录后强制修改）"
 fi
 log "更新后端（pip / migrate / collectstatic）"
+# 审计 X-07：降级（--allow-stale-code 且 pull 失败）时，写库结构变更属于高风险操作 ——
+# 明确告警，并在收尾核对「迁移/构建/重启前后代码 HEAD 是否被换过」。
+if [[ "${PULL_FAILED:-0}" == 1 ]]; then
+    warn "⚠ 本次沿用本地旧代码（git pull 失败）：即将执行 migrate / npm run build / restart。"
+    warn "  若这些旧代码与远端（或上次半途更新留下的）迁移文件不一致，可能产生「新库结构 + 旧代码」。"
+fi
 cd "$INSTALL_DIR/backend"
 if [[ ! -d .venv ]]; then
     log "虚拟环境不存在，创建并安装依赖"
@@ -282,34 +354,22 @@ if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
         LV_NEED_FIX=1
     fi
     if [[ $LV_NEED_FIX -eq 1 ]]; then
+        # 审计 X-08：改前这三处把端口**硬编码成 8120**，而 nginx 用 .env 的 LOG_VIEWER_PORT
+        # （本脚本第 485 行自己也读了 `_lv_port`）—— 把端口改成非 8120 后，升级会把 URL 与
+        # 防火墙规则改回 8120，前端按钮跳错端口、运维查防火墙也被误导。现在统一取同一端口。
+        _lv_port_fix="$(log_viewer_port "$INSTALL_DIR/backend/.env")"
         if [[ -n "$PUBLIC_IP" ]]; then
             LV_PUBLIC_IP="$(normalize_ip "$PUBLIC_IP")"
-            if grep -q '^LOG_VIEWER_PUBLIC_URL=' "$INSTALL_DIR/backend/.env"; then
-                if [[ "$LV_PUBLIC_IP" == *:* && "$LV_PUBLIC_IP" != \[* ]]; then
-                    sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://[${LV_PUBLIC_IP}]:8120/|" "$INSTALL_DIR/backend/.env"
-                else
-                    sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/|" "$INSTALL_DIR/backend/.env"
-                fi
-            else
-                echo "LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/" >> "$INSTALL_DIR/backend/.env"
-            fi
-            warn "已按 --public-ip 写入 LOG_VIEWER_PUBLIC_URL=${LV_PUBLIC_IP}（原值：${LV_CUR:-无}）。"
+            _written="$(ensure_log_viewer_public_url "$INSTALL_DIR/backend/.env" "$LV_PUBLIC_IP" "$_lv_port_fix")"
+            warn "已按 --public-ip 写入 ${_written}（端口 ${_lv_port_fix}；原值：${LV_CUR:-无}）。"
         else
             # 多服务兜底探测公网 IP（任一可达即可）；均失败则回退「移除该行，交给后端按 Host 推导」
             # 注意必须 || true：set -e 下 _probe_public_ip 全部失败返回 1 会直接终止脚本
             LV_PUBLIC_IP="$(_probe_public_ip)" || true
             if [[ -n "$LV_PUBLIC_IP" && "$LV_PUBLIC_IP" != "$LV_CUR" ]]; then
                 LV_PUBLIC_IP="$(normalize_ip "$LV_PUBLIC_IP")"
-                if [[ "$LV_PUBLIC_IP" == *:* && "$LV_PUBLIC_IP" != \[* ]]; then
-                    sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://[${LV_PUBLIC_IP}]:8120/|" "$INSTALL_DIR/backend/.env"
-                else
-                    sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/|" "$INSTALL_DIR/backend/.env"
-                fi
-                # .env 中缺失该行时 sed 无匹配 → 追加
-                if ! grep -q '^LOG_VIEWER_PUBLIC_URL=' "$INSTALL_DIR/backend/.env"; then
-                    echo "LOG_VIEWER_PUBLIC_URL=http://${LV_PUBLIC_IP}:8120/" >> "$INSTALL_DIR/backend/.env"
-                fi
-                warn "已写入 LOG_VIEWER_PUBLIC_URL=${LV_PUBLIC_IP}（原值：${LV_CUR:-缺失}）。"
+                _written="$(ensure_log_viewer_public_url "$INSTALL_DIR/backend/.env" "$LV_PUBLIC_IP" "$_lv_port_fix")"
+                warn "已写入 ${_written}（端口 ${_lv_port_fix}；原值：${LV_CUR:-缺失}）。"
             else
                 if [[ -n "$LV_CUR" ]]; then
                     sed -i -E "/^LOG_VIEWER_PUBLIC_URL=/d" "$INSTALL_DIR/backend/.env"
@@ -559,19 +619,40 @@ if [[ $WITH_NGINX -eq 1 ]]; then
             ok "80 端口验证通过：gipfel 站点已生效（非默认欢迎页）"
         fi
     fi
-    # 无域名：日志查看器经 8120 端口暴露公网，需放行防火墙（与 deploy-linux.sh 一致）
+    # 无域名：日志查看器经 LOG_VIEWER_PORT 端口暴露公网，需放行防火墙（与 deploy-linux.sh 一致）
+    # 审计 X-08：改前这里硬编码 8120，而 nginx 监听的是 .env 的 LOG_VIEWER_PORT ——
+    # 端口改过之后放行的是**没人监听**的 8120，真正端口既没放行也没写进 URL。
     if [[ -z "$DOMAIN" ]]; then
+        _lv_port_ufw="$(log_viewer_port "$INSTALL_DIR/backend/.env")"
         if command -v ufw >/dev/null 2>&1; then
-            ufw allow 8120/tcp >/dev/null 2>&1 || true
-            ok "已放行防火墙 8120 端口（ufw 规则已添加；若 ufw 未启用则该规则暂未生效）"
+            # 清理历史遗留的 8120 规则，再放行实际端口（与 deploy-linux.sh 一致）
+            ufw delete allow 8120/tcp >/dev/null 2>&1 || true
+            ufw allow "${_lv_port_ufw}/tcp" >/dev/null 2>&1 || true
+            ok "已放行防火墙 ${_lv_port_ufw} 端口（ufw 规则已添加；旧 8120 规则已清理；若 ufw 未启用则该规则暂未生效）"
         else
-            warn "无域名部署：请确认云/系统防火墙放行 TCP 8120，否则 http://<IP>:8120/ 不可达。"
+            warn "无域名部署：请确认云/系统防火墙放行 TCP ${_lv_port_ufw}，否则 http://<IP>:${_lv_port_ufw}/ 不可达。"
         fi
     fi
 fi
 
 # ---------------- 收尾 ----------------
 echo
+# 审计 X-07：收尾核对代码是否在本次更新期间被换过（例如并发 pull / 半途更新），
+# 不一致则明确报错，避免把「新库结构 + 旧代码」当成一次干净升级。
+if [[ -n "${CODE_HEAD_BEFORE:-}" ]]; then
+    _code_head_now=""
+    if [[ -d "$INSTALL_DIR/.git" ]]; then
+        _code_head_now="$(git -C "$INSTALL_DIR" rev-parse HEAD 2>/dev/null || echo '')"
+    elif [[ -n "${SOURCE_DIR:-}" && -d "$SOURCE_DIR/.git" ]]; then
+        _code_head_now="$(git -C "$SOURCE_DIR" rev-parse HEAD 2>/dev/null || echo '')"
+    fi
+    if [[ -n "$_code_head_now" && "$_code_head_now" != "$CODE_HEAD_BEFORE" ]]; then
+        warn "代码在本轮更新期间发生了变化：开始时 ${CODE_HEAD_BEFORE:0:12} → 现在 ${_code_head_now:0:12}"
+        warn "若这不是你预期的（例如另一处并发 pull），请核对部署目录内容后再重启服务。"
+    else
+        echo "  代码版本：    ${CODE_HEAD_BEFORE:0:12}（本轮未变）"
+    fi
+fi
 ok "更新完成！"
 echo "  部署目录：    $INSTALL_DIR"
 echo "  备份位置：    $BACKUP_DIR"
