@@ -332,7 +332,15 @@ async function loadData() {
 
 async function loadMaterialOptions() {
   try {
-    const res: any = await api.get("/materials", { params: { page: 1, pageSize: 200 } });
+    // 必须带 competitionId：超管不受 apply_competition_scope 过滤，漏带会把其他比赛的原料
+    // 混进下拉并被写成本比赛的关联（审计 W-03）
+    if (!compStore.competitionId) {
+      materialOptions.value = [];
+      return;
+    }
+    const res: any = await api.get("/materials", {
+      params: { page: 1, pageSize: 200, competitionId: compStore.competitionId },
+    });
     const items = Array.isArray(res) ? res : res?.items || [];
     materialOptions.value = items.map((m: any) => ({ label: m.name, value: m.id }));
   } catch {
@@ -342,7 +350,14 @@ async function loadMaterialOptions() {
 
 async function loadTechOptions() {
   try {
-    const res: any = await api.get("/tech-nodes", { params: { page: 1, pageSize: 200 } });
+    // 同上：科技节点也是比赛级数据，漏带 competitionId 会跨比赛串档（审计 W-03）
+    if (!compStore.competitionId) {
+      techOptions.value = [];
+      return;
+    }
+    const res: any = await api.get("/tech-nodes", {
+      params: { page: 1, pageSize: 200, competitionId: compStore.competitionId },
+    });
     const items = Array.isArray(res) ? res : res?.items || [];
     techOptions.value = items.map((t: any) => ({ label: t.name, value: t.id }));
   } catch {
