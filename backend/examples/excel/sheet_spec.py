@@ -141,6 +141,55 @@ def _as_scalar(text: str) -> Any:
         return s
 
 
+# ------------------------------ 数值下界校验（审计 Z-02） ------------------------------
+# 改前数值列完全没有下界：距离 -3、每升单价 -7.6、配比 -4、载货 -30、油耗 -0.35、研发费用 -80000
+# 都会原样写进归档并落库。下游按它们算钱（如运输合同 freight = distance * rate_per_km * trips），
+# 负距离会让「委托方加钱、承运方扣钱」，模型直接算反，而表格工具毫无提示。
+# 这里统一在 handler 里拦下：报错由调用方补上「[表名] 第 N 行」前缀。
+
+def _num_or_none(value: Any) -> float | None:
+    """把单元格值转成 float；空值/非数字返回 None。"""
+    try:
+        s = str(value).strip()
+    except Exception:  # noqa: BLE001 - 极端输入（对象等）按非数字处理
+        return None
+    if s == "":
+        return None
+    try:
+        n = float(s)
+    except ValueError:
+        return None
+    if n != n or n in (float("inf"), float("-inf")):   # NaN / inf 不是合法业务数值
+        return None
+    return n
+
+
+def _check_num(label: str, value: Any, minimum: float, *, exclusive: bool = False) -> None:
+    """数值列必须有下界（默认「>= minimum」，exclusive 时「> minimum」）。"""
+    n = _num_or_none(value)
+    if n is None:
+        raise SheetFormatError(f"{label}必须是数字，收到「{value}」")
+    if exclusive and n <= minimum:
+        raise SheetFormatError(f"{label}必须大于 {minimum:g}，收到 {n:g}")
+    if not exclusive and n < minimum:
+        raise SheetFormatError(f"{label}不能小于 {minimum:g}，收到 {n:g}")
+
+
+def _check_money(label: str, value: Any, minimum: float = 0) -> None:
+    """金额列：金额以原文保留（保精度），仅在「能解析成数字」时校验下界，不改变非数字原文。"""
+    n = _num_or_none(value)
+    if n is None:
+        return
+    if n < minimum:
+        raise SheetFormatError(f"{label}不能小于 {minimum:g}，收到 {n:g}")
+
+
+def _check_map_min(label: str, mapping: dict | None, minimum: float, *, exclusive: bool = False) -> None:
+    """键值单元格（配比 / 地点价）逐个值校验下界。"""
+    for key, value in (mapping or {}).items():
+        _check_num(f"{label}「{key}」", value, minimum, exclusive=exclusive)
+
+
 def as_map(text: str | None, *, keep_text: bool = False) -> dict[str, Any]:
     """键值对单元格 → dict。
 
@@ -522,6 +571,7 @@ def _h_node(ctx: SheetContext, row: dict) -> None:
     name, node_type = row.get("name"), row.get("node_type")
     if not name or not node_type:
         raise SheetFormatError("地图节点表的 name 与 node_type 必填")
+    # x / y 是画布坐标：**允许负数**（节点可以画在原点左上方），故此处不做下界校验
     ctx.builder.node(name, node_type, region=row.get("region") or "",
                      x=_as_scalar(row["x"]) if row.get("x") else 0,
                      y=_as_scalar(row["y"]) if row.get("y") else 0)
@@ -534,6 +584,7 @@ def _h_edge(ctx: SheetContext, row: dict) -> None:
     distance = row.get("distance")
     if not distance:
         raise SheetFormatError("地图连线表的 distance 必填")
+    _check_num("distance（距离）", distance, 0, exclusive=True)
     path_type = row.get("path_type")
     if not path_type:
         raise SheetFormatError("地图连线表的 path_type 必填（载具按它判断能否通行）")
@@ -543,12 +594,17 @@ def _h_edge(ctx: SheetContext, row: dict) -> None:
 def _h_fuel(ctx: SheetContext, row: dict) -> None:
     if not row.get("name"):
         raise SheetFormatError("燃料表的 name 必填")
+    _check_money("price_per_liter（每升单价）", row.get("price_per_liter"))
     ctx.builder.fuel(row["name"], price_per_liter=row.get("price_per_liter") or 0)
 
 
 def _h_material(ctx: SheetContext, row: dict) -> None:
     if not row.get("name"):
         raise SheetFormatError("原料表的 name 必填")
+    if row.get("carbon_emission_coefficient"):
+        _check_num("carbon_emission_coefficient（碳排系数）", row["carbon_emission_coefficient"], 0)
+    node_prices = as_map(row.get("node_prices"), keep_text=True) or None
+    _check_map_min("node_prices（地点价）", node_prices, 0)
     ctx.builder.material(
         row["name"],
         origin=row.get("origin") or "",
@@ -556,13 +612,16 @@ def _h_material(ctx: SheetContext, row: dict) -> None:
         if row.get("carbon_emission_coefficient") else 0,
         type=(row.get("type") or "NORMAL").upper(),
         # 地点价按原文写入（保精度，与代码建包 price="180" 一致）
-        node_prices=as_map(row.get("node_prices"), keep_text=True) or None,
+        node_prices=node_prices,
     )
 
 
 def _h_tech(ctx: SheetContext, row: dict) -> None:
     if not row.get("name"):
         raise SheetFormatError("科技表的 name 必填")
+    if row.get("tier"):
+        _check_num("tier（层级）", row["tier"], 0)
+    _check_money("research_cost（研发费用）", row.get("research_cost"))
     ctx.builder.tech(
         row["name"],
         tier=int(float(row["tier"])) if row.get("tier") else 0,
@@ -575,6 +634,11 @@ def _h_tech(ctx: SheetContext, row: dict) -> None:
 def _h_line(ctx: SheetContext, row: dict) -> None:
     if not row.get("name"):
         raise SheetFormatError("生产线表的 name 必填")
+    _check_money("price（单价）", row.get("price"))
+    if row.get("labor_count"):
+        _check_num("labor_count（用工数）", row["labor_count"], 0)
+    if row.get("max_per_year"):
+        _check_num("max_per_year（年产能）", row["max_per_year"], 0)
     ctx.builder.line(row["name"], price=row.get("price") or 0,
                      labor_count=int(float(row["labor_count"])) if row.get("labor_count") else 0,
                      max_per_year=row.get("max_per_year") or 0)
@@ -587,6 +651,11 @@ def _h_infrastructure(ctx: SheetContext, row: dict) -> None:
     num_cols = ("footprint", "employment_rate_bonus", "population_bonus",
                 "high_quality_population_bonus", "happiness_index_bonus",
                 "per_capita_income_bonus", "carbon_reduction_bonus")
+    for k in text_cols:
+        _check_money(k, row.get(k))
+    for k in num_cols:
+        if row.get(k):
+            _check_num(k, row[k], 0)
     kwargs = {k: (row[k] if row.get(k) else 0) for k in text_cols}
     kwargs.update({k: (_as_scalar(row[k]) if row.get(k) else 0) for k in num_cols})
     ctx.builder.infrastructure(row["name"], **kwargs)
@@ -596,6 +665,9 @@ def _h_warehouse(ctx: SheetContext, row: dict) -> None:
     name, wtype = row.get("name"), row.get("type")
     if not name or not wtype:
         raise SheetFormatError("仓库表的 name 与 type 必填")
+    if row.get("capacity"):
+        _check_num("capacity（容量）", row["capacity"], 0)
+    _check_money("price（单价）", row.get("price"))
     ctx.builder.warehouse(name, wtype.upper(), capacity=row.get("capacity") or 0,
                           price=row.get("price") or 0)
 
@@ -603,21 +675,30 @@ def _h_warehouse(ctx: SheetContext, row: dict) -> None:
 def _h_part(ctx: SheetContext, row: dict) -> None:
     if not row.get("name"):
         raise SheetFormatError("零件表的 name 必填")
-    ctx.builder.part(row["name"], materials=as_map(row.get("materials")) or None,
-                     tech=as_items(row.get("tech")) or None)
+    materials = as_map(row.get("materials")) or None
+    _check_map_min("materials（原料配比）", materials, 0, exclusive=True)
+    ctx.builder.part(row["name"], materials=materials, tech=as_items(row.get("tech")) or None)
 
 
 def _h_product(ctx: SheetContext, row: dict) -> None:
     if not row.get("name"):
         raise SheetFormatError("产品表的 name 必填")
-    ctx.builder.product(row["name"], parts=as_map(row.get("parts")) or None,
-                        tech=as_items(row.get("tech")) or None)
+    parts = as_map(row.get("parts")) or None
+    _check_map_min("parts（零件配比）", parts, 0, exclusive=True)
+    ctx.builder.product(row["name"], parts=parts, tech=as_items(row.get("tech")) or None)
 
 
 def _h_vehicle(ctx: SheetContext, row: dict) -> None:
     name, fuel = row.get("name"), row.get("fuel")
     if not name or not fuel:
         raise SheetFormatError("载具表的 name 与 fuel 必填（载具必须绑定燃料）")
+    if row.get("fuel_consumption_per_km"):
+        _check_num("fuel_consumption_per_km（每公里油耗）", row["fuel_consumption_per_km"], 0)
+    if row.get("max_cargo"):
+        _check_num("max_cargo（最大载货量）", row["max_cargo"], 0)
+    _check_money("price（单价）", row.get("price"))
+    if row.get("carbon_emission"):
+        _check_num("carbon_emission（碳排系数）", row["carbon_emission"], 0)
     ctx.builder.vehicle(
         name,
         fuel=fuel,
@@ -634,6 +715,7 @@ def _h_demand(ctx: SheetContext, row: dict) -> None:
     region, product, quantity = row.get("region"), row.get("product"), row.get("quantity")
     if not region or not product or not quantity:
         raise SheetFormatError("消费者需求表的 region / product / quantity 必填")
+    _check_num("quantity（需求量）", quantity, 0, exclusive=True)
     ctx.builder.demand(region, product, int(float(quantity)), note=row.get("note") or None)
 
 
