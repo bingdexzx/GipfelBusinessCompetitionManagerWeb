@@ -111,12 +111,21 @@ export function isValidNumberString(s: string | number | null | undefined): bool
 }
 
 /**
- * ISO 时间去秒截断（与全局 $formatTime 完全一致）。
- * 空值或非法日期返回 "-"；否则按 UTC 截断到秒（YYYY-MM-DD HH:mm:ss）。
+ * 时间显示（**本地时区**，截断到秒，与全局 $formatTime 完全一致）。
+ *
+ * 空值或非法日期返回 "-"；否则输出 `YYYY-MM-DD HH:mm:ss`。
+ *
+ * 为什么不用 toISOString()：它把时刻转成 UTC 再截断，而后端 TIME_ZONE=Asia/Shanghai
+ * （USE_TZ=True）—— 前端按 UTC 显示会让全站创建/更新/执行时间**少 8 小时**，且与
+ * AuditLogView 用 toLocaleString 渲染的本地时间口径矛盾（审计 F-08）。
  */
 export function formatTime(val: string | Date | null | undefined): string {
   if (!val) return "-";
   const d = typeof val === "string" ? new Date(val) : val;
   if (isNaN(d.getTime())) return "-";
-  return d.toISOString().replace("T", " ").substring(0, 19);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
+    `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  );
 }
