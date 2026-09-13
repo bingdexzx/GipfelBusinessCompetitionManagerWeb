@@ -5,6 +5,8 @@ import { getAccountItem, removeAccountItem } from "@/utils/accountStorage";
 // 本地全量副本 → 响应形态（纯函数，独立成模块以便单测）：
 // 未显式传 pageSize 时返回本地全量，不再按 50 条静默截断（审计 A-01/V-04/W-05）。
 import { applyLocalPaging as reconstruct } from "./localPaging";
+// 响应体归类（纯函数）：blob 下载与非信封 2xx 不再被判为失败（审计 F-01）。
+import { interpretResponse } from "./envelope";
 
 // axios 自定义请求配置字段类型增强（request.ts 与 stores/version.ts 均使用这些字段）。
 declare module "axios" {
@@ -89,12 +91,16 @@ export function isSessionRefreshing(): boolean {
 
 api.interceptors.response.use(
   (response) => {
-    const res = response.data;
-    if (res.code !== 0) {
-      ElMessage.error(res.message || "请求失败");
-      return Promise.reject(new Error(res.message));
+    // 响应体归类（纯函数，见 ./envelope.ts）：二进制下载原样返回、带 code 的按信封语义、
+    // 其余非信封 2xx 也原样返回 —— 改前直接读 res.code 判定，导致 blob 下载与
+    // 非信封响应被一律判为失败（审计 F-01）。
+    const decision = interpretResponse(response.data);
+    if (decision.kind === "error") {
+      ElMessage.error(decision.message);
+      return Promise.reject(new Error(decision.message));
     }
-    return res.data;
+    // axios 拦截器按「已解包的业务数据」返回（本文件既有约定，故此处断言为 any）
+    return decision.value as any;
   },
   (error) => {
     // 安全加固：立即剥离 error 对象上的 Authorization 头——下游各视图的
