@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
-"""生成「汽车产业链测试赛」的表格建包文件（Excel 示例 + 可选 CSV 表集）。
+"""生成「汽车产业链」比赛的**框架**表格（Excel 示例 + 可选 CSV 表集）。
 
-它与代码建包脚本 [`examples/competitions/auto_chain_competition.py`](../competitions/auto_chain_competition.py)
-描述的是**同一场比赛**：三大产业（原料开采 / 零部件加工 / 整车进销）、9 家公司、
-汽车零部件与整车配方、地图与物流、以及开采 / 购销 / 运输三大合同。
-用来对比「代码建包」与「表格建包」两种写法的等价性。
+框架 = 换一场比赛仍然成立的部分：三大产业（原料开采 / 零部件加工 / 整车进销）、
+行业字段口径、地图与物流网络、物资与产能（原料 / 零件 / 产品 / 科技 / 载具…）、
+消费者需求、以及开采 / 购销 / 运输三大合同类型。
+
+**参赛主体与运行期内容不在表格里**：公司、公司字段值、账号、区域总览卡片、
+比赛内的合同实例、消息 —— 这些绑定具体公司与人，请在界面维护，
+或用代码建包脚本 `examples/competitions/auto_chain_competition.py`（它会把框架 + 主体一次建齐）。
+两者描述的是同一场比赛，可以混用：先用本表格建框架，再用脚本或界面补主体。
 
 用法
 ----
@@ -17,7 +21,7 @@
     # 同时导出成 CSV 表集（便于进 git / diff / 手工改）
     .\\.venv\\Scripts\\python.exe examples/excel/make_sample_auto_chain.py --csv-out examples/excel/汽车产业链示例
 
-    # 直接用它建一场新比赛
+    # 只看会建出什么
     .\\.venv\\Scripts\\python.exe examples/excel/build_from_sheets.py examples/excel/汽车产业链示例.xlsx --inspect
 """
 from __future__ import annotations
@@ -66,21 +70,6 @@ EXTRA_FIELDS = {
     2002: (("累计零件产量", "parts_output", "NUMBER", "0"), ("年产能（件）", "capacity", "NUMBER", "0")),
     2003: (("整车交付量", "delivered_units", "NUMBER", "0"), ("销售收入", "sales_revenue", "NUMBER", "0")),
 }
-
-COMPANY_HEADER_EXTRA = ("所在地", "现金", "银行存款", "许可配额", "库存台账")
-
-#: 公司：行业、区域、所在地节点、现金、银行存款、配额、初始库存
-COMPANIES = (
-    ("西岭锂业", "原料开采", "上游资源区", "白云鄂博矿区", "1200000", "300000", "800", {"原矿": 120, "锂矿石": 40}),
-    ("戈壁铝业", "原料开采", "上游资源区", "戈壁铝土矿区", "900000", "200000", "600", {"原矿": 80, "铝土矿": 30}),
-    ("白云矿业", "原料开采", "上游资源区", "白云鄂博矿区", "800000", "150000", "500", {"原矿": 60, "铁矿石": 25}),
-    ("中原创能", "零部件加工", "中部智造区", "中部智造园", "1500000", "500000", "600", {"货物": 60, "锂矿石": 20}),
-    ("智造电驱", "零部件加工", "中部智造区", "中部智造园", "1200000", "400000", "500", {"货物": 45}),
-    ("轻量化车身厂", "零部件加工", "中部智造区", "中原铁路货场", "1000000", "300000", "400", {"货物": 30}),
-    ("车都新能源", "整车进销", "东部车都", "东部车都港", "3000000", "1000000", "400", {"货物": 40, "零件": 20}),
-    ("东都汽车销售", "整车进销", "东部车都", "车都展销中心", "2000000", "800000", "300", {"货物": 25}),
-    ("车都出口贸易", "整车进销", "东部车都", "东部车都港", "1800000", "600000", "300", {"货物": 18}),
-)
 
 NODE_TYPES = (
     ("矿区", "原矿开采地", "#b45309"),
@@ -188,59 +177,12 @@ DEMANDS = (
     ("上游资源区", "商用电动轻卡", 120, "矿区自用与通勤"),
 )
 
-CARDS = (
-    ("上游资源区", "西岭锂业", "cash", "西岭锂业现金"),
-    ("上游资源区", "西岭锂业", "inventory", "西岭锂业库存"),
-    ("上游资源区", "戈壁铝业", "cash", "戈壁铝业现金"),
-    ("中部智造区", "中原创能", "cash", "中原创能现金"),
-    ("中部智造区", "中原创能", "inventory", "中原创能库存"),
-    ("中部智造区", "智造电驱", "cash", "智造电驱现金"),
-    ("东部车都", "车都新能源", "cash", "车都新能源现金"),
-    ("东部车都", "车都新能源", "inventory", "车都新能源库存"),
-    ("东部车都", "东都汽车销售", "cash", "东都汽车销售现金"),
-)
-
+#: 合同类型属于「比赛框架」，进表格；比赛内的合同实例、区域总览卡片、消息、公司、账号
+#: 属于运行期内容，**不进表格**（由界面或代码建包脚本创建）。
 CONTRACT_TYPES = (
     ("auto-mining", "开采合同", "开采企业向矿区管理方缴纳权利金与环保费，扣减许可配额并把原矿入库"),
     ("auto-purchase-sale", "购销合同", "按卖方所在地价结算货款，货物出库 / 入库并登记双方台账"),
     ("auto-transport", "运输合同", "按最短路径路程与载具计费，超重加价，里程与碳排计入台账"),
-)
-
-CONTRACT_INSTANCES = (
-    ("auto-mining", "开采合同", "miner=西岭锂业|MIN-2026-001",
-     "ore_type=锂矿石; quantity=20; royalty_rate=60; env_fee_rate=8; carbon_factor=0.5", "DRAFT"),
-    ("auto-purchase-sale", "购销合同",
-     "seller=西岭锂业|SL-2026-001; buyer=中原创能|BY-2026-001",
-     'goods={"锂矿石": 20}; discount=0', "DRAFT"),
-    ("auto-transport", "运输合同",
-     "client=中原创能|PL-2026-001; carrier=车都新能源|TR-2026-001",
-     'rate_per_km=12; trips=1; cargo_weight=20; carbon_tax_rate=0.05; vehicles={"重型卡车": 2}', "DRAFT"),
-)
-
-MESSAGES = (
-    ("开局公告",
-     "欢迎参加 2026 汽车产业链测试赛。本场共三大产业：上游「原料开采」、中游「零部件加工」、下游「整车进销」。"
-     "请先在「公司管理」核对本公司初始字段，再到「合同管理」查看三份待签合同（开采 / 购销 / 运输）。"),
-    ("产业链玩法说明",
-     "① 开采企业用「开采合同」缴纳权利金与环保费取得原矿（扣减许可配额）；\\n"
-     "② 用「运输合同」把原矿从矿区运到中部智造园（按最短路径计费，超重加价）；\\n"
-     "③ 用「购销合同」把原料卖给加工企业，加工企业按零件配比生产零部件；\\n"
-     "④ 再用「运输合同」把零部件运到东部车都，用「购销合同」卖给整车企业；\\n"
-     "⑤ 整车企业按产品配比总装整车，交付东部车都的消费者需求。"),
-    ("裁判提示", "合同执行金额请保留两位小数；提交前可用合同详情里的「试算」核对落账。"),
-)
-
-CHAIN_A = "西岭锂业; 中原创能; 车都新能源"
-CHAIN_B = "戈壁铝业; 智造电驱; 东都汽车销售"
-CHAIN_C = "白云矿业; 轻量化车身厂; 车都出口贸易"
-ALL_COMPANIES = "西岭锂业; 戈壁铝业; 白云矿业; 中原创能; 智造电驱; 轻量化车身厂; 车都新能源; 东都汽车销售; 车都出口贸易"
-
-USERS = (
-    ("auto_player_a", "PLAYER", "玩家A（锂电链）", CHAIN_A, CHAIN_A, CHAIN_A, "", ""),
-    ("auto_player_b", "PLAYER", "玩家B（铝驱链）", CHAIN_B, CHAIN_B, CHAIN_B, "", ""),
-    ("auto_player_c", "PLAYER", "玩家C（铁矿车身链）", CHAIN_C, CHAIN_C, CHAIN_C, "", ""),
-    ("auto_referee", "COMPETITION_ADMIN", "本场裁判", ALL_COMPANIES, ALL_COMPANIES, ALL_COMPANIES, "",
-     "contract:manage; contract:audit; contract:execute"),
 )
 
 
@@ -250,12 +192,18 @@ def _h(sheet: str) -> list[str]:
 
 
 def sample_tables() -> dict[str, list[list]]:
-    """把上面这份比赛内容渲染成「一表一资源」的表格集合（表头全中文）。"""
+    """把上面这份比赛**框架**渲染成「一表一类内容」的表格集合（表头全中文）。"""
     return {
         "说明": [
-            ["汽车产业链测试赛 · 表格建包示例"],
-            ["与代码建包脚本 examples/competitions/auto_chain_competition.py 描述同一场比赛。"],
-            ["股票系统不在本规范内：本示例不产出任何股票 / 资金账户 / 股票参数。"],
+            ["汽车产业链 · 比赛框架表格示例"],
+            [""],
+            ["本表格只描述「比赛框架」：产业口径、地图与物流、物资与产能、需求、合同类型。"],
+            ["参赛主体与运行期内容不在表格里（公司、公司字段值、账号、区域总览卡片、合同实例、消息）："],
+            ["  · 界面维护：公司管理 / 账号管理 / 区域总览 / 合同管理 / 消息中心；"],
+            ["  · 或一次建齐（框架 + 主体）：python manage.py build_competition "
+             "examples/competitions/auto_chain_competition.py --competition <比赛id>"],
+            ["股票系统同样不在本规范内：本示例不产出任何股票 / 资金账户 / 股票参数。"],
+            [""],
             ["用法：python examples/excel/build_from_sheets.py examples/excel/汽车产业链示例.xlsx --inspect"],
             ["导入：python examples/excel/build_from_sheets.py examples/excel/汽车产业链示例.xlsx --create-competition"],
         ],
@@ -267,17 +215,6 @@ def sample_tables() -> dict[str, list[list]]:
                  ["上游资源区", "锂 / 铝 / 铁矿与橡胶硅砂资源带"],
                  ["中部智造区", "动力电池、电驱与轻量化车身产业带"],
                  ["东部车都", "整车制造、展销与出口集散地"]],
-        "公司": [_h("公司") + list(COMPANY_HEADER_EXTRA)] + [
-            [name, industry, region, "ACTIVE", node, cash, bank, quota,
-             json.dumps(inventory, ensure_ascii=False)]
-            for name, industry, region, node, cash, bank, quota, inventory in COMPANIES
-        ],
-        "公司字段值": [
-            _h("公司字段值"),
-            ["西岭锂业", "最近业务摘要", "开局初始化"],
-            ["中原创能", "业务台账", '{"开局盘点": 1}'],
-            ["车都新能源", "业务台账", '{"开局盘点": 1}'],
-        ],
         "地图节点类型": [_h("地图节点类型")] + [list(x) for x in NODE_TYPES],
         "路径类型": [_h("路径类型")] + [list(x) for x in PATH_TYPES],
         "地图节点": [_h("地图节点")] + [list(x) for x in MAP_NODES],
@@ -292,11 +229,7 @@ def sample_tables() -> dict[str, list[list]]:
         "产品": [_h("产品")] + [list(x) for x in PRODUCTS],
         "载具": [_h("载具")] + [list(x) for x in VEHICLES],
         "消费者需求": [_h("消费者需求")] + [list(x) for x in DEMANDS],
-        "区域总览卡片": [_h("区域总览卡片")] + [list(x) for x in CARDS],
         "合同类型": [_h("合同类型")] + [list(x) + [CONTRACT_SCRIPT] for x in CONTRACT_TYPES],
-        "合同实例": [_h("合同实例")] + [list(x) for x in CONTRACT_INSTANCES],
-        "消息": [_h("消息")] + [[t, c, "是"] for t, c in MESSAGES],
-        "账号": [_h("账号")] + [list(x) for x in USERS],
     }
 
 
@@ -314,9 +247,10 @@ def _industry_field_rows() -> list[list]:
 
 
 def minimal_tables() -> dict[str, list[list]]:
-    """最小可用示例（教程用）：2 个产业、2 家公司、1 份能真正执行的购销合同。
+    """最小框架示例（教程用）：2 个产业、一条矿区→工厂的物流线、1 份购销合同模板。
 
-    刻意只用最少的 9 张表 —— 复制这份就能改成自己的比赛。
+    刻意只用最少的表 —— 复制这份就能改成自己的比赛框架。
+    公司 / 账号 / 预置合同不在表格里（它们属于运行期内容）。
     """
     fields = [
         _h("产业字段"),
@@ -339,8 +273,13 @@ def minimal_tables() -> dict[str, list[list]]:
     ]
     return {
         "说明": [
-            ["最小可用示例（教程用）"],
-            ["2 个产业 / 2 家公司 / 1 份能真正执行的购销合同；只用了 9 张表。"],
+            ["最小框架示例（教程用）"],
+            [""],
+            ["2 个产业 + 一条「东矿 → 西厂」物流线 + 一份购销合同模板；只用了 14 张表。"],
+            ["公司 / 账号 / 预置合同属于运行期内容，不在表格里："],
+            ["  · 建完框架后到「公司管理」建公司、到「账号管理」建账号、到「合同管理」建合同；"],
+            ["  · 想一次建齐可参考 examples/competitions/auto_chain_competition.py（代码建包）。"],
+            [""],
             ["用法：python examples/excel/build_from_sheets.py examples/excel/最小示例.xlsx --create-competition"],
         ],
         "比赛": [_h("比赛"), ["微型测试赛（教程示例）", "ACTIVE"]],
@@ -350,9 +289,6 @@ def minimal_tables() -> dict[str, list[list]]:
                      ["9002", "零件加工", "中游：毛坯"]],
         "产业字段": fields,
         "区域": [_h("区域"), ["东区", "矿区"], ["西区", "厂区"]],
-        "公司": [_h("公司") + ["所在地", "现金", "库存"],
-                 ["甲矿场", "原料开采", "东区", "ACTIVE", "东矿", "500000", '{"矿石": 100}'],
-                 ["乙工厂", "零件加工", "西区", "ACTIVE", "西厂", "500000", "{}"]],
         "地图节点类型": [_h("地图节点类型"), ["城市", "通用节点", "#3b82f6"]],
         "路径类型": [_h("路径类型"), ["公路", "通用公路", "#94a3b8"]],
         "地图节点": [_h("地图节点"), ["东矿", "城市", "东区", "100", "100"],
@@ -363,6 +299,7 @@ def minimal_tables() -> dict[str, list[list]]:
         "零件": [_h("零件"), ["毛坯", "矿石*2", ""]],
         "产品": [_h("产品"), ["成品", "毛坯*1", ""]],
         "载具": [_h("载具"), ["卡车", "柴油", "公路", "0.3", "30", "200000", "0.8"]],
+        "消费者需求": [_h("消费者需求"), ["西区", "成品", "500", "厂区需求"]],
         "合同类型": [
             _h("合同类型"),
             ["mini-sale", "简易购销合同", "买方付钱给卖方", "", "seller=卖方; buyer=买方",
@@ -371,14 +308,6 @@ def minimal_tables() -> dict[str, list[list]]:
              json.dumps(sale_effects, ensure_ascii=False),
              json.dumps(sale_conditions, ensure_ascii=False), "是"],
         ],
-        "合同实例": [
-            _h("合同实例"),
-            ["mini-sale", "简易购销合同", "seller=甲矿场|S-001; buyer=乙工厂|B-001",
-             "amount=1200", "DRAFT"],
-        ],
-        "账号": [_h("账号"),
-                 ["demo_player", "PLAYER", "演示玩家", "甲矿场; 乙工厂", "甲矿场; 乙工厂",
-                  "甲矿场; 乙工厂", "", "", "是"]],
     }
 
 

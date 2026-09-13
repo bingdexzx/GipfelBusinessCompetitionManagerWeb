@@ -1,15 +1,27 @@
 # -*- coding: utf-8 -*-
-"""比赛建包表格规范（Excel / CSV）：**一张工作表 = 一类内容**，表与表之间相互隔离。
+"""比赛建包表格规范（Excel / CSV）：**一张工作表 = 一类内容**，只描述「比赛框架」。
+
+只建框架，不建运行数据
+----------------------
+
+本规范只覆盖**换一场比赛仍然成立**的东西：比赛本身、财年、行业口径（产业类型 / 产业字段）、
+地图与路径、物资与产能（燃料 / 原料 / 科技 / 零件 / 产品 / 载具 / 生产线 / 基建 / 仓库）、
+消费者需求、合同类型（模板）。
+
+**参赛主体与运行期内容不走 Excel**（见 `OUT_OF_SCOPE_SHEETS`）：公司、公司字段值、账号、
+区域总览卡片、比赛内的合同实例、消息 —— 它们都绑定具体公司、具体人和具体主键，
+请在前端界面（公司管理 / 账号管理 / 合同管理 / 消息中心）维护，
+或用代码建包脚本 `examples/competitions/auto_chain_competition.py`。
+工作簿里若出现这些表名，程序会明确告诉你「该去哪里维护」，而不是静默忽略。
 
 设计原则
 --------
 
-1. **一表一资源**：每张工作表只描述一类对象（产业类型 / 公司 / 原料 / 合同类型 …），
-   想建什么就放哪张表，不放的表完全不参与产出 —— 这就是「不同表实现不同内容隔离」。
+1. **一表一类内容**：想建什么就放哪张表，不放的表完全不参与产出 —— 这就是「不同表实现内容隔离」。
 2. **没有新的落库路径**：本规范只是把表格翻译成 `CompetitionBuilder` 的调用，
    最终仍由既有的 `archive.apply_import` 落库，与代码建包、前端导入完全同构。
-3. **表头即参数名**：第一行是表头，列名与建包库的方法参数同名（`name` / `industry_type` /
-   `region` / `field_key` …），因此 `build_competition --schema` 与本文档可以直接对照。
+3. **表头用中文**（如「比赛名称」「字段键」），程序也接受英文参数名（老文件兼容）；
+   中文表头 ↔ 参数名的对照见 `HEADERS`，模板的「说明」表里也有一份。
 4. **单元格语法尽量贴近 Excel 习惯**：
    - 空单元格 = 不传该参数（用建包库默认值）；
    - 布尔：`是/否`、`TRUE/FALSE`、`1/0`、`y/n`；
@@ -19,19 +31,17 @@
    - 以 `#` 开头的行是注释，整行忽略。
 
 工作表清单（按依赖顺序处理，worksheet 在文件里的先后不影响结果）
-----------------------------------------------------------------
+------------------------------------------------------------
 
     比赛 → 财年
     产业类型 → 产业字段
-    区域 → 公司 → 公司字段值
+    区域
     地图节点类型 → 路径类型 → 地图节点 → 地图连线
     燃料 → 原料 → 科技 → 生产线 → 基建 → 仓库 → 零件 → 产品 → 载具
     消费者需求
-    区域总览卡片 → 合同类型 → 合同实例 → 消息
-    账号
+    合同类型
 
-**股票系统不在本规范内**（按要求不动）：没有股票 / 资金账户 / 股票参数三类表；
-留空即不产出，目标比赛沿用系统默认配置。
+**股票系统同样不在本规范内**（按要求不动）：没有股票 / 资金账户 / 股票参数三类表。
 """
 from __future__ import annotations
 
@@ -194,34 +204,6 @@ def _industry_ref(ctx: SheetContext, text: str) -> str:
     return s
 
 
-def _field_key_of(ctx: SheetContext, text: str) -> str:
-    """产业字段列的取值可以是 **fieldKey**（如 `cash`），也可以是**字段显示名**（如「现金」）。
-
-    中文表头的工作簿里，「公司」表的额外列、「公司字段值」表的字段列都推荐写显示名，
-    这里按已登记的产业字段把它们归一成 fieldKey。同名对应多个 fieldKey 时直接报错，
-    避免「静默写到另一个字段上」。
-    """
-    s = str(text or "").strip()
-    rows = ctx.builder.rows("industryFields")
-    keys = {str(r.get("fieldKey")) for r in rows}
-    if s in keys:
-        return s
-    by_name: dict[str, set[str]] = {}
-    for row in rows:
-        by_name.setdefault(str(row.get("name") or ""), set()).add(str(row.get("fieldKey")))
-    if s in by_name:
-        candidates = sorted(by_name[s])
-        if len(candidates) == 1:
-            return candidates[0]
-        raise SheetFormatError(
-            f"字段名「{s}」在多个产业下对应不同字段键（{'、'.join(candidates)}），请直接写字段键"
-        )
-    raise SheetFormatError(
-        f"未知字段「{s}」：既不是字段键，也不是任何产业字段的显示名"
-        "（请先在「产业字段」表里登记，或核对拼写）"
-    )
-
-
 # =============================================================================
 # 计算图：把 `字段A + 字段B` 这种最常用的写法翻译成产业计算图 GGraph
 # =============================================================================
@@ -356,8 +338,6 @@ HEADERS: dict[str, dict[str, str]] = {
         "config": "类型配置",
     },
     "区域": {"name": "区域名称", "description": "说明"},
-    "公司": {"name": "公司名称", "industry_type": "所属产业", "region": "所属区域", "status": "状态"},
-    "公司字段值": {"company": "公司名称", "field_key": "字段键", "value": "值"},
     "地图节点类型": {"name": "类型名称", "description": "说明", "color": "颜色"},
     "路径类型": {"name": "类型名称", "description": "说明", "color": "颜色"},
     "地图节点": {
@@ -395,28 +375,10 @@ HEADERS: dict[str, dict[str, str]] = {
         "price": "单价", "carbon_emission": "碳排系数",
     },
     "消费者需求": {"region": "区域名称", "product": "产品名称", "quantity": "需求量", "note": "备注"},
-    "区域总览卡片": {
-        "region": "区域名称", "company": "公司名称", "field_key": "字段键",
-        "display_name": "卡片标题", "zone": "分区标记", "card_id": "卡片ID",
-    },
     "合同类型": {
         "key": "类型标识", "name": "合同名称", "description": "说明", "script": "脚本路径",
         "party_roles": "参与方", "input_schema": "输入项定义", "effects": "效果定义",
         "conditions": "前置检查", "enabled": "是否启用",
-    },
-    "合同实例": {
-        "contract_type": "合同类型标识", "name": "合同名称", "parties": "参与方",
-        "inputs": "输入项", "status": "状态",
-    },
-    "消息": {
-        "title": "标题", "content": "正文", "to_all": "是否发给全体",
-        "to_users": "指定收件人", "sender": "发布者",
-    },
-    "账号": {
-        "username": "用户名", "role": "角色", "display_name": "显示名",
-        "company_scopes": "公司管理范围", "view_company_scopes": "查看范围",
-        "contract_view_company_scopes": "合同查看范围", "stock_company_scopes": "股票范围",
-        "permissions": "权限键", "is_active": "是否启用",
     },
 }
 
@@ -524,31 +486,6 @@ def _h_region(ctx: SheetContext, row: dict) -> None:
     if not name:
         raise SheetFormatError("区域表的 name 必填")
     ctx.builder.region(name, description=row.get("description") or None)
-
-
-def _h_company(ctx: SheetContext, row: dict) -> None:
-    b = ctx.builder
-    name = row.get("name")
-    industry = row.get("industry_type")
-    if not name or not industry:
-        raise SheetFormatError("公司表的 name 与 industry_type 必填")
-    known = {"name", "industry_type", "region", "status"}
-    extra = {k: v for k, v in row.items() if k not in known and str(v).strip() != ""}
-    kwargs: dict[str, Any] = {
-        "industry_type": _industry_ref(ctx, industry),
-        "region": row.get("region") or None,
-        "status": (row.get("status") or "ACTIVE").upper(),
-    }
-    if extra:  # 额外列 = 该公司的产业字段初始值（列名可写字段键或字段显示名）
-        kwargs["field_values"] = {_field_key_of(ctx, k): str(v) for k, v in extra.items()}
-    b.company(name, **kwargs)
-
-
-def _h_company_field_value(ctx: SheetContext, row: dict) -> None:
-    company, key = row.get("company"), row.get("field_key")
-    if not company or not key:
-        raise SheetFormatError("公司字段值表的公司名称与字段键必填")
-    ctx.builder.add_field_value(company, _field_key_of(ctx, key), row.get("value", ""))
 
 
 def _h_node_type(ctx: SheetContext, row: dict) -> None:
@@ -684,15 +621,6 @@ def _h_demand(ctx: SheetContext, row: dict) -> None:
     ctx.builder.demand(region, product, int(float(quantity)), note=row.get("note") or None)
 
 
-def _h_card(ctx: SheetContext, row: dict) -> None:
-    region, company, key = row.get("region"), row.get("company"), row.get("field_key")
-    if not region or not company or not key:
-        raise SheetFormatError("区域总览卡片表的区域名称 / 公司名称 / 字段键必填")
-    ctx.builder.card(region, company, _field_key_of(ctx, key),
-                     display_name=row.get("display_name") or None,
-                     zone=row.get("zone") or None, card_id=row.get("card_id") or None)
-
-
 def _h_contract_type(ctx: SheetContext, row: dict) -> None:
     b = ctx.builder
     key, name = row.get("key"), row.get("name")
@@ -779,57 +707,6 @@ def _contract_payload_from_script(ctx: SheetContext, script: str, key: str | Non
     raise SheetFormatError(f"脚本 {path.name} 里找不到合同类型 key={key}")
 
 
-def _h_contract_instance(ctx: SheetContext, row: dict) -> None:
-    b = ctx.builder
-    ct_key = row.get("contract_type")
-    if not ct_key:
-        raise SheetFormatError("合同实例表的 contract_type 必填（写合同类型的 key）")
-    parties_text = (row.get("parties") or "").strip()
-    parties: list[dict] = []
-    if parties_text:
-        parsed = json.loads(parties_text) if is_json_cell(parties_text) else as_map(parties_text)
-        if isinstance(parsed, list):
-            parties = parsed
-        else:  # `miner=西岭锂业|MIN-2026-001; buyer=中原创能|BY-001`
-            for role, value in parsed.items():
-                parts = [p.strip() for p in str(value).split("|")]
-                entry = {"role": role, "company": parts[0]}
-                if len(parts) > 1 and parts[1]:
-                    entry["contractNumber"] = parts[1]
-                parties.append(entry)
-    b.contract(row.get("name") or None, contract_type=ct_key, parties=parties,
-               inputs=as_pairs(row.get("inputs")), status=(row.get("status") or "DRAFT").upper())
-
-
-def _h_user(ctx: SheetContext, row: dict) -> None:
-    username = row.get("username")
-    if not username:
-        raise SheetFormatError("账号表的 username 必填")
-    ctx.builder.user(
-        username,
-        role=(row.get("role") or "PLAYER").upper(),
-        display_name=row.get("display_name") or None,
-        company_scopes=as_items(row.get("company_scopes")) or None,
-        view_company_scopes=as_items(row.get("view_company_scopes")) or None,
-        contract_view_company_scopes=as_items(row.get("contract_view_company_scopes")) or None,
-        stock_company_scopes=as_items(row.get("stock_company_scopes")) or None,
-        permissions=as_items(row.get("permissions")) or None,
-        is_active=bool(as_bool(row.get("is_active"), default=True)),
-    )
-
-
-def _h_message(ctx: SheetContext, row: dict) -> None:
-    title = row.get("title")
-    if not title:
-        raise SheetFormatError("消息表的 title 必填")
-    to_all = as_bool(row.get("to_all"), default=True)
-    # 单元格里写不出的换行用字面量 \n 代替（Excel 单元格内换行会带上引号，统一在这里还原）
-    content = str(row.get("content") or "").replace("\\n", "\n")
-    ctx.builder.message(title, content, to_all=bool(to_all),
-                        to_users=as_items(row.get("to_users")) or None,
-                        sender=row.get("sender") or None)
-
-
 # ------------------------------ 表清单 ------------------------------
 
 
@@ -884,33 +761,10 @@ SHEETS: tuple[SheetSpec, ...] = (
         _h_industry_field,
     ),
     SheetSpec(
-        "区域", "company", "比赛内区域（区域总览、总览卡片按它聚合）",
+        "区域", "geo", "比赛内区域（区域总览、消费者需求按它聚合）",
         (Column("name", "区域名（比赛内唯一）", required=True), Column("description", "说明")),
         ("上游资源区", "锂 / 铝 / 铁矿与橡胶硅砂资源带"),
         _h_region,
-    ),
-    SheetSpec(
-        "公司", "company",
-        "参赛公司；**额外列会被当作该公司的产业字段初始值**（列名 = field_key）",
-        (
-            Column("name", "公司名（比赛内唯一）", required=True),
-            Column("industry_type", "所属产业（code 或名称）", required=True),
-            Column("region", "所属区域（不存在会按名自动建）"),
-            Column("status", "ACTIVE / INACTIVE"),
-        ),
-        ("西岭锂业", "原料开采", "上游资源区", "ACTIVE", "白云鄂博矿区", "1200000"),
-        _h_company,
-        allow_extra_columns=True,
-    ),
-    SheetSpec(
-        "公司字段值", "company", "单独维护公司字段值（与公司表二选一或并用，后写覆盖先写）",
-        (
-            Column("company", "公司名", required=True),
-            Column("field_key", "产业字段键", required=True),
-            Column("value", "值（NUMBER 建议写字符串以保精度）"),
-        ),
-        ("西岭锂业", "bank_deposit", "300000"),
-        _h_company_field_value,
     ),
     SheetSpec(
         "地图节点类型", "geo", "地图节点分类（矿区 / 港口 / 城市 …）",
@@ -1063,19 +917,6 @@ SHEETS: tuple[SheetSpec, ...] = (
         _h_demand,
     ),
     SheetSpec(
-        "区域总览卡片", "market", "区域总览卡片（industryFieldId 由建包库自动回填，见文档两遍导入）",
-        (
-            Column("region", "区域名", required=True),
-            Column("company", "公司名", required=True),
-            Column("field_key", "要展示的产业字段键", required=True),
-            Column("display_name", "卡片标题"),
-            Column("zone", "分区标记"),
-            Column("card_id", "卡片 id（缺省自动生成）"),
-        ),
-        ("上游资源区", "西岭锂业", "cash", "西岭锂业现金", "", ""),
-        _h_card,
-    ),
-    SheetSpec(
         "合同类型", "market",
         "全局资源：合同模板。四份 JSON 可写 JSON，也可用 `script` 列指向合同类型代码化脚本",
         (
@@ -1093,58 +934,26 @@ SHEETS: tuple[SheetSpec, ...] = (
          "examples/contracts/auto_chain_contracts.py", "", "", "", "", "是"),
         _h_contract_type,
     ),
-    SheetSpec(
-        "合同实例", "market",
-        "比赛内的预置合同（保持 DRAFT 不落账）。名称缺省取合同类型名，故每种类型只预置一份",
-        (
-            Column("contract_type", "合同类型 key", required=True),
-            Column("name", "合同名（缺省 = 合同类型名）"),
-            Column("parties", "参与方：`miner=西岭锂业|MIN-001; buyer=中原创能|BY-001`", "map"),
-            Column("inputs", "输入项：`quantity=20; goods={\"锂矿石\": 20}`", "pairs"),
-            Column("status", "DRAFT / PENDING_EXEC / EXECUTED / TERMINATED"),
-        ),
-        ("auto-mining", "开采合同", "miner=西岭锂业|MIN-2026-001",
-         "ore_type=锂矿石; quantity=20; royalty_rate=60", "DRAFT"),
-        _h_contract_instance,
-    ),
-    SheetSpec(
-        "消息", "market", "比赛内消息（导入不做判重：重复导入会多建，注意去重）",
-        (
-            Column("title", "标题", required=True),
-            Column("content", "正文（可用 \\n 换行）"),
-            Column("to_all", "是否发给全体", "bool"),
-            Column("to_users", "指定收件人：`player_a;player_b`", "list"),
-            Column("sender", "发布者用户名（缺省用导入操作者）"),
-        ),
-        ("开局公告", "欢迎参赛，请先核对本公司初始字段。", "是", "", ""),
-        _h_message,
-    ),
-    SheetSpec(
-        "账号", "access", "参赛账号与四套公司范围（范围为空 = 登录后什么都看不到）",
-        (
-            Column("username", "用户名（全局唯一）", required=True),
-            Column("role", "SUPER_ADMIN / COMPETITION_ADMIN / PLAYER"),
-            Column("display_name", "显示名"),
-            Column("company_scopes", "公司管理范围：`西岭锂业;中原创能`", "list"),
-            Column("view_company_scopes", "查看范围", "list"),
-            Column("contract_view_company_scopes", "合同查看范围", "list"),
-            Column("stock_company_scopes", "股票范围（本规范不覆盖股票，可留空）", "list"),
-            Column("permissions", "细粒度权限键：`contract:manage;contract:audit`", "list"),
-            Column("is_active", "是否启用", "bool"),
-        ),
-        ("player_a", "PLAYER", "玩家A", "西岭锂业;中原创能", "西岭锂业;中原创能",
-         "西岭锂业;中原创能", "", "", "是"),
-        _h_user,
-    ),
 )
 
 SHEET_BY_NAME: dict[str, SheetSpec] = {s.name: s for s in SHEETS}
 
-#: 本规范明确不覆盖的表（出现了就提示原因，而不是静默忽略）
-UNSUPPORTED_SHEETS = {
-    "股票": "本规范按要求不覆盖股票系统（请用代码建包或前端维护）",
-    "资金账户": "本规范按要求不覆盖股票系统（请用代码建包或前端维护）",
-    "股票参数": "本规范按要求不覆盖股票系统（请用代码建包或前端维护）",
+#: **不在 Excel 规范内的表**：出现了就提示原因与「该去哪里维护」，而不是静默忽略。
+#:
+#: 划分原则：**Excel 只负责「比赛框架」**（换一场比赛仍然成立的口径与规则）；
+#: 参赛主体、账号、预置合同、卡片、消息这些**关乎实际比赛运行**的内容，
+#: 由前端界面（推荐）或代码建包脚本维护 —— 它们都绑定具体公司、具体人和具体主键。
+OUT_OF_SCOPE_SHEETS: dict[str, str] = {
+    "公司": "参赛主体属于运行期数据：请在「公司管理」界面维护，"
+            "或用代码建包脚本 examples/competitions/auto_chain_competition.py",
+    "公司字段值": "公司字段值是参赛主体的初始数据：请在「公司管理 → 公司详情」里维护",
+    "账号": "账号与权限属于运行期数据（且涉及口令安全）：请用「账号管理」界面创建与重置密码",
+    "区域总览卡片": "卡片绑定具体公司与产业字段主键：请在「区域总览」界面配置",
+    "合同实例": "比赛内的预置合同要绑定具体公司：请在「合同管理」界面创建",
+    "消息": "消息是开赛后发布的运行内容：请在「消息中心」发布",
+    "股票": "本规范不覆盖股票系统（按要求不动股票）：请用代码建包或前端维护",
+    "资金账户": "本规范不覆盖股票系统（按要求不动股票）：请用代码建包或前端维护",
+    "股票参数": "本规范不覆盖股票系统（按要求不动股票）：请用代码建包或前端维护",
 }
 
 #: 说明表（自由文本，解析时忽略）

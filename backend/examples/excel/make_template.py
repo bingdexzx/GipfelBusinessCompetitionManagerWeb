@@ -32,9 +32,6 @@ from xlsx_io import load_tables, save_tables, write_xlsx  # noqa: E402
 #: 空白模板里每张表预留的空行数
 BLANK_ROWS = 3
 
-#: 「公司」表额外列示例（中文表头；程序按产业字段的显示名/字段键识别）
-COMPANY_EXTRA_COLUMNS = ("所在地", "现金", "银行存款", "许可配额", "库存台账")
-
 
 def template_tables() -> dict[str, list[list]]:
     """空白模板：说明表 + 每张规范表的**中文表头** / 示例行 / 空行。"""
@@ -42,8 +39,6 @@ def template_tables() -> dict[str, list[list]]:
     tables["说明"] = _notes_rows()
     for spec in SHEETS:
         header = [header_for(spec.name, col.key) for col in spec.columns]
-        if spec.allow_extra_columns:
-            header += list(COMPANY_EXTRA_COLUMNS)
         rows: list[list] = [header]
         if spec.example:
             rows.append(list(spec.example))
@@ -54,16 +49,27 @@ def template_tables() -> dict[str, list[list]]:
 
 def _notes_rows() -> list[list]:
     rows: list[list] = [
-        ["比赛建包表格规范 · 使用说明"],
+        ["比赛建包表格 · 使用说明（本表只建「比赛框架」）"],
         [""],
         ["怎么用"],
         ["1. 一张表 = 一类内容；只填你要建的表，没填的表完全不参与产出（表与表相互隔离）。"],
-        ["2. 第一行是中文表头，**不要改**；需要对照代码时看最后一栏「参数名」。列顺序随意。"],
+        ["2. 第一行是中文表头，不要改；需要对照代码时看「表头 ↔ 参数名对照」那一节。列顺序随意。"],
         ["3. 以 # 开头的行是注释行；整行空白会被忽略。"],
         ["4. 单元格语法：是/否 表示布尔；分号分隔表示列表；`名称:数量` 或 `名称*数量` 表示键值；以 { 或 [ 开头的单元格按 JSON 解析。"],
         ["5. 建包命令：python examples/excel/build_from_sheets.py 本文件.xlsx --create-competition [--dry-run]"],
-        ["6. 股票系统不在本规范内（没有股票 / 资金账户 / 股票参数三类表）。"],
-        ["7. 英文参数名同样可用（老文件兼容）；中文表头与参数名指向同一列，不要同时写两列。"],
+        ["6. 英文参数名同样可用（老文件兼容）；中文表头与参数名指向同一列，不要同时写两列。"],
+        [""],
+        ["只建框架，不建运行数据"],
+        ["本表格覆盖：比赛、财年、行业口径（产业类型 / 产业字段）、区域、地图与路径、"
+         "物资与产能（燃料 / 原料 / 科技 / 生产线 / 基建 / 仓库 / 零件 / 产品 / 载具）、消费者需求、合同类型。"],
+        ["以下内容绑定具体公司与人，请在界面维护（或用代码建包脚本），不要放进表格："],
+        ["  · 公司、公司字段初始值 → 公司管理"],
+        ["  · 账号与权限 → 账号管理"],
+        ["  · 区域总览卡片 → 区域总览"],
+        ["  · 比赛内的预置合同（合同实例） → 合同管理"],
+        ["  · 比赛内消息 → 消息中心"],
+        ["  · 股票 / 资金账户 / 股票参数 → 不启用（按要求不动股票系统）"],
+        ["工作簿里若出现这些表名，程序会提示「该去哪里维护」，不会静默忽略。"],
         [""],
         ["表清单"],
         ["表名", "分组", "用途", "列（* = 必填）"],
@@ -73,8 +79,6 @@ def _notes_rows() -> list[list]:
             (header_for(spec.name, col.key) + "*") if col.required else header_for(spec.name, col.key)
             for col in spec.columns
         )
-        if spec.allow_extra_columns:
-            cols += "、（额外列：列名写字段键或字段显示名，填公司的产业字段初始值）"
         rows.append([spec.name, spec.scope, spec.purpose, cols])
     rows.append([""])
     rows.append(["表头 ↔ 参数名对照"])

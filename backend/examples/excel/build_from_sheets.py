@@ -1,9 +1,14 @@
 # -*- coding: utf-8 -*-
-"""用**表格文件**（Excel / CSV 目录）快速建一场比赛：读表 → 建包 → 导入。
+"""用**表格文件**（Excel / CSV 目录）建一场比赛的**框架**：读表 → 建包 → 导入。
 
 一张工作表 = 一类内容，表与表之间相互隔离：只填你要建的那几张表即可，
 没出现的表完全不参与产出。规范见 [`sheet_spec.py`](sheet_spec.py) 与
 [`docs/比赛Excel建包规范.md`](../../../docs/比赛Excel建包规范.md)。
+
+**只建框架，不建运行数据**：参赛主体（公司 / 公司字段值）、账号、区域总览卡片、
+比赛内的合同实例、消息都不在表格规范内 —— 它们绑定具体公司、具体人和具体主键，
+请在前端界面维护，或用代码建包脚本 `examples/competitions/auto_chain_competition.py`。
+工作簿里若出现这些表名，程序会提示「该去哪里维护」。
 
 本脚本**没有新的落库路径**：它把表格翻译成 `CompetitionBuilder` 的调用，
 产出与代码建包/前端导入完全同构的归档 JSON，再交给既有的
@@ -26,13 +31,13 @@
     # 3) 写出归档 JSON（可以拿去前端「导入归档」上传）
     .\\.venv\\Scripts\\python.exe examples/excel/build_from_sheets.py 我的比赛.xlsx --out 我的比赛.json
 
-    # 4) 直接导入到某场比赛（预演 → 真导）
-    .\\.venv\\Scripts\\python.exe examples/excel/build_from_sheets.py 我的比赛.xlsx --competition 190 --dry-run
-    .\\.venv\\Scripts\\python.exe examples/excel/build_from_sheets.py 我的比赛.xlsx --competition 190
+    # 4) 建比赛 + 导入（预演 → 真导）
+    .\\.venv\\Scripts\\python.exe examples/excel/build_from_sheets.py 我的比赛.xlsx --create-competition --dry-run
+    .\\.venv\\Scripts\\python.exe examples/excel/build_from_sheets.py 我的比赛.xlsx --create-competition
 
-    # 5) 只建「参赛主体」分组；或只处理指定几张表
-    .\\.venv\\Scripts\\python.exe examples/excel/build_from_sheets.py 我的比赛.xlsx --competition 190 --scope company
-    .\\.venv\\Scripts\\python.exe examples/excel/build_from_sheets.py 我的比赛.xlsx --competition 190 --sheets 公司,公司字段值
+    # 5) 导入到已存在的比赛；或只导某个分组 / 只处理指定几张表
+    .\\.venv\\Scripts\\python.exe examples/excel/build_from_sheets.py 我的比赛.xlsx --competition 189 --scope supply
+    .\\.venv\\Scripts\\python.exe examples/excel/build_from_sheets.py 我的比赛.xlsx --competition 189 --sheets 产业类型,产业字段
 
 退出码：0 成功；1 表格格式错误或导入出现 problem；2 用法错误。
 """
@@ -62,9 +67,9 @@ from apps.preparation.builder import BuilderError, CompetitionBuilder, RESOURCE_
 
 from sheet_spec import (  # noqa: E402
     NOTES_SHEET_NAMES,
+    OUT_OF_SCOPE_SHEETS,
     SHEET_BY_NAME,
     SHEETS,
-    UNSUPPORTED_SHEETS,
     SheetContext,
     SheetFormatError,
     header_aliases,
@@ -87,8 +92,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--dry-run", action="store_true", help="预演导入（事务回滚，不落库）")
     parser.add_argument("--mode", choices=["append", "overwrite"], default="append")
     parser.add_argument("--allow-non-empty", action="store_true", help="允许导入到已有数据的比赛")
-    parser.add_argument("--scope", default=None, help="只处理/导入某个分组：competition/industry/company/supply/geo/tech/market/access")
-    parser.add_argument("--sheets", default=None, help="只处理这些表（逗号分隔，如 公司,合同实例）")
+    parser.add_argument("--scope", default=None, help="只导入某个分组：competition/industry/geo/supply/tech/market")
+    parser.add_argument("--sheets", default=None, help="只处理这些表（逗号分隔，如 产业类型,产业字段）")
     parser.add_argument("--name", default=None, help="比赛名（覆盖「比赛」表里的名称；表里没有「比赛」表时是兜底名）")
     parser.add_argument("--create-competition", action="store_true",
                         help="按「比赛」表的名称新建一场比赛（同名已存在则复用），再导入")
@@ -189,8 +194,8 @@ def build_from_tables(
     for name in tables:
         if name in NOTES_SHEET_NAMES:
             continue
-        if name in UNSUPPORTED_SHEETS:
-            notes.append(f"工作表「{name}」未处理：{UNSUPPORTED_SHEETS[name]}")
+        if name in OUT_OF_SCOPE_SHEETS:
+            notes.append(f"工作表「{name}」不属于表格规范的「比赛框架」，已跳过：{OUT_OF_SCOPE_SHEETS[name]}")
         elif name not in SHEET_BY_NAME:
             notes.append(f"工作表「{name}」不在规范内，已忽略"
                          f"（可选：{'、'.join(s.name for s in SHEETS)}）")
