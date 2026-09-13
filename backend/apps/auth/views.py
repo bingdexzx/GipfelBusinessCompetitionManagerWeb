@@ -157,9 +157,10 @@ class LoginView(APIView):
         user.token_version = (user.token_version or 0) + 1
         user.save(update_fields=["token_version", "updated_at"])
 
-        # 立即通过 WebSocket 踢掉旧设备（不等新设备建立 socket 连接）
-        from apps.realtime.emit import emit_to_users
-        emit_to_users([user.id], "auth:required", {"reason": "token_version_mismatch"})
+        # 立即踢掉旧设备：通知 + **真正断开**旧连接（不等新设备建立 socket 连接）。
+        # 只发 auth:required 的话，不响应的客户端仍留在 user-/comp- 房间继续收广播（审计 I-01）。
+        from apps.realtime.emit import kick_user_sessions
+        kick_user_sessions(user.id, reason="token_version_mismatch")
 
         record_login_success(ip, username)
 
