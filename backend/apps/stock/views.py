@@ -682,6 +682,11 @@ class AccountItemView(APIView):
             account.user_id = data["userId"]
             update_fields.append("user_id")
         if "bindFieldId" in data:
+            # 绑定字段会决定账户可用现金（cash_balance 同步字段值、下单/结算以该字段为准），
+            # 属与 cashBalance 同级的高危写：必须与上面三项一致只允许高级管理。
+            # 改前此处漏了 high 校验，持 stock:edit 的账号即可把余额设成任意产业字段值（任意充值）。
+            if not high:
+                raise BusinessError("仅高级管理可变更为资金账户绑定的产业字段", code=403, status_code=403)
             account.bind_field_id = data["bindFieldId"]
             update_fields.append("bind_field_id")
             if data["bindFieldId"] and account.company_id:
