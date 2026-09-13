@@ -1,13 +1,15 @@
 """燃料模型。"""
 from django.db import models
 
+from apps.common.fields import ExactDecimalField
+
 
 class Fuel(models.Model):
     """燃料（比赛级基础数据）。删除比赛时级联删除。"""
 
     name = models.CharField(max_length=255)
     # 燃料单价：玩家购买时累加到现金支出，浮点累计会漂。改 Decimal。
-    price_per_liter = models.DecimalField(max_digits=60, decimal_places=4)
+    price_per_liter = ExactDecimalField(max_digits=60, decimal_places=4)
     competition = models.ForeignKey(
         "competitions.Competition",
         on_delete=models.CASCADE,

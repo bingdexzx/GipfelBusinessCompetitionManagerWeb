@@ -1,6 +1,8 @@
 """基建模型。"""
 from django.db import models
 
+from apps.common.fields import ExactDecimalField
+
 
 class Infrastructure(models.Model):
     """基建（比赛级基础数据）。删除比赛时级联删除。"""
@@ -13,11 +15,11 @@ class Infrastructure(models.Model):
     population_bonus = models.FloatField(default=0)
     high_quality_population_bonus = models.FloatField(default=0)
     # 价格类：必须 Decimal（玩家购买场景）
-    price = models.DecimalField(max_digits=60, decimal_places=4)
+    price = ExactDecimalField(max_digits=60, decimal_places=4)
     happiness_index_bonus = models.FloatField(default=0)
     per_capita_income_bonus = models.FloatField(default=0)
     carbon_reduction_bonus = models.FloatField(default=0)
-    activation_price = models.DecimalField(max_digits=60, decimal_places=4)
+    activation_price = ExactDecimalField(max_digits=60, decimal_places=4)
     competition = models.ForeignKey(
         "competitions.Competition",
         on_delete=models.CASCADE,

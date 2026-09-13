@@ -7,6 +7,8 @@ fuel / pathType 位于尚未创建的兄弟应用，使用字符串外键引用�
 """
 from django.db import models
 
+from apps.common.fields import ExactDecimalField
+
 
 class Vehicle(models.Model):
     """载具主数据。删除比赛时级联删除。"""
@@ -21,7 +23,7 @@ class Vehicle(models.Model):
     fuel_consumption_per_km = models.FloatField()
     max_cargo = models.FloatField()
     # 价格：玩家购买场景，必须 Decimal
-    price = models.DecimalField(max_digits=60, decimal_places=4)
+    price = ExactDecimalField(max_digits=60, decimal_places=4)
     # 碳排：派生系数，Float 足够
     carbon_emission = models.FloatField()
     competition = models.ForeignKey(
