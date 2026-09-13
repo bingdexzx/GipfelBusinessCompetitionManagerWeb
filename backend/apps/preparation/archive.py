@@ -2142,24 +2142,45 @@ def _imp_consumer_demands(rows: list[dict], ctx: ImportContext) -> None:
                 "（未关联产品记录；导入「物资与产能」分组后会自动关联）"
             )
         quantity = row.get("quantity") or 0
-        # 自然键（比赛 + 区域 + 产品类型 + 数量）去重：合并导入时不重复追加需求
-        obj, created = ConsumerDemand.objects.get_or_create(
-            competition_id=ctx.competition_id,
-            region=region,
-            product_type=product_type,
-            quantity=quantity,
-            defaults={"product_id": product_id, "note": row.get("note")},
+        note = row.get("note")
+        # 审计 R-13：改前的自然键是「比赛 + 区域 + 产品类型 + **数量**」，而模型对
+        # (competition, region, product_type) 并没有唯一约束 —— 源比赛把某区域某产品的需求量
+        # 从 100 改成 150 后重新导入，会**新建**一条而不是更新既有行 ⇒ 同区域同产品出现两条
+        # 需求（100 与 150），订单/需求总量被放大。现在去重键去掉 quantity，
+        # 命中后按 overwrite 语义更新 quantity/product_id/note。
+        obj = (
+            ConsumerDemand.objects.filter(
+                competition_id=ctx.competition_id, region=region, product_type=product_type
+            )
+            .order_by("id")
+            .first()
         )
+        created = obj is None
+        if created:
+            obj = ConsumerDemand.objects.create(
+                competition_id=ctx.competition_id,
+                region=region,
+                product_type=product_type,
+                quantity=quantity,
+                product_id=product_id,
+                note=note,
+            )
         ctx.ids.put("consumerDemands", row.get("_id"), obj.id)
         if created:
             ctx.bump("consumerDemands", "created")
         else:
             touched = False
+            if obj.quantity != quantity:
+                obj.quantity = quantity
+                touched = True
             if product_id is not None and obj.product_id != product_id:
                 obj.product_id = product_id
                 touched = True
+            if note is not None and obj.note != note:
+                obj.note = note
+                touched = True
             if touched:
-                obj.save(update_fields=["product_id", "updated_at"])
+                obj.save(update_fields=["quantity", "product_id", "note", "updated_at"])
                 ctx.bump("consumerDemands", "updated")
             else:
                 ctx.bump("consumerDemands", "skipped")

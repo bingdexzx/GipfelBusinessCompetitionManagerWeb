@@ -105,12 +105,17 @@ def _short_names(names: list[str], limit: int = 6) -> str:
 
 
 def _detail(title: str, columns: list[str], rows: list[list]) -> dict:
-    """构造明细表：超出上限的行被截断，但保留总条数供导出时说明。"""
+    """构造明细表：超出上限的行被截断，但保留总条数供导出时说明。
+
+    审计 R-14：改前 `_DETAIL_LIMIT` 只有定义、从未被引用 —— `rows` 原样全量返回，
+    `total == len(rows)` 恒成立，前端 `isTruncated()` 永远 false（"仅显示前 N 条"是死代码），
+    几千行的明细会拖垮前端表格与 Markdown 导出。现在真正应用上限。
+    """
     total = len(rows)
     return {
         "title": title,
         "columns": columns,
-        "rows": rows,
+        "rows": rows[:_DETAIL_LIMIT],
         "total": total,
     }
 
