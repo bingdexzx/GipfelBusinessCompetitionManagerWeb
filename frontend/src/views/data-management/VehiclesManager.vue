@@ -82,9 +82,9 @@
           getFuelName(detailData.fuelId)
         }}</el-descriptions-item>
         <el-descriptions-item label="可通过路径类型">
-          <template v-if="detailData.pathTypeIds?.length">
+          <template v-if="detailPathTypeIds.length">
             <el-tag
-              v-for="ptId in detailData.pathTypeIds"
+              v-for="ptId in detailPathTypeIds"
               :key="ptId"
               size="small"
               style="margin: 2px"
@@ -197,6 +197,12 @@ import MobileCards from "@/components/common/MobileCards.vue";
 import SearchToggle from "@/components/common/SearchToggle.vue";
 import BigNumberInput from "@/components/common/BigNumberInput.vue";
 import { useBreakpoint } from "@/composables/useBreakpoint";
+import { toPathTypeIds, toVehiclePathTypes } from "./vehiclePathTypes";
+
+interface VehiclePathTypeItem {
+  pathTypeId?: number;
+  pathType?: { id?: number; name?: string } | null;
+}
 
 interface VehicleItem {
   id: number;
@@ -204,7 +210,8 @@ interface VehicleItem {
   fuelConsumptionPerKm: number;
   maxCargo?: number;
   fuelId?: number;
-  pathTypeIds?: number[];
+  /** 后端契约字段：[{ pathTypeId, pathType }]（改前的 pathTypeIds 后端从不返回，见 W-02） */
+  vehiclePathTypes?: VehiclePathTypeItem[];
 }
 
 const compStore = useCompetitionStore();
@@ -331,6 +338,9 @@ function showDetail(row: VehicleItem) {
   detailVisible.value = true;
 }
 
+/** 详情弹窗展示的路径类型 id（后端契约字段 vehiclePathTypes → id 数组，见 W-02） */
+const detailPathTypeIds = computed(() => toPathTypeIds(detailData.value));
+
 function getFuelName(id: number | null | undefined): string {
   if (!id) return "-";
   const f = fuelOptions.value.find((o) => o.value === id);
@@ -368,7 +378,7 @@ function openEdit(row: VehicleItem) {
   form.maxCargo = (row as any).maxCargo ?? 0;
   form.price = (row as any).price ?? 0;
   form.carbonEmission = (row as any).carbonEmission ?? 0;
-  form.pathTypeIds = row.pathTypeIds ?? [];
+  form.pathTypeIds = toPathTypeIds(row);
   dialogVisible.value = true;
 }
 
@@ -404,7 +414,8 @@ async function handleSubmit() {
       maxCargo: form.maxCargo,
       price: form.price,
       carbonEmission: form.carbonEmission,
-      pathTypeIds: form.pathTypeIds,
+      // 后端契约字段名是 vehiclePathTypes（改前的 pathTypeIds 被 DRF 静默忽略，见 W-02）
+      vehiclePathTypes: toVehiclePathTypes(form.pathTypeIds),
     };
     try {
       if (isEdit.value && editingId.value) {
