@@ -1629,8 +1629,20 @@ useCompetitionReload(
     contractTypes.value = [];
     companies.value = [];
     industryTypes.value = [];
+    // 实体下拉与地图缓存同样是比赛级数据，也要一并失效（审计 V-05）：
+    // 改前只清上面四个，切比赛后新建合同仍能选到上一比赛的原料/基建/科技节点，
+    // nodeRoute 的相邻校验还在用旧边表（loadMapNodes/loadEntityOptions 有「已加载就跳过」的守卫）。
+    clearEntityOptionCaches();
   },
 );
+
+/** 清空比赛级的下拉选项缓存（切比赛时调用），下次使用时按新比赛重新拉取。 */
+function clearEntityOptionCaches() {
+  for (const key of Object.keys(entityOptionsMap)) delete entityOptionsMap[key];
+  mapNodes.value = [];
+  mapEdges.value = [];
+  techNodes.value = [];
+}
 
 useResourceChanged("contracts", () => {
   loadContracts();
