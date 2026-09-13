@@ -1048,7 +1048,11 @@ async function loadTechNodes() {
     let allNodes: any[] = [];
     let page = 1;
     while (true) {
-      const res: any = await api.get("/tech-nodes", { params: { page, pageSize: 200 } });
+      // 必须带 competitionId（审计 W-03 同类缺陷）：超管不受后端 apply_competition_scope 过滤，
+      // 漏带会把其他比赛的科技节点混进「科技树清单」下拉并写成本合同的引用。
+      const res: any = await api.get("/tech-nodes", {
+        params: { page, pageSize: 200, competitionId: compStore.competitionId },
+      });
       const items = Array.isArray(res) ? res : res?.items ?? [];
       allNodes = allNodes.concat(items);
       if (items.length < 200) break;
