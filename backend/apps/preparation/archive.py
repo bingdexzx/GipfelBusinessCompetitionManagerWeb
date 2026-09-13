@@ -2316,6 +2316,18 @@ def _imp_overview_cards(rows: list[dict], ctx: ImportContext) -> None:
         region, created = Region.objects.get_or_create(
             competition_id=ctx.competition_id, name=region_name, defaults={"overview_cards": "[]"}
         )
+        # 审计 R-08：改前无条件回写 —— 追加模式下会把既有区域已配好的概览卡片整份替换掉
+        # （而 `_CHILD_OF["overviewCards"]` 用的是导出侧并不存在的 regionId 字段，那条
+        # 「父被保留就跳过」的保护规则永远不会生效）。现在按模式处理：追加模式保留既有卡片，
+        # 覆盖模式才按归档写回。
+        if not created and not ctx.is_overwrite:
+            ctx.bump("overviewCards", "kept")
+            ctx.note(
+                f"区域「{region_name}」已有概览卡片，追加模式下保留原有配置未改动"
+                "（如需按归档覆盖请用 --mode overwrite）"
+            )
+            ctx.ids.put("overviewCards", row.get("_id"), region.id)
+            continue
         if created:
             ctx.bump("overviewCards", "created")
         region.overview_cards = json.dumps(kept, ensure_ascii=False)
