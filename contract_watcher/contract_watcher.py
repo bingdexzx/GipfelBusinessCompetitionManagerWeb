@@ -29,6 +29,7 @@ import argparse
 import importlib.util
 import json
 import logging
+import os
 import random
 import re
 import socket
@@ -164,6 +165,94 @@ def next_backoff(previous: float, base: float, cap: float = MAX_BACKOFF_SECONDS,
     base = max(0.5, float(base))
     nxt = min(float(cap), max(base, float(previous) * 2))
     return round(nxt * (1.0 + 0.25 * rnd()), 3)
+
+
+# 审计 CW-20：跨机器共享的实例互斥锁（放在共享盘/共享目录上）
+LOCK_STALE_SECONDS = 90.0
+
+
+class SharedLock:
+    """放在**共享位置**上的单实例锁（审计 CW-20）。
+
+    改前只用 `socket.bind(("127.0.0.1", --port))` 做互斥 —— 它只在当前主机有效：两台机器
+    （`README.md:175-179` 鼓励用任务计划/`@reboot` 自启，多机部署很常见）或本机换 `--port`
+    起第二个实例时，两个实例会各自拉取同一批合同、各自记账（账本路径相同则两个 Excel 交错写
+    同一文件，后保存者覆盖前者；各用副本则会话账本分叉），而文档「重复启动会被端口锁拒绝」
+    给出了过强的安全感。
+
+    现在把互斥点放到**共享资源**上：`--lock-file` 指向共享路径（默认本地 `data/watcher.lock`），
+    用「独占创建 + 心跳 + 过期接管」实现：
+
+    - `acquire()`：目标存在且**心跳未过期** ⇒ 返回 False（另一个实例在跑）；
+      心跳过期（进程被杀/断电/网络分区）⇒ 接管并告警，避免死锁；
+    - `heartbeat()`：每轮刷新 mtime，让别的实例知道我们还活着；
+    - `release()`：正常退出时删除锁文件。
+    """
+
+    def __init__(self, path, stale_after: float = LOCK_STALE_SECONDS, owner: str | None = None):
+        self.path = Path(path)
+        self.stale_after = float(stale_after)
+        self.owner = owner or f"{socket.gethostname()}:{os.getpid()}"
+
+    def _read_owner(self) -> str:
+        try:
+            return self.path.read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+
+    def age(self) -> float:
+        """锁文件的年龄（秒）；不存在返回 -1。"""
+        try:
+            return max(0.0, time.time() - self.path.stat().st_mtime)
+        except OSError:
+            return -1.0
+
+    def acquire(self) -> tuple[bool, str]:
+        """尝试获取锁，返回 `(是否拿到, 说明)`。"""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            # `x` 模式是原子的：文件已存在即失败（比"先判断再创建"没有竞态）
+            with self.path.open("x", encoding="utf-8") as fh:
+                fh.write(self.owner)
+        except FileExistsError:
+            age = self.age()
+            other = self._read_owner()
+            if 0 <= age < self.stale_after:
+                return False, (
+                    f"另一个监听实例正在运行（锁 {self.path} 由 {other or '未知'} 持有，"
+                    f"{age:.0f} 秒前心跳）：本实例退出。若确认对方已停止，"
+                    f"请删除该锁文件或等 {self.stale_after:.0f} 秒心跳过期后重试"
+                )
+            # 心跳过期：接管（否则被 kill -9 / 断电的实例会把锁永久占住）
+            try:
+                self.path.write_text(self.owner, encoding="utf-8")
+                log.warning(
+                    "接管控件锁（%s）：原持有者 %s 的心跳已过期（%.0f 秒），判定为已停止运行",
+                    self.path, other or "未知", age,
+                )
+                return True, (
+                    f"接管控件锁 {self.path}：原持有者 {other or '未知'} 的心跳已过期"
+                    f"（{age:.0f} 秒），判定为已停止运行"
+                )
+            except OSError as e:
+                return False, f"接管锁 {self.path} 失败：{e}"
+        except OSError as e:
+            return False, f"无法创建锁文件 {self.path}：{e}"
+        return True, f"已取得单实例锁 {self.path}（owner={self.owner}）"
+
+    def heartbeat(self) -> None:
+        """刷新心跳（每轮调用一次）。"""
+        try:
+            self.path.write_text(self.owner, encoding="utf-8")
+        except OSError:
+            log.debug("锁心跳刷新失败：%s", self.path, exc_info=True)
+
+    def release(self) -> None:
+        try:
+            if self.path.exists() and self._read_owner() == self.owner:
+                self.path.unlink()
+        except OSError:
+            log.debug("锁文件删除失败：%s", self.path, exc_info=True)
 
 
 # ==================== HTTP（标准库，只读后端） ====================
@@ -774,7 +863,11 @@ def main() -> int:
         help="合同类型目录的最小同步间隔（秒，0=每轮都同步）",
     )
     ap.add_argument("--out-dir", default=str(RECORDS_DIR))
-    ap.add_argument("--port", type=int, default=47653, help="单实例互斥端口")
+    ap.add_argument("--port", type=int, default=47653, help="单实例互斥端口（仅本机有效）")
+    ap.add_argument(
+        "--lock-file", default=str(WATCHER_DIR / "data" / "watcher.lock"),
+        help="跨机器共享的单实例锁文件（多机跑同一账本时指向同一个共享路径）",
+    )
     ap.add_argument("--backfill", action="store_true", help="首次运行也处理存量已执行合同")
     ap.add_argument("--verbose", action="store_true", help="控制台同步输出明细")
     args = ap.parse_args()
@@ -798,7 +891,7 @@ def main() -> int:
         console.setLevel(logging.INFO)
         log.addHandler(console)
 
-    # 单实例互斥（socket 占端口；退出自动释放）
+    # 单实例互斥（本机端口；退出自动释放）
     try:
         lock_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         lock_sock.bind(("127.0.0.1", args.port))
@@ -807,6 +900,15 @@ def main() -> int:
         print(f"另一个监听实例已在运行（端口 {args.port} 被占用），本实例退出。"
               f"如需更换端口请用 --port。", file=sys.stderr)
         return 1
+
+    # 审计 CW-20：端口锁只在**本机**有效。真正的互斥点必须放在共享资源上（账本/记录目录所在
+    # 的共享盘），否则两台机器（或本机换 --port 起的第二个实例）会各自记账 ⇒ 重复入账。
+    instance_lock = SharedLock(args.lock_file)
+    acquired, why = instance_lock.acquire()
+    if not acquired:
+        print(f"✗ {why}", file=sys.stderr)
+        return 1
+    log.info("%s", why)
 
     WATCHER_DIR.joinpath("data").mkdir(parents=True, exist_ok=True)
     out_dir = Path(args.out_dir)
@@ -857,71 +959,78 @@ def main() -> int:
     consecutive_failures = 0
     current_delay = max(0.5, args.interval)
 
-    while True:
-        round_failed = False
-        try:
-            # 0) 基线未建立（首次拉取失败）→ 每轮重试，期间不处理合同
-            if not baseline_ready:
-                baseline_ready = establish_baseline(
-                    backend, state, args.competition, args.backfill
-                )
-                if not baseline_ready:
-                    round_failed = True
-                    consecutive_failures += 1
-                    current_delay = next_backoff(current_delay, args.interval)
-                    time.sleep(current_delay)
-                    continue
-            # 1) handlers.py 被手动修改 → 热加载
+    try:
+        while True:
+            round_failed = False
             try:
-                mtime = HANDLERS_FILE.stat().st_mtime
-                if mtime != last_mtime:
-                    last_mtime = mtime
-                    registry[0] = load_handlers()
-                    log.info("handlers.py 已变更，热加载完成")
-            except OSError:
-                pass
-            # 2) 类型目录同步（新 key 生成 / key 改名自动改名；按 --catalog-interval 节流）
-            sync_catalog(backend, state, registry, args.catalog_interval)
-            # 3) 检测合同通过并处理；水位只在成功处理后推进（失败进待处理队列重试）
-            process_fresh_contracts(backend, state, registry[0], out_dir, args.competition)
-        except urllib.error.HTTPError as e:
-            round_failed = True
-            if e.code == 401:
-                consecutive_auth_failures += 1
-                log.warning(
-                    "登录态失效（连续第 %d 次），下一轮自动重登", consecutive_auth_failures
-                )
-                # 审计 CW-10：改前凭据失效后无限静默失败 —— 进程不退、不告警、状态不变，
-                # 用户以为程序在正常工作，实际上一条合同都不会再被处理。连续失败到阈值即
-                # 明确报错退出，让守护进程/运维能发现。
-                if consecutive_auth_failures >= MAX_CONSECUTIVE_AUTH_FAILURES:
-                    msg = (
-                        f"连续 {consecutive_auth_failures} 轮登录失败（账号被禁用/改密/密码变更？），"
-                        "已停止监听：请更新启动参数里的账号密码后重新运行"
+                # 0) 基线未建立（首次拉取失败）→ 每轮重试，期间不处理合同
+                if not baseline_ready:
+                    baseline_ready = establish_baseline(
+                        backend, state, args.competition, args.backfill
                     )
-                    log.error(msg)
-                    print(f"✗ {msg}", file=sys.stderr)
-                    return 1
-            else:
-                consecutive_auth_failures = 0
-                log.warning("后端请求失败 HTTP %s", e.code)
-        except Exception:  # noqa: BLE001 - 静默容错：任何异常都不影响下一轮与网页端
-            round_failed = True
-            log.exception("本轮执行异常（已隔离，继续下一轮）")
+                    if not baseline_ready:
+                        round_failed = True
+                        consecutive_failures += 1
+                        current_delay = next_backoff(current_delay, args.interval)
+                        time.sleep(current_delay)
+                        continue
+                # 1) handlers.py 被手动修改 → 热加载
+                try:
+                    mtime = HANDLERS_FILE.stat().st_mtime
+                    if mtime != last_mtime:
+                        last_mtime = mtime
+                        registry[0] = load_handlers()
+                        log.info("handlers.py 已变更，热加载完成")
+                except OSError:
+                    pass
+                # 2) 类型目录同步（新 key 生成 / key 改名自动改名；按 --catalog-interval 节流）
+                sync_catalog(backend, state, registry, args.catalog_interval)
+                # 3) 检测合同通过并处理；水位只在成功处理后推进（失败进待处理队列重试）
+                process_fresh_contracts(backend, state, registry[0], out_dir, args.competition)
+            except urllib.error.HTTPError as e:
+                round_failed = True
+                if e.code == 401:
+                    consecutive_auth_failures += 1
+                    log.warning(
+                        "登录态失效（连续第 %d 次），下一轮自动重登", consecutive_auth_failures
+                    )
+                    # 审计 CW-10：改前凭据失效后无限静默失败 —— 进程不退、不告警、状态不变，
+                    # 用户以为程序在正常工作，实际上一条合同都不会再被处理。连续失败到阈值即
+                    # 明确报错退出，让守护进程/运维能发现。
+                    if consecutive_auth_failures >= MAX_CONSECUTIVE_AUTH_FAILURES:
+                        msg = (
+                            f"连续 {consecutive_auth_failures} 轮登录失败（账号被禁用/改密/密码变更？），"
+                            "已停止监听：请更新启动参数里的账号密码后重新运行"
+                        )
+                        log.error(msg)
+                        print(f"✗ {msg}", file=sys.stderr)
+                        return 1
+                else:
+                    consecutive_auth_failures = 0
+                    log.warning("后端请求失败 HTTP %s", e.code)
+            except Exception:  # noqa: BLE001 - 静默容错：任何异常都不影响下一轮与网页端
+                round_failed = True
+                log.exception("本轮执行异常（已隔离，继续下一轮）")
 
-        # 审计 CW-12：改前无论成败都固定 `time.sleep(max(0.5, --interval))` —— 后端不可用时
-        # 仍以同一节奏持续打请求且永不衰减。现在失败时指数退避（含抖动，上限 60s），
-        # 成功后立即回到 `--interval`。
-        if round_failed:
-            consecutive_failures += 1
-            current_delay = next_backoff(current_delay, args.interval)
-            log.info("连续第 %d 轮失败：本轮结束后退避 %.1fs 再试", consecutive_failures, current_delay)
-        else:
-            if consecutive_failures:
-                log.info("后端已恢复（此前连续失败 %d 轮）", consecutive_failures)
-            consecutive_failures = 0
-            current_delay = max(0.5, args.interval)
-        time.sleep(current_delay)
+            # 审计 CW-12：改前无论成败都固定 `time.sleep(max(0.5, --interval))` —— 后端不可用时
+            # 仍以同一节奏持续打请求且永不衰减。现在失败时指数退避（含抖动，上限 60s），
+            # 成功后立即回到 `--interval`。
+            if round_failed:
+                consecutive_failures += 1
+                current_delay = next_backoff(current_delay, args.interval)
+                log.info("连续第 %d 轮失败：本轮结束后退避 %.1fs 再试", consecutive_failures, current_delay)
+            else:
+                if consecutive_failures:
+                    log.info("后端已恢复（此前连续失败 %d 轮）", consecutive_failures)
+                consecutive_failures = 0
+                current_delay = max(0.5, args.interval)
+            # 审计 CW-20：每轮刷新共享锁心跳，让别的实例知道本实例还活着（否则会被判过期接管）
+            instance_lock.heartbeat()
+            time.sleep(current_delay)
+    except BaseException:
+        # 审计 CW-20：异常/中断退出时释放共享锁（否则别的机器要等心跳过期才能接管）
+        instance_lock.release()
+        raise
 
 
 def rows_max(rows: list) -> str:
