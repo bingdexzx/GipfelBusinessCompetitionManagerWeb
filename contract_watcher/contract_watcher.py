@@ -184,6 +184,9 @@ class Backend:
         同 id 保留更新的 executedAt。
         """
         by_id: dict[int, str] = {}
+        # 审计 CW-27：状态已是 EXECUTED 但 executedAt 为空的合同原本被**静默**忽略
+        # （文档还断言这种数据不存在）。这里至少给出告警，便于发现后端数据异常。
+        missing_executed_at: list[int] = []
         page = 1
         while True:
             params = f"status=EXECUTED&page={page}&pageSize=200"
@@ -195,12 +198,22 @@ class Backend:
             total = data.get("total") or len(batch)
             for it in batch:
                 if not it.get("executedAt"):
+                    try:
+                        missing_executed_at.append(int(it["id"]))
+                    except (KeyError, TypeError, ValueError):
+                        pass
                     continue
                 cid = int(it["id"])
                 et = str(it["executedAt"])
                 prev = by_id.get(cid)
                 by_id[cid] = et if prev is None else max_executed_at([prev, et])
             if not batch or len(batch) >= total:
+                if missing_executed_at:
+                    log.warning(
+                        "有 %d 份 EXECUTED 合同没有 executedAt（%s…）：本轮按「未通过」忽略，"
+                        "请检查后端数据（这些合同不会被记账）",
+                        len(missing_executed_at), missing_executed_at[:10],
+                    )
                 return list(by_id.items())
             page += 1
 
