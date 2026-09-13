@@ -178,7 +178,8 @@ class Backend:
         page = 1
         while True:
             params = f"status=EXECUTED&page={page}&pageSize=200"
-            if competition_id:
+            if competition_id is not None:
+                # 审计 CW-11：改前用 `if competition_id:` —— 0 被视为「不筛选」，静默跨比赛
                 params += f"&competitionId={competition_id}"
             data = self.api(f"/api/contracts?{params}")
             batch = data.get("items") or []
@@ -665,6 +666,16 @@ def main() -> int:
     ap.add_argument("--backfill", action="store_true", help="首次运行也处理存量已执行合同")
     ap.add_argument("--verbose", action="store_true", help="控制台同步输出明细")
     args = ap.parse_args()
+
+    # 审计 CW-11：`--competition 0` / 负数会被下游的 `if competition_id:` 当成「不筛选」，
+    # 于是监听程序悄悄跨**所有**比赛记账（把 A 比赛的合同记到 B 的账上）。这里显式拒绝。
+    if args.competition is not None and args.competition <= 0:
+        print(
+            f"✗ --competition 必须是正整数（收到 {args.competition}）："
+            "0/负数会被当成「不筛选」而跨比赛混记，已拒绝启动",
+            file=sys.stderr,
+        )
+        return 2
 
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
