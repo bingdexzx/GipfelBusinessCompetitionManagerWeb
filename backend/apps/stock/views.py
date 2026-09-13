@@ -842,10 +842,10 @@ class OrderCollectionView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        try:
-            stock = Stock.objects.get(pk=data["stockId"])
-        except Stock.DoesNotExist:
-            raise BusinessError("股票不存在", code=404, status_code=404)
+        # 比赛域隔离：非超管只能对自己所属比赛的股票下单（跨比赛一律按「股票不存在」处理），
+        # 改前这里直接按主键取股票，且高级管理会跳过账户校验 → 比赛 B 的管理员可对
+        # 比赛 A 的股票/账户下单（审计 S-06）。
+        stock = _get_stock_scoped(data["stockId"], request)
         competition_id = stock.competition_id
         try:
             account = StockFundsAccount.objects.get(pk=data["fundsAccountId"])
@@ -955,6 +955,12 @@ class OrderItemView(APIView):
             try:
                 order = StockOrder.objects.select_for_update().get(pk=pk)
             except StockOrder.DoesNotExist:
+                raise BusinessError("订单不存在", code=404, status_code=404)
+            # 比赛域隔离：非超管只能撤自己所属比赛的挂单（改前高级管理可撤任意比赛的订单，
+            # 因为这里既不看比赛归属、又跳过了账户校验 —— 审计 S-06）
+            if not _is_super(request.user) and order.competition_id != getattr(
+                request.user, "competition_id", None
+            ):
                 raise BusinessError("订单不存在", code=404, status_code=404)
             try:
                 account = StockFundsAccount.objects.get(pk=order.funds_account_id)
