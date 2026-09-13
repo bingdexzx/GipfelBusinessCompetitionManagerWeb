@@ -233,10 +233,28 @@ def ensure_handlers_file() -> None:
         )
 
 
+def func_def_pattern(func: str) -> re.Pattern:
+    """匹配 `def <func>(`（含缩进），用于判断函数名是否已被占用。"""
+    return re.compile(rf"^[ \t]*def[ \t]+{re.escape(func)}[ \t]*\(", re.MULTILINE)
+
+
 def upsert_handler_for_key(key: str) -> bool:
-    """handlers.py 中为该 key 生成默认函数（已存在则跳过）。返回是否新增。"""
+    """handlers.py 中为该 key 生成默认函数（已存在则跳过）。返回是否新增。
+
+    审计 CW-06：改前只检查「标注行是否存在」。用户按说明删掉标注块、自己写了
+    `handle_<key>_passed` 后，标注行消失 → 这里会在文件**末尾**再追加一个同名 def，
+    Python 后者生效 ⇒ 用户的自定义实现被静默屏蔽（且日志仍显示「已按类型处理」）。
+    现在追加前先检查同名函数是否已存在：已存在就跳过并告警，绝不生成第二个同名 def。
+    """
     text = HANDLERS_FILE.read_text(encoding="utf-8")
     if MARKER_PREFIX + key + MARKER_SUFFIX in text:
+        return False
+    func = func_name_of(key)
+    if func_def_pattern(func).search(text):
+        log.warning(
+            "key=%s 已有同名函数 %s（用户自定义或与其它 key 的 slug 冲突），"
+            "不再追加自动生成的默认块（避免同名 def 后者生效屏蔽用户实现）", key, func,
+        )
         return False
     text = text.rstrip() + build_default_section(key) + "\n"
     HANDLERS_FILE.write_text(text, encoding="utf-8")
@@ -280,6 +298,19 @@ def load_handlers() -> dict[str, object]:
         log.exception("handlers.py 加载失败，本轮使用内置默认行为")
         return {}
     registry: dict[str, object] = {}
+    by_func: dict[str, list[str]] = {}
+    for key in keys:
+        func = func_name_of(key)
+        by_func.setdefault(func, []).append(key)
+    # 审计 CW-06：slug 相同（如 material-procurement 与 material_procurement）的多个 key
+    # 会共用同一个函数名，模块级「后定义的 def 生效」⇒ 其中一个 key 的处理逻辑静默失效。
+    for func, key_list in by_func.items():
+        if len(key_list) > 1:
+            log.warning(
+                "函数名冲突：key=%s 的 slug 相同（都映射到 %s），它们会共用同一实现，"
+                "请把其中一个 ContractType.key 改成不冲突的形态",
+                key_list, func,
+            )
     for key in keys:
         fn = getattr(mod, func_name_of(key), None)
         if callable(fn):
@@ -287,6 +318,20 @@ def load_handlers() -> dict[str, object]:
                 log.warning("key=%s 的函数名冲突（%s），后者未生效", key, func_name_of(key))
                 continue
             registry[key] = fn
+    # 审计 CW-06：用户可能删掉自动生成的标注块、自己写 `handle_<key拼音形态>_passed`。
+    # 没有标注行就没有 key→函数的映射，改前这种「按命名约定写」的实现永远不会被注册
+    # （退化为默认存档）。这里把**未被标注行占用**的约定命名函数按 slug 也登记一份，
+    # dispatch 找不到原 key 时会退回 slug 查找。
+    claimed = {id(fn) for fn in registry.values()}
+    for name, obj in vars(mod).items():
+        m = re.fullmatch(r"handle_(.+)_passed", name)
+        if not m or not callable(obj) or id(obj) in claimed:
+            continue
+        slug = m.group(1)
+        if slug in registry:
+            continue
+        registry[slug] = obj
+        log.info("按命名约定注册处理函数 %s → key(slug)=%s（无标注行）", name, slug)
     return registry
 
 
@@ -331,6 +376,10 @@ def dispatch(contract: dict, registry: dict, out_dir: Path, competition_id: int 
         "default_archive": default_archive,
     }
     fn = registry.get(key)
+    if fn is None:
+        # 用户自定义函数常见于「没有标注行、按 handle_<slug>_passed 约定命名」（审计 CW-06），
+        # 这类实现按 slug 登记，故这里退回 slug 查找，避免它们被当成「未注册」而只做默认存档。
+        fn = registry.get(slug_of(key))
     try:
         if fn is None:
             log.info("未注册处理函数 type=%s → 默认存档 contract=#%s", key, contract["id"])
