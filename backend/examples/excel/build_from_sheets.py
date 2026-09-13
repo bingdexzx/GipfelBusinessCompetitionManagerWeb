@@ -46,6 +46,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 import zipfile
 from pathlib import Path
 
@@ -89,6 +90,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("source", nargs="?", help="表格文件（.xlsx）或存放 CSV 的目录")
     parser.add_argument("--inspect", action="store_true", help="只打印产出摘要，不导入")
     parser.add_argument("--out", default=None, help="把产出的归档 JSON 写到该路径")
+    parser.add_argument("--force", action="store_true",
+                        help="允许 --out 覆盖已存在的归档（默认拒绝，避免残缺包替换完整归档）")
     parser.add_argument("--competition", type=int, default=None, help="导入到该比赛 id")
     parser.add_argument("--dry-run", action="store_true", help="预演导入（事务回滚，不落库）")
     parser.add_argument("--mode", choices=["append", "overwrite"], default="append")
@@ -150,11 +153,36 @@ def main(argv: list[str]) -> int:
 
         if args.out:
             out_path = Path(args.out)
+            # 审计 Z-07：改前无条件覆盖 —— 对同一路径跑两遍、或 `--sheets 产业类型,产业字段
+            # --out 框架.json` 这种子集导出，会把上一次的完整归档替换成残缺包，而用户手里
+            # 没有任何旧副本（归档是拿去前端「导入归档」的交付物）。
+            if out_path.exists() and not args.force:
+                print(
+                    f"✗ 归档已存在：{out_path}\n"
+                    f"  为避免「子集导出/重复导出」把完整归档覆盖成残缺包，默认拒绝覆盖。\n"
+                    f"  如确认要覆盖请加 --force；或改写到新文件（例如 "
+                    f"{out_path.with_name(out_path.stem + '.' + time.strftime('%Y%m%d_%H%M%S') + out_path.suffix)}）。",
+                    file=sys.stderr,
+                )
+                return 2
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(
                 json.dumps(archive, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
             )
             out_written = out_path
+            resource_rows = [
+                (name, len((block or {}).get("rows") or []))
+                for name, block in (archive.get("resources") or {}).items()
+            ]
+            total_rows = sum(n for _n, n in resource_rows)
+            print(f"本次归档含 {len(resource_rows)} 类资源、{total_rows} 条记录："
+                  + "、".join(f"{n}×{c}" for n, c in sorted(resource_rows)))
+            if args.sheets:
+                print(
+                    "注意：本次使用了 --sheets 过滤，归档里**只有这些表**的资源；"
+                    "不要用它替换完整归档（重复导入同一比赛请用同一份完整归档）。",
+                    file=sys.stderr,
+                )
     except (zipfile.BadZipFile, OSError) as exc:
         # 审计 Z-05：损坏文件 / 被 Excel 占用 / 无权限 / --out 写盘失败 / 建比赛失败
         # 原本直接抛 Python 堆栈，与规范承诺的「中文可读提示」不符
