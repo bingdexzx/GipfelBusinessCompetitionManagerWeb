@@ -263,11 +263,14 @@ class RoundTripTests(TestCase):
         real_ids = set(target.companies.values_list("id", flat=True))
         self.assertTrue({p["companyId"] for p in json.loads(contract.parties)} <= real_ids)
 
-    def test_append_mode_skips_contract_instances_when_type_is_global(self):
-        """记录导入引擎的既有语义：append 模式下合同实例会因「合同类型已存在」被跳过。
+    def test_append_mode_imports_contract_instances_when_type_is_global(self):
+        """append 模式下合同实例必须照常导入（审计 R-02 修正了旧的「整类跳过」语义）。
 
-        这条不是要求建包库做什么，而是把行为钉住：将来 archive 改了这条语义，
-        测试会失败并提醒我们同步更新文档（docs/BUILD_COMPETITION_BY_CODE.md）。
+        旧语义：合同实例被当成全局资源「合同类型」的子数据，而合同类型跨比赛共享、必然已存在，
+        于是 append 导入时**所有**预设合同一份都不建，只留一条中性 note（用户以为导入成功，
+        实际比赛开局没有可履约合同）。现改为：合同实例不再挂在全局父资源下，是否已存在由导入
+        函数按自然键（比赛 + 合同类型 + 实例名）判定 —— 本用例把新语义钉住，
+        改动时应同步更新文档（docs/BUILD_COMPETITION_BY_CODE.md）。
         """
         builder = load_demo_builder()
         source = Competition.objects.create(name="语义源赛")
@@ -276,13 +279,24 @@ class RoundTripTests(TestCase):
 
         target = Competition.objects.create(name="语义目标赛")
         A.apply_import(exported, target.id, dry_run=False, allow_non_empty=False, mode=A.MODE_APPEND)
-        self.assertEqual(Contract.objects.filter(competition=target).count(), 0, "append 下确实被跳过")
-
-        # 换成 overwrite 就能正常搬运
-        A.apply_import(
-            exported, target.id, dry_run=False, allow_non_empty=True, mode=A.MODE_OVERWRITE
+        self.assertEqual(
+            Contract.objects.filter(competition=target).count(), 2,
+            "append 模式下合同实例必须照常导入（旧语义为 0：整类被跳过）",
         )
-        self.assertEqual(Contract.objects.filter(competition=target).count(), 2)
+
+        # 再导一次同一份归档：不得重复建实例（自然键判重仍生效）
+        A.apply_import(exported, target.id, dry_run=False, allow_non_empty=True, mode=A.MODE_APPEND)
+        self.assertEqual(
+            Contract.objects.filter(competition=target).count(), 2,
+            "重复 append 导入不得重复创建合同实例",
+        )
+
+        # overwrite 仍然可以正常搬运
+        other = Competition.objects.create(name="语义覆盖赛")
+        A.apply_import(
+            exported, other.id, dry_run=False, allow_non_empty=True, mode=A.MODE_OVERWRITE
+        )
+        self.assertEqual(Contract.objects.filter(competition=other).count(), 2)
 
 
 class BuilderValidationTests(TestCase):

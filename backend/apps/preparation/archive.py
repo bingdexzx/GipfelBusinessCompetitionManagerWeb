@@ -1522,6 +1522,12 @@ def _imp_regions(rows: list[dict], ctx: ImportContext) -> None:
 
 # 追加模式下「父记录被保留」时需要一并跳过的子资源（否则会往既有父记录里混入新关联数据）。
 # 统一在 apply_import 的导入循环里按此表过滤行，避免每个导入函数各写一遍。
+#
+# 审计 R-02：本表只能表达「子数据归属的**比赛级**父对象」。全局资源（contractTypes 跨比赛共享）
+# 必须移出——同一套部署里第二个比赛导入时，_imp_contract_types 必然命中已存在的类型并登记 kept，
+# 若此处仍以它作父，则**全部**预设合同实例（contractInstances）被整类丢弃，而结果只记一条中性
+# note（用户以为导入成功，实际比赛开局没有任何可履约合同）。合同实例是否已存在由导入函数自己
+# 按自然键 (competition, contractType, name) 判定。
 _CHILD_OF: dict[str, tuple[tuple[str, str], ...]] = {
     # 子资源: ((父资源, 该行里指向父的字段名), ...)
     "partMaterials": (("parts", "partId"),),
@@ -1532,7 +1538,6 @@ _CHILD_OF: dict[str, tuple[tuple[str, str], ...]] = {
     "companyFieldValues": (("companies", "companyId"),),
     "techPrerequisites": (("techNodes", "nodeId"), ("techNodes", "prerequisiteId")),
     "mapEdges": (("mapNodes", "fromNodeId"), ("mapNodes", "toNodeId")),
-    "contractInstances": (("contractTypes", "contractTypeId"),),
     "stockFundsAccounts": (("users", "userId"),),
     "overviewCards": (("regions", "regionId"),),
 }
