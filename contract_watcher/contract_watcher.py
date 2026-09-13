@@ -198,12 +198,83 @@ class Backend:
 
 # ==================== handlers.py 的生成 / 改名 / 加载 ====================
 
+def encode_marker_key(key: str) -> str:
+    """把 key 编码成「单行、无引号风险」的形态写进标注行（审计 CW-07）。
+
+    后端对 ContractType.key 只校验非空与长度，可以出现换行或引号。标注行是 python 注释，
+    换行会把一条标注行拆成两行（MARKER_RE 不再匹配、`in text` 检查永远失败 → 每轮重复追加）；
+    docstring 里直接内插 `"` 还会提前终止字符串 → handlers.py 变成语法错误、**所有** handler
+    失效。这里统一转义，读取时用 decode_marker_key() 还原成原始 key。
+    """
+    return str(key).replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n")
+
+
+def decode_marker_key(text: str) -> str:
+    """还原 encode_marker_key() 的转义（对旧文件里的原样 key 是幂等的）。"""
+    out: list[str] = []
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch == "\\" and i + 1 < len(text):
+            nxt = text[i + 1]
+            if nxt == "n":
+                out.append("\n")
+                i += 2
+                continue
+            if nxt == "r":
+                out.append("\r")
+                i += 2
+                continue
+            if nxt == "\\":
+                out.append("\\")
+                i += 2
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def marker_line(key: str) -> str:
+    return MARKER_PREFIX + encode_marker_key(key) + MARKER_SUFFIX
+
+
+def write_handlers_atomic(text: str) -> bool:
+    """原子写入 handlers.py：先 compile 校验，再备份 .bak 并 os.replace。
+
+    审计 CW-07：改前直接 write_text、既不校验也不备份 —— 生成出语法错误的文件后不会自愈
+    （load_handlers 捕获异常返回 {}，全部类型一起退化为默认存档）。校验失败一律不落盘。
+    """
+    try:
+        compile(text, str(HANDLERS_FILE), "exec")
+    except SyntaxError as e:
+        log.error(
+            "拒绝写入 handlers.py：生成的代码无法通过语法校验（%s，第 %s 行），已保持原文件不变",
+            e.msg, e.lineno,
+        )
+        return False
+    try:
+        if HANDLERS_FILE.exists():
+            bak = HANDLERS_FILE.with_name(HANDLERS_FILE.name + ".bak")
+            bak.write_text(HANDLERS_FILE.read_text(encoding="utf-8"), encoding="utf-8")
+        tmp = HANDLERS_FILE.with_name(HANDLERS_FILE.name + ".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        import os
+
+        os.replace(tmp, HANDLERS_FILE)
+    except OSError:
+        log.exception("handlers.py 写入失败（已保留 .bak 与临时文件）")
+        return False
+    return True
+
+
 def build_default_section(key: str) -> str:
     func = func_name_of(key)
+    # 审计 CW-07：docstring 里用转义后的展示名（无反斜杠歧义、无引号），不再直接内插原始 key
+    display = encode_marker_key(key).replace('"', "'")
     return (
-        "\n\n" + MARKER_PREFIX + key + MARKER_SUFFIX + "\n"
+        "\n\n" + marker_line(key) + "\n"
         f"def {func}(contract: dict, ctx: dict) -> None:\n"
-        f'    """{key} 类型合同通过后的处理（自动生成的默认函数）。\n'
+        f'    """{display} 类型合同通过后的处理（自动生成的默认函数）。\n'
         "    定制：删除下面这行 [auto-default] 注释后，替换为你自己的实现。\n"
         "    可用：ctx['out_dir']（输出根目录）、ctx['typeKey']（当前合同类型 key）、\n"
         "          ctx['default_archive'](contract, ctx)（通用存档）。\"\"\"\n"
@@ -247,7 +318,7 @@ def upsert_handler_for_key(key: str) -> bool:
     现在追加前先检查同名函数是否已存在：已存在就跳过并告警，绝不生成第二个同名 def。
     """
     text = HANDLERS_FILE.read_text(encoding="utf-8")
-    if MARKER_PREFIX + key + MARKER_SUFFIX in text:
+    if marker_line(key) in text:
         return False
     func = func_name_of(key)
     if func_def_pattern(func).search(text):
@@ -256,9 +327,7 @@ def upsert_handler_for_key(key: str) -> bool:
             "不再追加自动生成的默认块（避免同名 def 后者生效屏蔽用户实现）", key, func,
         )
         return False
-    text = text.rstrip() + build_default_section(key) + "\n"
-    HANDLERS_FILE.write_text(text, encoding="utf-8")
-    return True
+    return write_handlers_atomic(text.rstrip() + build_default_section(key) + "\n")
 
 
 def rename_handler_key(old_key: str, new_key: str) -> bool:
@@ -271,14 +340,14 @@ def rename_handler_key(old_key: str, new_key: str) -> bool:
     new_func = func_name_of(new_key)
     changed = False
     for i, line in enumerate(lines):
-        if line.strip() == MARKER_PREFIX + old_key + MARKER_SUFFIX:
-            lines[i] = MARKER_PREFIX + new_key + MARKER_SUFFIX
+        if line.strip() == marker_line(old_key):
+            lines[i] = marker_line(new_key)
             changed = True
         elif line.lstrip().startswith("def ") and old_func in line:
             lines[i] = line.replace(old_func, new_func)
             changed = True
     if changed:
-        HANDLERS_FILE.write_text("\n".join(lines), encoding="utf-8")
+        return write_handlers_atomic("\n".join(lines))
     return changed
 
 
@@ -286,7 +355,8 @@ def load_handlers() -> dict[str, object]:
     """加载 handlers.py 并返回 {key: 处理函数}（按标注行 key → 函数名解析）。"""
     ensure_handlers_file()
     text = HANDLERS_FILE.read_text(encoding="utf-8")
-    keys = [m.group(1) for m in MARKER_RE.finditer(text)]
+    # 标注行里的 key 是转义形态（CW-07），这里还原成后端原始 key，便于 registry 按 key 命中
+    keys = [decode_marker_key(m.group(1)) for m in MARKER_RE.finditer(text)]
     module_name = f"watcher_handlers_{int(time.time() * 1000)}"
     spec = importlib.util.spec_from_file_location(module_name, HANDLERS_FILE)
     if spec is None or spec.loader is None:
