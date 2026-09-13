@@ -366,8 +366,14 @@ ROLE_TEMPLATES = {
 }
 
 
-def assert_grant_allowed(actor_role, target_role, permissions):
+def assert_grant_allowed(actor_role, target_role, permissions, allow_extras: bool = False):
     """校验权限授予是否在上限范围内。
+
+    allow_extras：是否放开「扩展集」（角色模板 `grantExtras` 里的权限）。
+    扩展集默认不开放，必须由超管在请求体里显式声明 `allowExtras=true` 才可授予 ——
+    改前该分支恒记违规，导致扩展集**永远授不出去**（`company:manage` /
+    `message:manage` / `industryType:manage` / `contractType:manage` /
+    `data:region:edit` 实际只有超管可用），与文档承诺的「超管可按需放开」不符（审计 I-13）。
 
     返回 (allowed: bool, violations: list[str])。
     """
@@ -385,18 +391,33 @@ def assert_grant_allowed(actor_role, target_role, permissions):
     if not template:
         return False, [f"未知角色: {target_role}"]
 
-    # 检查是否在授予上限范围内（扩展集不在默认上限内）
+    # 检查是否在授予上限范围内（扩展集需显式放开）
     ceiling = set(template["grantCeiling"])
     extras = template["grantExtras"]
     violations = []
     for perm in permissions:
-        # 超管专属权限检查
+        # 超管专属权限检查（无论是否放开扩展集都不可授予）
         if perm in SUPER_ADMIN_ONLY_PERMISSIONS:
             violations.append(f"{perm} 为超管专属权限，不可授予 {target_role}")
             continue
         if perm not in ceiling:
             if perm in extras:
-                violations.append(f"{perm} 在扩展集中，需超管显式放开")
+                if not allow_extras:
+                    violations.append(f"{perm} 在扩展集中，需显式 allowExtras=true 放开")
             else:
                 violations.append(f"{perm} 超出 {target_role} 的授予上限")
     return len(violations) == 0, violations
+
+
+def role_default_permissions(role: str | None) -> list[str]:
+    """角色模板的默认权限（供 `permissions=null` 的「按角色继承」语义使用，审计 I-19）。
+
+    - SUPER_ADMIN：隐式全权，不落库，返回空列表（判定由 `has_permission` 的 role 短路负责）
+    - 其它角色：返回模板 defaultPermissions 的副本（调用方可能就地修改）
+    """
+    if role == "SUPER_ADMIN":
+        return []
+    template = ROLE_TEMPLATES.get(role or "")
+    if not template:
+        return []
+    return list(template["defaultPermissions"])

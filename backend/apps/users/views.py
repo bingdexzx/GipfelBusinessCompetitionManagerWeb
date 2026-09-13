@@ -33,11 +33,21 @@ def _get_user(pk) -> User:
         raise BusinessError("用户不存在", code=404, status_code=404)
 
 
-def _assert_grant(request, target_role, permissions) -> None:
-    """授予上限校验：操作者必须为超管，且授予的权限不越界。"""
+def _assert_grant(request, target_role, permissions, *, allow_extras: bool | None = None) -> None:
+    """授予上限校验：操作者必须为超管，且授予的权限不越界。
+
+    扩展集（`company:manage` / `message:manage` / `industryType:manage` /
+    `contractType:manage` / `data:region:edit`）必须由超管在请求体显式声明
+    `allowExtras: true` 才可授予；缺省按不放开处理（审计 I-13：改前该功能永远无法放开）。
+    """
     perms = permissions if permissions is not None else []
+    if allow_extras is None:
+        raw = request.data.get("allowExtras") if hasattr(request.data, "get") else None
+        allow_extras = raw is True or (
+            isinstance(raw, str) and raw.strip().lower() in ("true", "1", "yes")
+        )
     allowed, violations = assert_grant_allowed(
-        getattr(request.user, "role", None), target_role, perms
+        getattr(request.user, "role", None), target_role, perms, allow_extras=allow_extras
     )
     if not allowed:
         raise BusinessError("；".join(violations), code=400, status_code=400)
