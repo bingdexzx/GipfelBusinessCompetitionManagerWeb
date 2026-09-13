@@ -1,5 +1,6 @@
 import datetime as dt
 import xlwings as xw
+from datetime import datetime, timezone as _timezone
 from pathlib import Path
 from decimal import Decimal,getcontext
 from enum import Enum
@@ -126,6 +127,45 @@ def find_free_row(sht, rows, quantity_cols=(3, 6)) -> int | None:
     return None
 
 
+def parse_business_date(value, tz=None):
+    """把合同的 `executedAt` 转成**当地业务日期**（`datetime.date`）。
+
+    审计 CW-17：改前账期一律取 `dt.date.today()`（运行当天），于是 `--backfill` 补存量、
+    故障恢复后补记、监听程序停机几天后重启 —— 这些「延迟处理」都会把昨天甚至上季度通过的
+    合同记成**今天**发生的业务 ⇒ 跨天/跨月/跨财年错期，与合同 `executedAt` 无法对账
+    （`add_book_entries` 的签名里根本没有日期参数，是设计缺口）。
+
+    只接受「能被理解为合同执行时间」的输入：`datetime` / `date` / ISO 8601 字符串
+    （后端返回 UTC，如 `2026-09-10T15:20:46.731818Z`，会换算到本地时区再取日期）。
+    无法解析时返回 None，由调用方决定是否回退到运行当天。
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        moment = value
+    elif isinstance(value, dt.date):
+        return value
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=_timezone.utc)
+    return moment.astimezone(tz).date()
+
+
+def format_business_date(value, tz=None) -> str:
+    """把合同 `executedAt` 格式化成账期字符串 `YYYY/MM/DD`（解析失败回退运行当天）。"""
+    day = parse_business_date(value, tz)
+    if day is None:
+        return dt.date.today().strftime("%Y/%m/%d")
+    return day.strftime("%Y/%m/%d")
+
+
 # 审计 CW-08：这里原本有 `getcontext().prec = 2`，把**进程级** Decimal 精度改成 2 位有效数字。
 # import 本模块（README 教程就是这么教的）即生效，随后任何 Decimal 金额运算都会变成量级错误：
 #   Decimal('1234.56') + Decimal('0.44')  → 1.2E+3（1200）
@@ -183,13 +223,14 @@ class xledit:
         self.wb.save()
         self.wb.close()
         self.xlapp.quit()
-    def add_book_entries(self,add:Decimal,minus:Decimal,number:str,about:str):
+    def add_book_entries(self,add:Decimal,minus:Decimal,number:str,about:str,business_date=None):
+        """记一笔分录；`business_date` 传合同 `executedAt`，缺省用运行当天（旧行为）。"""
         sht = self.wb.sheets[0]
         # 审计 CW-14：先做金额校验，非法输入在**写任何单元格之前**就抛出（避免留下半行脏数据）
         add_value = amount_to_float(add, "借方金额")
         minus_value = amount_to_float(minus, "贷方金额")
-        cdt = dt.date.today()
-        dtstr = cdt.strftime("%Y/%m/%d")
+        # 审计 CW-17：账期取业务日期（调用方传合同 executedAt），缺省才是运行当天
+        dtstr = format_business_date(business_date)
         i = 2
         while (sht[i,6].value != None):
             i += 1
