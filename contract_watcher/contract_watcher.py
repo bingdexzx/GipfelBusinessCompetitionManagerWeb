@@ -421,6 +421,12 @@ def default_archive(contract: dict, ctx: dict) -> Path:
     sub.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d_%H%M%S")
     f = sub / f"contract_{contract['id']}_{stamp}.json"
+    # 审计 CW-23：时间戳只到秒 —— 同一秒内处理两次（正是 CW-03/04 的重复路径）会**静默覆盖**
+    # 上一份存档，重复处理不留任何痕迹（恰好掩盖了重复记账的现场）。已存在时自动加序号。
+    seq = 1
+    while f.exists():
+        seq += 1
+        f = sub / f"contract_{contract['id']}_{stamp}_{seq}.json"
     f.write_text(json.dumps(contract, ensure_ascii=False, indent=2), encoding="utf-8")
     try:
         from readable import translate_contract
