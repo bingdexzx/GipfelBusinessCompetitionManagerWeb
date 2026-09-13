@@ -85,6 +85,7 @@
 import { ref, reactive, computed, onMounted } from "vue";
 import { useCompetitionStore } from "@/stores/competition";
 import { useCompetitionReload } from "@/composables/useCompetitionReload";
+import { useLatestRequest } from "@/composables/useLatestRequest";
 import { ElMessage } from "element-plus";
 import { fuelsApi } from "@/api";
 import { confirmDeleteWithImpact } from "@/utils/deleteConfirm";
@@ -155,7 +156,12 @@ useResourceChanged("fuels", () => {
   loadData();
 });
 
+// 请求代次守卫（审计 V-09）：loadData 会被首屏/切比赛/实时事件/保存后刷新并发触发，
+// 只有最后一次发出的请求允许写回列表与 loading。
+const { next: nextRequest, isCurrent } = useLatestRequest();
+
 async function loadData() {
+  const token = nextRequest();
   loading.value = true;
   try {
     if (!compStore.competitionId) {
@@ -167,11 +173,13 @@ async function loadData() {
       pageSize: 100,
       competitionId: compStore.competitionId,
     });
+    if (!isCurrent(token)) return;
     data.value = Array.isArray(res) ? res : res?.items || [];
   } catch (e) {
     console.error("Failed to load fuels:", e);
   } finally {
-    loading.value = false;
+    // 过时请求不得关闭 loading（更新的请求仍在飞行中）
+    if (isCurrent(token)) loading.value = false;
   }
 }
 

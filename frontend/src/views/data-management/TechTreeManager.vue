@@ -199,6 +199,7 @@
 import { ref, reactive, onMounted, onBeforeUnmount, watch, nextTick } from "vue";
 import { useCompetitionStore } from "@/stores/competition";
 import { useCompetitionReload } from "@/composables/useCompetitionReload";
+import { useLatestRequest } from "@/composables/useLatestRequest";
 import { ElMessage } from "element-plus";
 import { confirmDeleteWithImpact } from "@/utils/deleteConfirm";
 import * as echarts from "echarts";
@@ -297,7 +298,12 @@ watch(viewMode, async (v) => {
   }
 });
 
+// 请求代次守卫（审计 V-09）：loadData 会被首屏/切比赛/实时事件/保存后刷新并发触发，
+// 只有最后一次发出的请求允许写回节点与 loading。
+const { next: nextRequest, isCurrent } = useLatestRequest();
+
 async function loadData() {
+  const token = nextRequest();
   loading.value = true;
   try {
     if (!compStore.competitionId) {
@@ -307,13 +313,16 @@ async function loadData() {
     const res = await api.get("/tech-nodes", {
       params: { competitionId: compStore.competitionId },
     });
+    if (!isCurrent(token)) return;
     nodes.value = res?.items || res || [];
     await nextTick();
+    if (!isCurrent(token)) return;
     if (viewMode.value === "tree") renderTree();
   } catch (e) {
     console.error("Failed to load tech nodes:", e);
   } finally {
-    loading.value = false;
+    // 过时请求不得关闭 loading（更新的请求仍在飞行中）
+    if (isCurrent(token)) loading.value = false;
   }
 }
 

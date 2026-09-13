@@ -755,6 +755,7 @@ import { mapsApi, regionsApi } from "@/api";
 import { confirmDeleteWithImpact } from "@/utils/deleteConfirm";
 import { useCompetitionStore } from "@/stores/competition";
 import { useCompetitionReload } from "@/composables/useCompetitionReload";
+import { useLatestRequest } from "@/composables/useLatestRequest";
 import { useAuthStore } from "@/stores/auth";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
@@ -1229,7 +1230,12 @@ function getEdgeLabelTextConfig(edge: MapEdge) {
 }
 
 // ===================== 数据加载 =====================
+// 请求代次守卫（审计 V-09）：loadData 会被首屏/切比赛/实时事件/保存后刷新并发触发，
+// 只有最后一次发出的请求允许写回节点/边/区域与 loading。
+const { next: nextRequest, isCurrent } = useLatestRequest();
+
 async function loadData() {
+  const token = nextRequest();
   loading.value = true;
   try {
     if (!compStore.competitionId) {
@@ -1242,6 +1248,7 @@ async function loadData() {
       return;
     }
     const res: any = await mapsApi.full({ competitionId: compStore.competitionId });
+    if (!isCurrent(token)) return;
     if (res) {
       nodes.value = res.nodes || [];
       edges.value = res.edges || [];
@@ -1249,6 +1256,7 @@ async function loadData() {
       pathTypes.value = res.pathTypes || [];
       // 区域列表 = 地图节点「所属区域」去重 ∪ 区域实体中无节点的区域（用户新建、尚未归入节点）
       await loadRegionsFromServer();
+      if (!isCurrent(token)) return;
       // 节点已确定：auto 模式立即锚定背景覆盖框（与背景图加载时机解耦，避免重新进入界面时背景错位）
       recomputeBBoxIfAuto();
     }
@@ -1256,7 +1264,8 @@ async function loadData() {
     console.error("Failed to load maps:", e);
     // handled by interceptor
   } finally {
-    loading.value = false;
+    // 过时请求不得关闭 loading（更新的请求仍在飞行中）
+    if (isCurrent(token)) loading.value = false;
   }
 }
 

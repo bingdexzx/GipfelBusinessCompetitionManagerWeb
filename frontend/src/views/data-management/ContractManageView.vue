@@ -624,6 +624,7 @@
 import { ref, reactive, computed, watch, onMounted } from "vue";
 import { useCompetitionStore } from "@/stores/competition";
 import { useCompetitionReload } from "@/composables/useCompetitionReload";
+import { useLatestRequest } from "@/composables/useLatestRequest";
 import { useResourceChanged } from "@/realtime/useResourceChanged";
 import MobileCards from "@/components/common/MobileCards.vue";
 import BigNumberInput from "@/components/common/BigNumberInput.vue";
@@ -1268,7 +1269,12 @@ function formatInputValue(row: any) {
   return row.value;
 }
 
+// 请求代次守卫（审计 V-09）：loadContracts 会被首屏/切比赛/实时事件/保存后刷新并发触发，
+// 只有最后一次发出的请求允许写回列表与 loading。
+const { next: nextRequest, isCurrent } = useLatestRequest();
+
 async function loadContracts() {
+  const token = nextRequest();
   if (!compStore.competitionId) {
     contracts.value = [];
     return;
@@ -1276,11 +1282,13 @@ async function loadContracts() {
   loading.value = true;
   try {
     const res = await contractsApi.list({ competitionId: compStore.competitionId });
+    if (!isCurrent(token)) return;
     contracts.value = Array.isArray(res) ? res : res.items || [];
   } catch (e) {
     console.error(e);
   } finally {
-    loading.value = false;
+    // 过时请求不得关闭 loading（更新的请求仍在飞行中）
+    if (isCurrent(token)) loading.value = false;
   }
 }
 async function loadTypes() {
