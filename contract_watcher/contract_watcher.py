@@ -48,6 +48,8 @@ RECORDS_DIR = WATCHER_DIR / "records"
 
 MARKER_PREFIX = "# ===== [auto] ContractType.key = "
 MARKER_SUFFIX = " ====="
+# 连续登录失败多少轮后停止监听（审计 CW-10）
+MAX_CONSECUTIVE_AUTH_FAILURES = 5
 MARKER_RE = re.compile(r"^# ===== \[auto\] ContractType\.key = (.*?) =====$", re.MULTILINE)
 _SLUG_RE = re.compile(r"\W+")
 
@@ -497,6 +499,16 @@ def establish_baseline(
         return True
     try:
         rows = backend.fetch_executed_ids(competition_id)
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            # 审计 CW-10：认证失败必须冒泡到主循环计数（否则基线阶段会永远静默重试）
+            raise
+        save_state(state)  # 只落 baselineAt，不落 lastExecutedAt
+        log.warning(
+            "首次运行基线建立失败（%s）：本轮不处理任何合同，下一轮重试；"
+            "不会写入空水位（否则历史合同会被全量重放）", e,
+        )
+        return False
     except Exception as e:  # noqa: BLE001 - 拿不到基线就不能开始处理
         save_state(state)  # 只落 baselineAt，不落 lastExecutedAt
         log.warning(
@@ -674,7 +686,17 @@ def main() -> int:
     sync_catalog(backend, state, registry)
 
     # 首次运行基线：未建立成功前不处理任何合同（审计 CW-01）
-    baseline_ready = establish_baseline(backend, state, args.competition, args.backfill)
+    # 连续认证失败计数（审计 CW-10）：达到阈值就明确报错退出，不再无限静默失败
+    consecutive_auth_failures = 0
+    try:
+        baseline_ready = establish_baseline(backend, state, args.competition, args.backfill)
+    except urllib.error.HTTPError as e:
+        if e.code != 401:
+            raise
+        # 启动时就 401：不直接崩，交给主循环按 CW-10 的阈值处理
+        consecutive_auth_failures = 1
+        baseline_ready = False
+        log.warning("登录态失效（连续第 1 次），下一轮自动重登")
     log.info("监听启动 server=%s competition=%s out=%s backfill=%s",
              args.server, args.competition, out_dir, args.backfill)
 
@@ -703,8 +725,23 @@ def main() -> int:
             process_fresh_contracts(backend, state, registry[0], out_dir, args.competition)
         except urllib.error.HTTPError as e:
             if e.code == 401:
-                log.warning("登录态失效，下一轮自动重登")
+                consecutive_auth_failures += 1
+                log.warning(
+                    "登录态失效（连续第 %d 次），下一轮自动重登", consecutive_auth_failures
+                )
+                # 审计 CW-10：改前凭据失效后无限静默失败 —— 进程不退、不告警、状态不变，
+                # 用户以为程序在正常工作，实际上一条合同都不会再被处理。连续失败到阈值即
+                # 明确报错退出，让守护进程/运维能发现。
+                if consecutive_auth_failures >= MAX_CONSECUTIVE_AUTH_FAILURES:
+                    msg = (
+                        f"连续 {consecutive_auth_failures} 轮登录失败（账号被禁用/改密/密码变更？），"
+                        "已停止监听：请更新启动参数里的账号密码后重新运行"
+                    )
+                    log.error(msg)
+                    print(f"✗ {msg}", file=sys.stderr)
+                    return 1
             else:
+                consecutive_auth_failures = 0
                 log.warning("后端请求失败 HTTP %s", e.code)
         except Exception:  # noqa: BLE001 - 静默容错：任何异常都不影响下一轮与网页端
             log.exception("本轮执行异常（已隔离，继续下一轮）")
