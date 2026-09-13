@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 响应体解释的验证（条目 F-01）。
  *
  * 直接跑 esbuild 转译后的真实产物：
@@ -110,4 +110,4 @@ check("信封判定：三键齐全才算信封（业务字段恰好叫 code 的�
 
 console.log(cases.join("\n"));
 console.log(`\n结果：PASS=${pass} FAIL=${fail}`);
-process.exit(fail === 0 ? 0 : 1);
+process.exitCode = fail === 0 ? 0 : 1;

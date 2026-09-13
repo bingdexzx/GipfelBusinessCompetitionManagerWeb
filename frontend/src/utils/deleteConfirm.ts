@@ -1,5 +1,7 @@
 import { ElMessageBox } from "element-plus";
 
+import { buildDeleteConfirmMessage } from "./deleteConfirmMessage";
+
 export interface DeleteImpactItem {
   label: string;
   count: number;
@@ -33,13 +35,9 @@ export async function confirmDeleteWithImpact(
     return;
   }
 
-  const lines = children
-    .filter((c) => (c.count || 0) > 0)
-    .map((c) => `• ${c.label}：${c.count} 条`)
-    .join("<br/>");
-  const msg =
-    `删除「<b>${name}</b>」将<b>级联删除</b>以下关联数据，且不可恢复：<br/><br/>` +
-    `${lines}<br/><br/>确定继续删除吗？`;
+  // 文案由纯函数生成（动态值已 HTML 转义）：本确认框以 dangerouslyUseHTMLString 渲染，
+  // 未转义的数据名称即存储型 XSS（审计 F-02）。
+  const msg = buildDeleteConfirmMessage(name, children);
   await ElMessageBox.confirm(msg, "级联删除警告", {
     type: "warning",
     dangerouslyUseHTMLString: true,

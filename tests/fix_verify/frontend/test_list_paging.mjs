@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 前端「列表分页」修复的验证（条目 A-01 / V-04 / W-05）。
  *
  * 用 Node 直接跑**构建产物**（由 esbuild 从 frontend/src/api/localPaging.ts 转译而来），
@@ -100,4 +100,4 @@ check("无 pageSize 时返回的 pageSize 与 items 长度自洽", () => {
 
 console.log(cases.join("\n"));
 console.log(`\n结果：PASS=${pass} FAIL=${fail}`);
-process.exit(fail === 0 ? 0 : 1);
+process.exitCode = fail === 0 ? 0 : 1;
