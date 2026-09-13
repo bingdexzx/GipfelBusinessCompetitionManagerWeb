@@ -276,7 +276,10 @@ def build_candle(
             base_wick = trade_range * (0.3 + 0.4 * candle_noise(round_, open_))
         elif theoretical is not None and math.isfinite(theoretical):
             # 无成交但有理论价：影线基于理论价与收盘价的差异
-            theory_diff = abs(float(theoretical) - close)
+            # close 可能是 Decimal（price["final"] 来自 round2()），必须先转 float
+            # 再与 float(theoretical) 相减，否则 float - Decimal 抛 TypeError，
+            # 「判定可成交但本轮零成交」的轮次会直接 500、无法推进。
+            theory_diff = abs(float(theoretical) - float(close))
             base_wick = theory_diff * (0.5 + 0.5 * candle_noise(round_, open_))
         else:
             # 无成交无理论价：使用股价百分比
