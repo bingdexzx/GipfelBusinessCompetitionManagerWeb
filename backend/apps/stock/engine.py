@@ -1597,22 +1597,39 @@ def advance_one_stock(
                 Decimal(str(buy.price)),
             )
             buy_cash = cash_map[buy.funds_account_id]
+            cash_limited = False
             if qty * pair_price > buy_cash + EPS:
                 qty = buy_cash / pair_price
+                cash_limited = True
                 if qty <= EPS:
                     buy_rem[buy.id] = Decimal("0")
                     bi += 1
                     continue
             sell_hold = holding_map.get(sell.funds_account_id)
             sell_shares = sell_hold["shares"] if sell_hold else Decimal("0")
+            shares_limited = False
             if qty > sell_shares + EPS:
                 qty = sell_shares
+                shares_limited = True
                 if qty <= EPS:
                     sell_rem[sell.id] = Decimal("0")
                     si += 1
                     continue
             # 6 位小数微调（保留买卖双方分摊精度，不入账）
             qty = (qty * Decimal("1000000")).quantize(Decimal("1"), rounding=ROUND_HALF_UP) / Decimal("1000000")
+            if qty <= 0:
+                # 量化归 0：资金/持仓夹紧后的余量小于最小成交单位（5e-7），本对委托
+                # 一股都成交不了。此时若不推进任何一侧，后面的现金/持仓/剩余量更新
+                # 全是 0、bi/si 也不动，外层 while 会永远停在同两个索引上（请求不返回、
+                # 事务与推进锁长期占用 → 该比赛股票系统僵死）。按「受限的一方」作废
+                # 剩余量后继续撮合。
+                if cash_limited or not shares_limited:
+                    buy_rem[buy.id] = Decimal("0")
+                    bi += 1
+                if shares_limited or not cash_limited:
+                    sell_rem[sell.id] = Decimal("0")
+                    si += 1
+                continue
             trade_prices.append(pair_price)
 
             # 买入方：现金减少，持仓增加（加权成本）
