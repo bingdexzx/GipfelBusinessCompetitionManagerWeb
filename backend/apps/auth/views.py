@@ -20,6 +20,7 @@ from rest_framework.views import APIView
 from apps.common.exceptions import BusinessError
 from apps.common.helpers import client_ip as _client_ip
 from apps.common.middleware import (
+    normalize_login_username,
     record_login_failure,
     record_login_success,
 )
@@ -123,8 +124,12 @@ class LoginView(APIView):
     permission_classes = (AllowAny,)
 
     def post(self, request):
-        username = (request.data.get("username") or "").strip()
-        password = request.data.get("password") or ""
+        # 与限流中间件共用同一归一化口径（strip + 类型/长度约束）：两边键必须一致，
+        # 否则「admin 」这类尾随空格变体可绕过锁定（审计 C-01/I-05）；
+        # 非字符串入参（列表/数字）也不会再因 .strip()/.encode() 抛异常 → 500。
+        username = normalize_login_username(request.data.get("username"))
+        raw_password = request.data.get("password")
+        password = raw_password if isinstance(raw_password, str) else ""
         if not username or not password:
             raise BusinessError("用户名和密码不能为空", code=400, status_code=400)
 

@@ -208,6 +208,46 @@ _FAIL_THRESHOLD = 10
 _LOCK_DURATION = 15 * 60  # 15 分钟
 _CLEANUP_INTERVAL = 10 * 60  # 10 分钟清理一次过期条目
 _last_cleanup = 0.0
+#: 限流表容量上限：键里含攻击者可控的用户名，无上限可被用于内存耗尽（审计 C-01/I-05）
+_MAX_LOCK_ENTRIES = 10_000
+#: 与 User.username 的 max_length 对齐，避免超长用户名撑大限流表
+_MAX_USERNAME_LEN = 128
+
+
+def normalize_login_username(raw) -> str:
+    """登录用户名归一化——**登录视图与限流中间件必须共用同一口径**。
+
+    改前中间件用未 strip 的原始 body 值查锁定，而视图用 strip() 后的值记账，
+    于是 `"admin "` 这类尾随空格变体查不到锁定记录，限流形同虚设（审计 C-01/I-05）。
+    非字符串入参（列表/数字/对象）统一归一为 ""，避免 `.strip()` 抛 TypeError → 500。
+    """
+    if not isinstance(raw, str):
+        return ""
+    return raw.strip()[:_MAX_USERNAME_LEN]
+
+
+def _login_username_from_request(request) -> str:
+    """从登录请求体提取用户名（JSON 与表单编码都解析），返回归一化后的值。
+
+    改前只解析 `application/json`，把 Content-Type 改成
+    `application/x-www-form-urlencoded`（DRF 同样接受）即可完全绕过限流。
+    """
+    content_type = (getattr(request, "content_type", "") or "").split(";")[0].strip().lower()
+    raw = None
+    if content_type == "application/json":
+        try:
+            import json
+
+            body = json.loads(request.body or b"{}")
+            raw = body.get("username") if isinstance(body, dict) else None
+        except Exception:  # noqa: BLE001 - 解析失败按无用户名处理
+            raw = None
+    else:
+        try:
+            raw = request.POST.get("username")
+        except Exception:  # noqa: BLE001
+            raw = None
+    return normalize_login_username(raw)
 
 
 def _cleanup_locks() -> None:
@@ -225,6 +265,40 @@ def _cleanup_locks() -> None:
         _locks.pop(k, None)
 
 
+def _evict_overflow() -> None:
+    """限流表超过容量上限时淘汰：先清过期，再按最早失败时间淘汰最旧条目。
+
+    只删「已过期」与「最旧」的条目，且不动仍在锁定中的条目，避免稀释正在生效的防护。
+    """
+    if len(_locks) <= _MAX_LOCK_ENTRIES:
+        return
+    now = time.time()
+    expired = [
+        k for k, v in _locks.items()
+        if now - v["first_at"] > _FAIL_WINDOW and now > v["locked_until"]
+    ]
+    for k in expired:
+        _locks.pop(k, None)
+    overflow = len(_locks) - _MAX_LOCK_ENTRIES
+    if overflow <= 0:
+        return
+    # 第一轮：只淘汰未锁定的条目（按最早失败时间，最旧优先）——
+    # 锁定中的条目是正在生效的防护，不能被"刷海量唯一用户名"挤掉。
+    unlocked = sorted(
+        (kv for kv in _locks.items() if now >= kv[1]["locked_until"]),
+        key=lambda kv: kv[1]["first_at"],
+    )
+    for k, _v in unlocked[:overflow]:
+        _locks.pop(k, None)
+    overflow = len(_locks) - _MAX_LOCK_ENTRIES
+    if overflow <= 0:
+        return
+    # 第二轮：未锁定条目已清空仍超限（说明锁定条目自身就超容量）→ 内存保护优先
+    oldest = sorted(_locks.items(), key=lambda kv: kv[1]["first_at"])[:overflow]
+    for k, _v in oldest:
+        _locks.pop(k, None)
+
+
 def record_login_failure(ip: str, username: str) -> None:
     _cleanup_locks()
     key = (ip, username)
@@ -236,6 +310,7 @@ def record_login_failure(ip: str, username: str) -> None:
     state["fails"] += 1
     if state["fails"] >= _FAIL_THRESHOLD:
         state["locked_until"] = now + _LOCK_DURATION
+    _evict_overflow()
 
 
 def record_login_success(ip: str, username: str) -> None:
@@ -255,14 +330,9 @@ class LoginRateLimitMiddleware(MiddlewareMixin):
     def process_request(self, request):
         if request.method == "POST" and request.path == "/api/auth/login":
             ip = _client_ip(request)
-            username = ""
-            try:
-                import json
-
-                body = json.loads(request.body or b"{}")
-                username = body.get("username", "")
-            except Exception:  # noqa: BLE001
-                pass
+            # 用户名必须与登录视图同口径归一化（strip + 类型与长度约束），
+            # 并兼容 JSON / 表单两种提交方式，否则限流可被绕过（审计 C-01/I-05）。
+            username = _login_username_from_request(request)
             if is_login_locked(ip, username):
                 from django.http import JsonResponse
 
