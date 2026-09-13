@@ -868,7 +868,9 @@ class ContractType:
         input_schema = [dict(i) for i in self._inputs]
         if self._snapshot is not None:
             existing = {i["key"] for i in input_schema}
-            for slot in self._snapshot.drain_pinned_inputs():
+            # 快照槽位是构建期固定状态：每次 build 都必须注入（重复 build 不得丢槽位，
+            # 否则 effects 里的 entityRef 无对应输入项，运行期实体引用静默变 0）
+            for slot in self._snapshot.pinned_inputs():
                 if slot["key"] not in existing:
                     input_schema.append(dict(slot))
                     existing.add(slot["key"])

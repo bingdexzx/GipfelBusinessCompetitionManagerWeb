@@ -398,8 +398,14 @@ class CompetitionSnapshot:
         """为一个实体登记固定输入槽位，返回引擎 `entityRef` 需要的输入项 key。
 
         这是「消灭隐藏输入项」的实现：使用者不再需要手写这个输入项，
-        快照按需生成，并在 `drain_pinned_inputs()` 时由构建器注入 inputSchema。
+        快照按需生成，由构建器在编译时经 `pinned_inputs()` 注入 inputSchema。
         槽位带 `hidden` 标记，前端表单据此可以不渲染。
+
+        注意：槽位在脚本读取属性（如 `mat.carbon`）时即登记完成，属**快照级**只读状态，
+        不是「取一次就清空」的队列——同一个构建器会被 `build()` 多次
+        （CLI 的 `check()` 内部先 build 一次，`--import` 再 build 一次），
+        队列语义会让第二次产物的 inputSchema 丢掉槽位，而 effects 仍引用它，
+        导致运行期实体引用静默按 0 计算（审计 D-09）。
         """
         slot = self._pinned.get(ref.entity_id)
         if slot:
@@ -419,11 +425,13 @@ class CompetitionSnapshot:
         )
         return slot
 
-    def drain_pinned_inputs(self) -> list[dict[str, Any]]:
-        """取出并清空待注入的槽位输入项（构建器在编译前调用）。"""
-        out = list(self._pinned_inputs)
-        self._pinned_inputs.clear()
-        return out
+    def pinned_inputs(self) -> list[dict[str, Any]]:
+        """返回本快照登记的全部实体槽位输入项（只读快照，可重复取用不丢失）。
+
+        构建器每次 `build()` 都会调用本方法，确保产物 inputSchema 始终覆盖所有
+        `entityRef`（构建期即固定，不随 build 次数变化）。
+        """
+        return list(self._pinned_inputs)
 
     # ---------- 一致性自检 ----------
 
