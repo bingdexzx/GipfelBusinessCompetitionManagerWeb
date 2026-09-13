@@ -401,15 +401,12 @@ if [[ -f "$INSTALL_DIR/backend/.env" ]]; then
         AH_ENTRY="$LV_PUBLIC_IP"
     fi
     if [[ -n "$AH_ENTRY" ]]; then
-        if grep -q '^DJANGO_ALLOWED_HOSTS=' "$INSTALL_DIR/backend/.env"; then
-            if ! grep -E "^DJANGO_ALLOWED_HOSTS=" "$INSTALL_DIR/backend/.env" | grep -qE "(^|,)${AH_ENTRY}(,|$)"; then
-                sed -i "s|^DJANGO_ALLOWED_HOSTS=.*|&,${AH_ENTRY}|" "$INSTALL_DIR/backend/.env"
-                ok "DJANGO_ALLOWED_HOSTS 已追加公网入口：${AH_ENTRY}"
-            fi
-        else
-            echo "DJANGO_ALLOWED_HOSTS=${AH_ENTRY},localhost,127.0.0.1" >> "$INSTALL_DIR/backend/.env"
-            ok "DJANGO_ALLOWED_HOSTS 已写入：${AH_ENTRY},localhost,127.0.0.1"
-        fi
+        # 审计 X-11：改前用 `sed "s|^DJANGO_ALLOWED_HOSTS=.*|&,${AH_ENTRY}|"` 追加 ——
+        # `&` 是整行匹配文本，公网 IP 变化就会反复追加（历史 IP 永久留在 Host 白名单里），
+        # 且同名键多行时会被同时改写（os.environ 只认第一条）。现在改为「去重合并 + 唯一行」。
+        _ah_value="$(append_env_entry "$INSTALL_DIR/backend/.env" "DJANGO_ALLOWED_HOSTS" \
+            "$AH_ENTRY" "localhost,127.0.0.1")"
+        ok "DJANGO_ALLOWED_HOSTS 已写入（唯一一行）：${_ah_value}"
     else
         warn "未能确定公网入口（域名/公网 IP 均为空），DJANGO_ALLOWED_HOSTS 未修改；若经公网访问出现 400，请手动在 backend/.env 加入 DJANGO_ALLOWED_HOSTS=<公网IP>,localhost"
     fi
