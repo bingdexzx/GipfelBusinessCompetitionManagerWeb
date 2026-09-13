@@ -65,7 +65,16 @@ def func_name_of(key: str) -> str:
 
 
 def safe_dirname(key: str) -> str:
-    return re.sub(r'[\\/:*?"<>|]', "_", str(key))
+    """把合同类型 key 变成安全的输出子目录名。
+
+    审计 CW-24：改前只替换 `\\/:*?"<>|`，`..`（以及 `.`/空白/空串）会被原样返回 ——
+    `out_dir/..` 直接越出输出根目录（`default_archive` 还会 `mkdir(parents=True)`），
+    即「合同类型的 key」可以决定文件落到哪里。这类 key 统一中性化为 `unknown`。
+    """
+    name = re.sub(r'[\\/:*?"<>|]', "_", str(key)).strip()
+    if not name or set(name) == {"."}:
+        return "unknown"
+    return name
 
 
 def now_iso() -> str:
