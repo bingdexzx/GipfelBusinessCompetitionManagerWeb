@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 # ==================== 可自定义的全局标签表 ====================
@@ -45,34 +46,61 @@ STATUS_LABELS: dict[str, str] = {
 
 _TRUE_CN = "是"
 _FALSE_CN = "否"
-_NUM_RE = re.compile(r"^[+-]?\d+(\.\d+)?$")
+_NUM_RE = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$")
 
 
 def pretty_value(v: Any) -> str:
-    """把输入值转成适合展示的文本（大数安全：数字字符串加千分位，不做 Number 化）。"""
+    """把输入值转成适合展示的文本（大数安全：数字字符串加千分位，不做 Number 化）。
+
+    审计 CW-15：改前 `_group_int` 会吞掉正号、对带前导零的串分组出错，且 int 加千分位、
+    float 不加 —— 同一列的展示口径不一致，人工对账依据被静默改写。现在：
+      - int / float 与数字字符串统一走 `_group_number`（float 先原样 str，避免 1e+21 这类
+        科学计数法被错拆）；
+      - 正号保留（`+1234` → `+1,234`）、前导零不再分组（`-0012345` → `-12,345`）；
+      - 非有限值（nan/inf）原样输出，不做千分位。
+    """
     if v is None:
         return "—"
     if isinstance(v, bool):
         return _TRUE_CN if v else _FALSE_CN
     if isinstance(v, (int, float)):
-        s = str(v)
-        return _group_int(s) if isinstance(v, int) else s
+        return _group_number(str(v))
     if isinstance(v, str):
         s = v.strip()
         if _NUM_RE.match(s):
-            return _group_int(s)
+            return _group_number(s)
         return s
     if isinstance(v, (list, dict)):
         return json.dumps(v, ensure_ascii=False)
     return str(v)
 
 
-def _group_int(s: str) -> str:
-    neg = s.startswith("-")
-    body = s.lstrip("+-")
-    int_part, dot, frac = body.partition(".")
+def _expand_scientific(text: str) -> str:
+    """把 `1e+21` / `1.5E-7` 展开成普通十进制写法（失败则原样返回）。"""
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        return format(Decimal(text), "f")
+    except (InvalidOperation, ValueError):
+        return text
+
+
+def _group_number(s: str) -> str:
+    """给十进制数值串加千分位。
+
+    仅当「整数部分没有前导零」时分组：`-0012345` 这种带前导零的串按原样返回
+    （审计 CW-15：改前会分组出 `-0,012,345`，看起来像一个完全不同的数）。
+    """
+    body = _expand_scientific(s) if ("e" in s or "E" in s) else s
+    neg = body.startswith("-")
+    plus = body.startswith("+")
+    digits = body[1:] if (neg or plus) else body
+    int_part, dot, frac = digits.partition(".")
+    if not int_part.isdigit() or (len(int_part) > 1 and int_part.startswith("0")):
+        return s
     grouped = re.sub(r"\B(?=(\d{3})+(?!\d))", ",", int_part)
-    return ("-" if neg else "") + grouped + (dot + frac if dot else "")
+    sign = "-" if neg else ("+" if plus else "")
+    return sign + grouped + (dot + frac if dot else "")
 
 
 # ==================== 自定义翻译器注册表（用户接口） ====================
@@ -111,7 +139,27 @@ def translate_contract(contract: dict) -> dict:
 # ==================== 默认翻译实现 ====================
 
 def _fmt_dt(v: Any) -> str:
-    return (str(v)[:19].replace("T", " ") if v else "—")
+    """时间展示：解析为 datetime 后换算到**本地时区**并带偏移标注（审计 CW-15）。
+
+    改前是 `str(v)[:19].replace("T", " ")`：后端给的是 UTC（实测
+    `2026-09-10T15:20:46.731818Z`），于是可读记录里的「执行时间」显示 `2026-09-10 15:20:46`，
+    **比北京时间早 8 小时且没有任何时区标注**，跨天/跨财年归属会判错；也与 `default_archive`
+    用的本地时间戳文件名对不上。无法解析的值保留原文并标注「无法解析」，不再截断成 19 字符。
+    """
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return "—"
+    text = str(v).strip()
+    try:
+        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return f"{text}（无法解析）"
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    local = dt.astimezone()
+    offset = local.strftime("%z")  # 形如 +0800
+    if offset:
+        offset = f"{offset[:3]}:{offset[3:]}"
+    return local.strftime("%Y-%m-%d %H:%M:%S") + (f" {offset}" if offset else "")
 
 
 def build_readable(contract: dict) -> dict:
