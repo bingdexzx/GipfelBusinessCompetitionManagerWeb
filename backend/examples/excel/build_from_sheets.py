@@ -280,6 +280,7 @@ def build_from_tables(
         run_scripts=run_scripts,
     )
     stats: dict[str, int] = {}
+    problems: list[str] = []      # 审计 Z-13：收集全部行级错误后一次性报出
 
     for name in tables:
         if name in NOTES_SHEET_NAMES:
@@ -303,12 +304,24 @@ def build_from_tables(
             try:
                 spec.handler(ctx, row)
             except SheetFormatError as exc:
-                raise SheetFormatError(f"[{spec.name}] 第 {row_no} 行：{exc}") from None
+                # 审计 Z-13：改前遇到第一个错误就 raise —— 用户改一处跑一次，十几行的表要来回
+                # 十几轮。现在把每一处错误都收集起来（最多 20 条），最后一次性报全，仍不产出归档。
+                problems.append(f"[{spec.name}] 第 {row_no} 行：{exc}")
             except BuilderError as exc:
-                raise SheetBuildError(
-                    f"[{spec.name}] 第 {row_no} 行：{exc}{_reference_hint(str(exc), tables, selected)}"
-                ) from None
+                problems.append(
+                    f"[{spec.name}] 第 {row_no} 行：{exc}"
+                    f"{_reference_hint(str(exc), tables, selected)}"
+                )
         stats[spec.name] = len(rows)
+
+    if problems:
+        head = problems[:20]
+        more = f"\n…另有 {len(problems) - len(head)} 条同类错误未列出" if len(problems) > len(head) else ""
+        raise SheetBuildError(
+            f"表格里有 {len(problems)} 处错误，已全部列出（请一次改完再跑）：\n  - "
+            + "\n  - ".join(head)
+            + more
+        )
 
     notes.extend(ctx.notes)
     notes.append(f"共处理 {len(stats)} 张表、{sum(stats.values())} 行数据"
@@ -444,6 +457,9 @@ def _table_rows(spec, table: list[list[str]]) -> list[tuple[int, dict]]:
         )
 
     out: list[tuple[int, dict]] = []
+    # 审计 Z-13：行级错误（错误值 / 必填列为空）逐行收集，最后一次性报出，而不是遇到第一处
+    # 就中断 —— 否则十几行的表要「改一处、跑一次」来回十几轮。
+    row_errors: list[str] = []
     for offset, raw in enumerate(table[header_index + 1:], start=header_index + 2):
         cells = [str(c or "").strip() for c in raw]
         if not any(cells):
@@ -464,21 +480,30 @@ def _table_rows(spec, table: list[list[str]]) -> list[tuple[int, dict]]:
                 col = headers[err]
             else:
                 col = f"第 {err + 1} 列"
-            raise SheetFormatError(
+            # 审计 Z-13：收集而不是立刻抛出（最后一次性报出，见函数末尾）
+            row_errors.append(
                 f"第 {offset} 行的「{col}」是 Excel 错误值 {cells[err]}"
                 f"（公式算错或引用为空）——请先在表格里修正该公式，本工具不会把错误值写进比赛"
             )
+            continue
         row = {
             headers[i]: cells[i]
             for i in range(min(len(headers), len(cells)))
             if headers[i] and cells[i] != ""
         }
-        for col in spec.columns:
-            if col.required and not row.get(col.key):
-                raise SheetFormatError(
-                    f"[{spec.name}] 第 {offset} 行的必填列「{header_for(spec.name, col.key)}」为空"
-                )
+        missing = [col for col in spec.columns if col.required and not row.get(col.key)]
+        if missing:
+            names = "、".join(header_for(spec.name, col.key) for col in missing)
+            row_errors.append(f"[{spec.name}] 第 {offset} 行的必填列「{names}」为空")
+            continue
         out.append((offset, row))
+    if row_errors:
+        head = row_errors[:20]
+        more = f"\n…另有 {len(row_errors) - len(head)} 处未列出" if len(row_errors) > len(head) else ""
+        raise SheetFormatError(
+            f"表格里有 {len(row_errors)} 处错误，已全部列出（请一次改完再跑）：\n  - "
+            + "\n  - ".join(head) + more
+        )
     return out
 
 
