@@ -19,6 +19,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.audit import log_write
 from apps.common.exceptions import BusinessError
 from apps.common.guards import (
     PermissionsPermission,
@@ -382,6 +383,27 @@ class ContractExecuteAPIView(APIView):
         # 必须显式广播，否则其他客户端合同列表/详情不会实时刷新，
         # 且 updated_at 已在上文推进，增量同步（updatedAfter）也能捕获本次变更。
         emit_resource_changed("contracts", contract.id, contract.competition_id, "updated")
+
+        # 执行审计：同一条 .update() 也绕过了 post_save 信号审计，若不显式补记，
+        # 「谁在何时执行了哪份合同、落了哪些字段」在审计表里查不到（审计 C-04）。
+        # 结构沿用信号审计的 {action: {...}}；字段过多时只记摘要，明细在 executionResult。
+        executed_fields = (engine_result.get("result") or {}).get("fields") or {}
+        log_write(
+            model="contracts",
+            action="contracts:executed",
+            record_id=contract.id,
+            competition_id=contract.competition_id,
+            changes={
+                "executed": {
+                    "status": "EXECUTED",
+                    "executedAt": str(executed_at),
+                    "signedAt": str(signed_at),
+                    "inputs": inputs_raw,
+                    "fieldCount": len(executed_fields),
+                    "fields": dict(list(executed_fields.items())[:50]),
+                }
+            },
+        )
 
         return Response(_serialize_contract(contract))
 
