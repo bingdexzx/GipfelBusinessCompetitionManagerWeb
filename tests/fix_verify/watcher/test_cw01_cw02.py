@@ -59,14 +59,24 @@ class StopLoop(Exception):
 
 
 class FakeBackend:
-    """假后端：可配置 executed 列表、详情状态、异常注入。"""
+    """假后端：可配置 executed 列表、详情状态、异常注入。
 
-    def __init__(self, rows, details=None, fail_ids_times=0):
+    审计 CW-12 之后监听程序默认走**增量协议**（`updatedAfter` + 服务端游标不分页），
+    所以这里也如实返回 `incremental=True` 与 `serverTime`，并按游标过滤，便于用例覆盖
+    「每轮只拉变更」的行为。
+    """
+
+    def __init__(self, rows, details=None, fail_ids_times=0, incremental=True):
         self.rows = list(rows)
         self.details = details or {}
         self.fail_ids_times = fail_ids_times
+        # 审计 CW-12：记录每次拉取用的游标与「本轮实际返回的条数」，供用例断言流量特征
+        self.incremental = incremental
         self.ids_calls = 0
         self.detail_calls = []
+        self.cursors: list = []
+        self.returned_counts: list[int] = []
+        self.last_server_time: str | None = None
 
     def login(self):
         pass
@@ -74,10 +84,21 @@ class FakeBackend:
     def fetch_contract_types(self):
         return []
 
-    def fetch_executed_ids(self, competition_id=None):
+    def fetch_executed_ids(self, competition_id=None, updated_after=None):
         self.ids_calls += 1
+        self.cursors.append(updated_after)
         if self.ids_calls <= self.fail_ids_times:
             raise RuntimeError("模拟网络抖动：拉取已执行合同列表失败")
+        if self.incremental:
+            # 增量模式：只回「比游标新」的行，并给出服务端时间
+            rows = [
+                (cid, et) for cid, et in self.rows
+                if updated_after is None or (et or "") > str(updated_after)
+            ]
+            self.last_server_time = f"2026-01-01T00:00:{self.ids_calls:02d}Z"
+            self.returned_counts.append(len(rows))
+            return rows
+        self.returned_counts.append(len(self.rows))
         return list(self.rows)
 
     def fetch_contract_detail(self, contract_id):
@@ -150,6 +171,9 @@ def run_watcher(mod, backend, handler, rounds, argv_extra=None):
         "--username", "u",
         "--password", "p",
         "--interval", "0.001",
+        # 审计 CW-12：类型目录默认 60s 才同步一次；用例里 sync_catalog 已被替换，
+        # 这里显式关掉节流，保持「每轮都走到」的语义
+        "--catalog-interval", "0",
         "--port", "0",
         "--out-dir", str(mod.WATCHER_DIR / "records_out"),
     ] + list(argv_extra or [])

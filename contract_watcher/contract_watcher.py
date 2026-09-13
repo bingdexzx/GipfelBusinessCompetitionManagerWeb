@@ -29,11 +29,13 @@ import argparse
 import importlib.util
 import json
 import logging
+import random
 import re
 import socket
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,6 +52,9 @@ MARKER_PREFIX = "# ===== [auto] ContractType.key = "
 MARKER_SUFFIX = " ====="
 # 连续登录失败多少轮后停止监听（审计 CW-10）
 MAX_CONSECUTIVE_AUTH_FAILURES = 5
+# 审计 CW-12：失败退避上限（秒）与合同类型目录的最小同步间隔（秒）
+MAX_BACKOFF_SECONDS = 60.0
+DEFAULT_CATALOG_INTERVAL = 60.0
 MARKER_RE = re.compile(r"^# ===== \[auto\] ContractType\.key = (.*?) =====$", re.MULTILINE)
 _SLUG_RE = re.compile(r"\W+")
 
@@ -126,6 +131,41 @@ def max_executed_at(values) -> str:
     return best
 
 
+def build_executed_query(
+    competition_id: int | None, updated_after: str | None = None, page: int | None = None
+) -> str:
+    """拼 `/api/contracts` 的查询串（审计 CW-12）。
+
+    传 `updated_after` 时走后端**增量协议**（`apps/common/sync.py` 的 `updatedAfter`）：只返回
+    `updated_at` 晚于该基线的条目，**不分页**、服务端游标 —— 每轮请求量只与"这轮新增/变更"
+    成正比，而不是与历史 EXECUTED 合同总量成正比（改前每轮把全部历史分页拉一遍，
+    合同数 N ⇒ 每轮 ceil(N/200)+1 个重请求，间隔 3 秒且永不衰减）。
+    """
+    params = {"status": "EXECUTED"}
+    if competition_id is not None:
+        # 审计 CW-11：改前用 `if competition_id:` —— 0 被视为「不筛选」，静默跨比赛
+        params["competitionId"] = str(competition_id)
+    if updated_after:
+        params["updatedAfter"] = str(updated_after)
+    else:
+        params["page"] = str(page or 1)
+        params["pageSize"] = "200"
+    return urllib.parse.urlencode(params)
+
+
+def next_backoff(previous: float, base: float, cap: float = MAX_BACKOFF_SECONDS, rng=None) -> float:
+    """指数退避 + 抖动（审计 CW-12）：失败后下一轮等待时间。
+
+    改前无论成功失败都固定 `time.sleep(max(0.5, --interval))` —— 后端不可用时仍以同一节奏
+    持续打请求，且永不衰减。现在是 `min(cap, max(base, previous*2))` 再叠加 0~25% 抖动
+    （多实例/多进程同频重试的"惊群"会被抖动打散）。
+    """
+    rnd = rng or random.random
+    base = max(0.5, float(base))
+    nxt = min(float(cap), max(base, float(previous) * 2))
+    return round(nxt * (1.0 + 0.25 * rnd()), 3)
+
+
 # ==================== HTTP（标准库，只读后端） ====================
 
 def http_json(method: str, url: str, token: str | None = None, body: dict | None = None) -> dict:
@@ -146,6 +186,8 @@ class Backend:
         self.username = username
         self.password = password
         self.token: str | None = None
+        # 审计 CW-12：最近一次增量拉取拿到的服务端时间（下一轮用它作游标）
+        self.last_server_time: str | None = None
 
     def login(self) -> None:
         env = http_json(
@@ -176,24 +218,27 @@ class Backend:
         data = self.api("/api/contract-types?enabledOnly=false")
         return data if isinstance(data, list) else data.get("items") or []
 
-    def fetch_executed_ids(self, competition_id: int | None) -> list[tuple[int, str]]:
+    def fetch_executed_ids(
+        self, competition_id: int | None, updated_after: str | None = None
+    ) -> list[tuple[int, str]]:
         """EXECUTED 合同 id 与 executedAt 列表（executedAt 用于增量判断）。
 
         审计 CW-04：改前按 offset 分页（page=N）逐页拼接，期间有合同执行/撤销会让分页漂移，
         同一条合同可能重复出现在两页里 → 同轮重复分发（重复记账）。这里按合同 id 去重，
         同 id 保留更新的 executedAt。
+
+        审计 CW-12：传 `updated_after` 时改用后端增量协议（服务端游标、不分页），避免每轮把
+        全部历史 EXECUTED 合同（含完整 DSL/graph）重新拉一遍；服务端时间存到
+        `self.last_server_time` 供下一轮当游标。
         """
         by_id: dict[int, str] = {}
         # 审计 CW-27：状态已是 EXECUTED 但 executedAt 为空的合同原本被**静默**忽略
         # （文档还断言这种数据不存在）。这里至少给出告警，便于发现后端数据异常。
         missing_executed_at: list[int] = []
-        page = 1
+        page: int | None = 1
         while True:
-            params = f"status=EXECUTED&page={page}&pageSize=200"
-            if competition_id is not None:
-                # 审计 CW-11：改前用 `if competition_id:` —— 0 被视为「不筛选」，静默跨比赛
-                params += f"&competitionId={competition_id}"
-            data = self.api(f"/api/contracts?{params}")
+            query = build_executed_query(competition_id, updated_after, page)
+            data = self.api(f"/api/contracts?{query}")
             batch = data.get("items") or []
             total = data.get("total") or len(batch)
             for it in batch:
@@ -207,15 +252,23 @@ class Backend:
                 et = str(it["executedAt"])
                 prev = by_id.get(cid)
                 by_id[cid] = et if prev is None else max_executed_at([prev, et])
+            if data.get("incremental"):
+                # 增量响应本身就是完整结果（服务端已按 updated_at 过滤），不再翻页
+                server_time = data.get("serverTime")
+                if server_time:
+                    self.last_server_time = str(server_time)
+                page = None
+                break
             if not batch or len(batch) >= total:
-                if missing_executed_at:
-                    log.warning(
-                        "有 %d 份 EXECUTED 合同没有 executedAt（%s…）：本轮按「未通过」忽略，"
-                        "请检查后端数据（这些合同不会被记账）",
-                        len(missing_executed_at), missing_executed_at[:10],
-                    )
-                return list(by_id.items())
-            page += 1
+                break
+            page = (page or 1) + 1
+        if missing_executed_at:
+            log.warning(
+                "有 %d 份 EXECUTED 合同没有 executedAt（%s…）：本轮按「未通过」忽略，"
+                "请检查后端数据（这些合同不会被记账）",
+                len(missing_executed_at), missing_executed_at[:10],
+            )
+        return list(by_id.items())
 
     def fetch_contract_detail(self, contract_id: int) -> dict:
         return self.api(f"/api/contracts/{contract_id}")
@@ -599,7 +652,11 @@ def process_fresh_contracts(
       - 水位只推进到「已成功处理」的最新 executedAt，失败合同不会被水位越过；
       - 详情状态不符（列表说 EXECUTED、详情说不是）同样记入待处理并告警，而不是静默跳过。
     """
-    rows = backend.fetch_executed_ids(competition_id)
+    rows = backend.fetch_executed_ids(competition_id, state.get("lastUpdatedAt"))
+    # 审计 CW-12：记下服务端时间作为下一轮的增量游标（增量协议返回 serverTime）
+    server_time = getattr(backend, "last_server_time", None)
+    if server_time:
+        state["lastUpdatedAt"] = server_time
     watermark = state.get("lastExecutedAt") or ""
     # 水位线比较必须按时间而非字符串（审计 CW-05）：'…:46Z' vs '…:46.731818Z' 字符串比较会反向
     watermark_dt = parse_executed_at(watermark)
@@ -650,11 +707,12 @@ def process_fresh_contracts(
             still_pending.append({"id": cid, "executedAt": et})
 
     state["pendingExecuted"] = still_pending
+    # 审计 CW-12：增量游标（lastUpdatedAt）也必须落盘 —— 否则重启后会退回全量拉取
     if advanced_to != watermark:
         state["lastExecutedAt"] = advanced_to
         save_state(state)
-    elif still_pending:
-        # 水位没动也要落盘：待处理队列必须在重启后继续重试
+    elif still_pending or server_time:
+        # 水位没动也要落盘：待处理队列必须在重启后继续重试；增量游标同理
         save_state(state)
     if still_pending:
         log.error(
@@ -664,8 +722,20 @@ def process_fresh_contracts(
         )
 
 
-def sync_catalog(backend: Backend, state: dict, registry_ref: list) -> bool:
-    """类型目录同步：新 key 生成默认函数；改名的 key 自动改名；返回目录是否有变化。"""
+def sync_catalog(
+    backend: Backend, state: dict, registry_ref: list, min_interval: float = DEFAULT_CATALOG_INTERVAL
+) -> bool:
+    """类型目录同步：新 key 生成默认函数；改名的 key 自动改名；返回目录是否有变化。
+
+    审计 CW-12：改前每轮都全量拉一次 `/api/contract-types`（含完整 DSL），而合同类型的
+    新建/改名是低频事件。现在按 `min_interval`（默认 60 秒，`--catalog-interval 0` 可关闭节流）
+    限制最小同步间隔；状态存 `state["catalogSyncedAt"]`（单调时钟秒）。
+    """
+    now = time.monotonic()
+    last = state.get("catalogSyncedAt")
+    if min_interval and min_interval > 0 and isinstance(last, (int, float)) and now - last < min_interval:
+        return False
+    state["catalogSyncedAt"] = now
     try:
         types = backend.fetch_contract_types()
     except Exception as e:  # noqa: BLE001 - 无 contractType:view 时降级（仅影响自动生成）
@@ -699,6 +769,10 @@ def main() -> int:
     ap.add_argument("--password", required=True)
     ap.add_argument("--competition", type=int, default=None)
     ap.add_argument("--interval", type=float, default=3.0)
+    ap.add_argument(
+        "--catalog-interval", type=float, default=DEFAULT_CATALOG_INTERVAL,
+        help="合同类型目录的最小同步间隔（秒，0=每轮都同步）",
+    )
     ap.add_argument("--out-dir", default=str(RECORDS_DIR))
     ap.add_argument("--port", type=int, default=47653, help="单实例互斥端口")
     ap.add_argument("--backfill", action="store_true", help="首次运行也处理存量已执行合同")
@@ -762,7 +836,7 @@ def main() -> int:
     ensure_handlers_file()
     registry: list = [load_handlers()]
     last_mtime = HANDLERS_FILE.stat().st_mtime
-    sync_catalog(backend, state, registry)
+    sync_catalog(backend, state, registry, args.catalog_interval)
 
     # 首次运行基线：未建立成功前不处理任何合同（审计 CW-01）
     # 连续认证失败计数（审计 CW-10）：达到阈值就明确报错退出，不再无限静默失败
@@ -779,7 +853,12 @@ def main() -> int:
     log.info("监听启动 server=%s competition=%s out=%s backfill=%s",
              args.server, args.competition, out_dir, args.backfill)
 
+    # 审计 CW-12：失败退避 —— 后端不可用时按指数+抖动退避，成功后立刻恢复常规节奏
+    consecutive_failures = 0
+    current_delay = max(0.5, args.interval)
+
     while True:
+        round_failed = False
         try:
             # 0) 基线未建立（首次拉取失败）→ 每轮重试，期间不处理合同
             if not baseline_ready:
@@ -787,7 +866,10 @@ def main() -> int:
                     backend, state, args.competition, args.backfill
                 )
                 if not baseline_ready:
-                    time.sleep(max(0.5, args.interval))
+                    round_failed = True
+                    consecutive_failures += 1
+                    current_delay = next_backoff(current_delay, args.interval)
+                    time.sleep(current_delay)
                     continue
             # 1) handlers.py 被手动修改 → 热加载
             try:
@@ -798,11 +880,12 @@ def main() -> int:
                     log.info("handlers.py 已变更，热加载完成")
             except OSError:
                 pass
-            # 2) 类型目录同步（新 key 生成 / key 改名自动改名）
-            sync_catalog(backend, state, registry)
+            # 2) 类型目录同步（新 key 生成 / key 改名自动改名；按 --catalog-interval 节流）
+            sync_catalog(backend, state, registry, args.catalog_interval)
             # 3) 检测合同通过并处理；水位只在成功处理后推进（失败进待处理队列重试）
             process_fresh_contracts(backend, state, registry[0], out_dir, args.competition)
         except urllib.error.HTTPError as e:
+            round_failed = True
             if e.code == 401:
                 consecutive_auth_failures += 1
                 log.warning(
@@ -823,8 +906,22 @@ def main() -> int:
                 consecutive_auth_failures = 0
                 log.warning("后端请求失败 HTTP %s", e.code)
         except Exception:  # noqa: BLE001 - 静默容错：任何异常都不影响下一轮与网页端
+            round_failed = True
             log.exception("本轮执行异常（已隔离，继续下一轮）")
-        time.sleep(max(0.5, args.interval))
+
+        # 审计 CW-12：改前无论成败都固定 `time.sleep(max(0.5, --interval))` —— 后端不可用时
+        # 仍以同一节奏持续打请求且永不衰减。现在失败时指数退避（含抖动，上限 60s），
+        # 成功后立即回到 `--interval`。
+        if round_failed:
+            consecutive_failures += 1
+            current_delay = next_backoff(current_delay, args.interval)
+            log.info("连续第 %d 轮失败：本轮结束后退避 %.1fs 再试", consecutive_failures, current_delay)
+        else:
+            if consecutive_failures:
+                log.info("后端已恢复（此前连续失败 %d 轮）", consecutive_failures)
+            consecutive_failures = 0
+            current_delay = max(0.5, args.interval)
+        time.sleep(current_delay)
 
 
 def rows_max(rows: list) -> str:
