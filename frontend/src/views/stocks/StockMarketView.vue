@@ -152,6 +152,7 @@
               :class="trade.side === 'BUY' ? 'is-buy' : 'is-sell'"
               style="width: 100%; height: 36px; font-size: 14px;"
               :disabled="!canTrade"
+              :loading="submitting"
               @click="submitOrder"
             >
               {{ trade.side === "BUY" ? "买入" : "卖出" }}
@@ -353,6 +354,9 @@ const canTrade = computed(
     Number(trade.value.price) > 0 &&
     Number(trade.value.quantity) > 0,
 );
+// 提交闸门（审计 T-02）：下单按钮缺 loading/防连点，双击会下两笔 PENDING 委托
+// （后端只校验余额，不会去重）。按钮用 :loading 显示进度，真正的保护是 submitOrder 里的同步置位。
+const submitting = ref(false);
 
 const chartRef = ref<HTMLElement | null>(null);
 let chart: echarts.ECharts | null = null;
@@ -771,7 +775,10 @@ function renderChart() {
 }
 
 async function submitOrder() {
+  // 防连点：请求返回前重复点击直接忽略（同步置位，不等 DOM 更新）
+  if (submitting.value) return;
   if (!canTrade.value || !selectedStockId.value || !selectedAccountId.value) return;
+  submitting.value = true;
   try {
     await stockApi.placeOrder({
       stockId: selectedStockId.value,
@@ -784,6 +791,8 @@ async function submitOrder() {
     await reloadAccountData();
   } catch {
     // 错误提示由全局响应拦截器统一弹出，避免重复 toast
+  } finally {
+    submitting.value = false;
   }
 }
 async function cancelOrder(id: number) {
