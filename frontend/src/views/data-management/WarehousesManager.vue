@@ -138,6 +138,7 @@
 import { ref, reactive, computed, onMounted } from "vue";
 import { useCompetitionStore } from "@/stores/competition";
 import { useCompetitionReload } from "@/composables/useCompetitionReload";
+import { useLatestRequest } from "@/composables/useLatestRequest";
 import { ElMessage } from "element-plus";
 import { confirmDeleteWithImpact } from "@/utils/deleteConfirm";
 import api from "@/api/request";
@@ -210,7 +211,12 @@ useCompetitionReload(loadData, () => {
 useResourceChanged("warehouses", () => {
   loadData();
 });
+// 请求代次守卫（审计 W-08）：loadData 会被首屏/切比赛/实时事件/保存后刷新并发触发，
+// 网络返回顺序不受控，只有最后一次发出的请求允许写回 data / loading。
+const { next: nextRequest, isCurrent } = useLatestRequest();
+
 async function loadData() {
+  const token = nextRequest();
   loading.value = true;
   try {
     if (!compStore.competitionId) {
@@ -221,12 +227,15 @@ async function loadData() {
     const res = await api.get("/warehouses", {
       params: { competitionId: compStore.competitionId },
     });
+    if (!isCurrent(token)) return;
     data.value = Array.isArray(res) ? res : [];
   } catch (e) {
     console.error("Failed to load warehouses:", e);
+    if (!isCurrent(token)) return;
     data.value = [];
   } finally {
-    loading.value = false;
+    // 过时请求不得关闭 loading（更新的请求仍在飞行中）
+    if (isCurrent(token)) loading.value = false;
   }
 }
 
