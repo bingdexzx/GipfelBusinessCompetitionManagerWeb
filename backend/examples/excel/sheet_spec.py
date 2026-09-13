@@ -858,18 +858,39 @@ def _stock_config_value(param: str, raw: str, default: Any) -> Any:
 
 
 def _assert_stock_config_sane(config: dict, ctx: SheetContext) -> None:
-    """建包库只校验「非空字典」，这里补上引擎口径的两条硬约束与一条风险提示。"""
-    limit, move = config.get("limitPct"), config.get("maxMovePct")
+    """校验股票参数：**先与运行期默认合并再比对**，并补上单参数上界。
+
+    审计 Z-04：改前只在两个键都出现在表格里时才比对（`limit < move`），只写一行 `limitPct` 就能
+    绕过全部交叉校验 —— 运行期会把缺省键补成默认值（`apps.stock.engine.resolve_stock_config`），
+    于是 `limitPct=0.5`（默认 maxMovePct=0.05）、`limitPct=100`、`limitPct='1e3'` 全部通过
+    （后两者只得到一句提示），落库后单轮涨跌幅上限是 100000%；而规范与教程都承诺
+    「表格层会替你挡住 limitPct < maxMovePct」。现在：缺省键按默认补齐参与比较，超上界直接拒绝，
+    并拒绝非有限数值（nan/inf）。
+    """
+    from apps.stock.engine import DEFAULT_STOCK_CONFIG
+
+    merged = {**DEFAULT_STOCK_CONFIG, **(config or {})}
+    limit, move = merged.get("limitPct"), merged.get("maxMovePct")
     if limit is not None and move is not None and float(limit) < float(move):
         raise SheetFormatError(
             f"limitPct（单轮限幅 {limit}）不能小于 maxMovePct（单轮最大波动 {move}）"
+            f"——未写的键按运行期默认参与比较（默认 maxMovePct={DEFAULT_STOCK_CONFIG['maxMovePct']}）"
         )
-    low, high = config.get("mmMinQty"), config.get("mmMaxQty")
+    low, high = merged.get("mmMinQty"), merged.get("mmMaxQty")
     if low is not None and high is not None and float(low) > float(high):
         raise SheetFormatError(f"mmMinQty（做市商最小数量 {low}）不能大于 mmMaxQty（{high}）")
     if limit is not None and float(limit) > 0.1:
-        ctx.note(f"股票参数：limitPct={limit} 已高于 10%，玩家更容易把价格拉到涨停"
-                 f"（引擎的防连板机制仍会兜底，但建议不超过 0.10）")
+        raise SheetFormatError(
+            f"limitPct（单轮限幅 {limit}）超出允许范围：单轮涨跌幅上限不应超过 0.10（10%），"
+            f"系统默认即 {DEFAULT_STOCK_CONFIG['limitPct']}"
+        )
+    for key in ("limitPct", "maxMovePct", "happinessImpact", "carbonImpact", "regressionPct"):
+        value = merged.get(key)
+        if value is None:
+            continue
+        number = float(value)
+        if number != number or number in (float("inf"), float("-inf")):
+            raise SheetFormatError(f"股票参数「{key}」必须是有限数值，收到 {value!r}")
 
 
 def _contract_types_from_script(ctx: SheetContext, script: str) -> list:
