@@ -2168,21 +2168,32 @@ def _imp_contract_instances(rows: list[dict], ctx: ImportContext) -> None:
                     p["companyId"] = None
                 else:
                     p["companyId"] = mapped
+        # 审计 R-03：判重键与实例名都必须取行里的 name（合同类型名只作兜底）。改前用 ct.name 作
+        # 判重键 → 同一类型下的第 2..N 份合同被 filter().first() 命中同一对象标成 skipped
+        # （参与方映射结果直接丢弃），且第 1 份的名字被改写成合同类型名 —— N 份合同变 1 份。
+        inst_name = (row.get("name") or "").strip() or (ct.name if ct else "合同")
         obj = Contract.objects.filter(
-            competition_id=ctx.competition_id, contract_type_id=ct_id, name=ct.name if ct else (row.get("name") or "合同")
+            competition_id=ctx.competition_id, contract_type_id=ct_id, name=inst_name
         ).first()
         if obj is None:
             obj = Contract.objects.create(
                 competition_id=ctx.competition_id,
                 contract_type_id=ct_id,
-                name=ct.name if ct else (row.get("name") or "合同"),
+                name=inst_name,
                 status=row.get("status") or "DRAFT",
                 parties=json.dumps(parties, ensure_ascii=False),
                 inputs=json.dumps(row.get("inputs") or {}, ensure_ascii=False),
             )
             ctx.bump("contractInstances", "created")
+        elif ctx.is_overwrite:
+            # 覆盖模式：按归档更新参与方/输入/状态（主键与名称不动）
+            obj.status = row.get("status") or obj.status
+            obj.parties = json.dumps(parties, ensure_ascii=False)
+            obj.inputs = json.dumps(row.get("inputs") or {}, ensure_ascii=False)
+            obj.save()
+            ctx.bump("contractInstances", "updated")
         else:
-            # 已存在同类型同名的合同（合并导入）：只补参与方公司引用，不覆盖已有状态
+            # 追加模式：同类型同名的实例已存在 → 保留原数据不动（自然键去重）
             ctx.bump("contractInstances", "skipped")
         ctx.ids.put("contractInstances", row.get("_id"), obj.id)
 
