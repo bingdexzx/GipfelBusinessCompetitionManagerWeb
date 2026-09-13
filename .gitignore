@@ -50,3 +50,8 @@ Thumbs.db
 .vscode/
 *.swp
 .workbuddy/
+
+# ===== contract_watcher 测试产物 =====
+# 保留 test_output/ 下的报告（*.md）与日志（logs/），只忽略每次运行生成的表格
+contract_watcher/bookkeeping_example/test_output*/*.xlsx
+contract_watcher/bookkeeping_example/test_output*/**/*.xlsx
