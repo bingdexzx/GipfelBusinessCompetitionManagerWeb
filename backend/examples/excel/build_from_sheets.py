@@ -124,12 +124,29 @@ def main(argv: list[str]) -> int:
 
         competition_id = args.competition
         if args.create_competition and competition_id is None:
-            competition_id = _create_competition(
+            competition_id, reused = _create_competition(
                 archive["sourceCompetition"]["name"],
                 archive["resources"].get("competitionMeta", {}),
                 dry_run=bool(args.dry_run),
             )
             args.competition = competition_id
+            # 审计 Z-06：复用已有比赛时它大概率已有数据，占用保护会拒绝导入（退出码 2），
+            # 与文档「同名比赛会复用、一条命令可反复执行」相矛盾。append 模式是纯增量、
+            # 不会改动既有数据，故自动放行；overwrite 是破坏性模式，仍要求显式 --allow-non-empty。
+            if reused and not args.allow_non_empty:
+                if args.mode == "append":
+                    args.allow_non_empty = True
+                    print(
+                        "提示：复用的是已有比赛，append 模式只补缺、不改动既有数据，"
+                        "已自动允许在非空比赛上继续导入"
+                        "（如需覆盖既有数据请显式使用 --mode overwrite --allow-non-empty）"
+                    )
+                else:
+                    print(
+                        "提示：复用的是已有比赛且当前为 overwrite（覆盖）模式。"
+                        "若确认要覆盖既有数据，请追加 --allow-non-empty；本次将按占用保护拒绝导入。",
+                        file=sys.stderr,
+                    )
 
         if args.out:
             out_path = Path(args.out)
@@ -253,15 +270,16 @@ def build_from_tables(
     return builder, stats, notes
 
 
-def _create_competition(name: str, meta_block: dict, *, dry_run: bool = False) -> int:
-    """按表格里的比赛名新建（或复用同名）比赛，返回比赛 id。
+def _create_competition(name: str, meta_block: dict, *, dry_run: bool = False) -> tuple[int, bool]:
+    """按表格里的比赛名新建（或复用同名）比赛，返回 `(比赛 id, 是否复用了已有比赛)`。
 
     只做一件事：写入 `Competition` 这一行（比赛名全局唯一，同名直接复用），
     其余内容仍由既有导入引擎落库。
 
     审计 Z-09：`--dry-run` 时**不落库**（改前先 create 再 apply_import，而 create 在这次
     事务之外 → 预演也会真实建出一场空比赛，与规范「一行都不落库」的承诺相反）。
-    此时返回一个临时 id 供后续流程打印/预览，导入侧仍按 dry_run 回滚。
+    审计 Z-06：是否复用要回传给调用方 —— 复用已有（很可能非空）比赛时需要据此放宽占用保护，
+    否则文档承诺的「同名比赛会复用、一条命令可反复执行」在第二遍就以退出码 2 失败。
     """
     from apps.competitions.models import Competition
 
@@ -272,13 +290,13 @@ def _create_competition(name: str, meta_block: dict, *, dry_run: bool = False) -
     competition = Competition.objects.filter(name=name).first()
     if competition is not None:
         print(f"复用已有比赛：#{competition.id}「{competition.name}」（状态 {competition.status}）")
-        return competition.id
+        return competition.id, True
     if dry_run:
         print(f"预演：将新建比赛「{name}」（状态 {status}）—— dry-run 不落库")
-        return -1
+        return -1, False
     competition = Competition.objects.create(name=name, status=status)
     print(f"已新建比赛：#{competition.id}「{competition.name}」（状态 {competition.status}）")
-    return competition.id
+    return competition.id, False
 
 
 def _reference_hint(message: str, tables: dict, selected: set[str] | None) -> str:

@@ -203,7 +203,8 @@ def print_next_steps(cid: int) -> None:
     print("  3) 回填总览卡片字段 id（第二遍导入，覆盖模式）")
     print(f"     $env:AUTO_CHAIN_COMPETITION_ID='{cid}'")
     print(f"     .\\.venv\\Scripts\\python.exe manage.py build_competition "
-          f"examples/competitions/auto_chain_competition.py --competition {cid} --mode overwrite")
+          f"examples/competitions/auto_chain_competition.py --competition {cid} "
+          f"--mode overwrite --allow-non-empty")
     print("  4) 合同类型体检 + 试算 + 导入")
     print(f"     .\\.venv\\Scripts\\python.exe manage.py build_contract_types "
           f"examples/contracts/auto_chain_contracts.py --competition {cid} --check --trial")
