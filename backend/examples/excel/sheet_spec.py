@@ -496,6 +496,11 @@ class SheetContext:
     base_dir: Any = None                           # 表格所在目录（解析 script 相对路径用）
     notes: list[str] = field(default_factory=list)
     row_no: int = 0
+    # 审计 Z-08：是否允许执行「合同类型」表里写的 Python 脚本。纯预览（--inspect）时为 False——
+    # 工作簿是可转发文件，一格路径就能让打开者的机器执行任意本地脚本。
+    run_scripts: bool = True
+    # 脚本解析结果按 (路径, mtime) 缓存：同一路径写两行「合同类型」不再执行两次
+    script_cache: dict = field(default_factory=dict)
 
     def note(self, text: str) -> None:
         self.notes.append(text)
@@ -760,6 +765,16 @@ def _h_contract_type(ctx: SheetContext, row: dict) -> None:
     wanted = (row.get("key") or "").strip()
     enabled = bool(as_bool(row.get("enabled"), default=True))
 
+    if not ctx.run_scripts:
+        # 审计 Z-08：--inspect（纯预览）不执行工作簿里指定的脚本。工作簿是可转发文件，
+        # 「合同类型」表里的一格路径原本就能让打开者的机器执行任意本地 Python 文件。
+        ctx.note(
+            f"合同类型：本次为纯预览，未执行脚本 {script}"
+            f"（将引入 {wanted or '该脚本产出的全部类型'}）；"
+            f"需要真的产出请加 --run-scripts，或使用 --out / --competition"
+        )
+        return
+
     types = _contract_types_from_script(ctx, script)
     matched = [ct for ct in types if not wanted or ct.key == wanted]
     if not matched:
@@ -894,7 +909,12 @@ def _assert_stock_config_sane(config: dict, ctx: SheetContext) -> None:
 
 
 def _contract_types_from_script(ctx: SheetContext, script: str) -> list:
-    """执行「合同类型代码化」脚本，取回它产出的 ContractType 列表。"""
+    """执行「合同类型代码化」脚本，取回它产出的 ContractType 列表。
+
+    审计 Z-08：结果按 `(路径, mtime)` 在本次运行内缓存——同一路径写两行「合同类型」原本会
+    **执行两次**，脚本里的顶层副作用（打印、写文件、连库）重复发生；`sys.exit()` 抛出的
+    SystemExit 也不被 `except Exception` 捕获，会让工具静默退出且无任何提示。
+    """
     import importlib.util
 
     path = Path(script)
@@ -903,13 +923,23 @@ def _contract_types_from_script(ctx: SheetContext, script: str) -> list:
         path = candidate if candidate.exists() else path
     if not path.exists():
         raise SheetFormatError(f"合同类型脚本不存在：{path}")
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        mtime = 0
+    cache_key = (str(path), mtime)
+    if cache_key in ctx.script_cache:
+        return ctx.script_cache[cache_key]
+
     spec = importlib.util.spec_from_file_location(f"_sheet_ct_{path.stem}", path)
     if spec is None or spec.loader is None:
         raise SheetFormatError(f"无法加载合同类型脚本：{path}")
     module = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(module)
-    except Exception as exc:  # noqa: BLE001 - 脚本自身的错误直接暴露给使用者
+    except KeyboardInterrupt:
+        raise
+    except BaseException as exc:  # noqa: BLE001 - 含 SystemExit：脚本自身的错误直接暴露给使用者
         raise SheetFormatError(f"合同类型脚本 {path.name} 执行失败：{type(exc).__name__}: {exc}") from None
     build_fn = getattr(module, "build", None)
     produced = build_fn() if callable(build_fn) else getattr(module, "CONTRACTS", None)
@@ -923,6 +953,7 @@ def _contract_types_from_script(ctx: SheetContext, script: str) -> list:
     types = [item for item in items if item is not None]
     if not types:
         raise SheetFormatError(f"合同类型脚本 {path.name} 没有产出任何合同类型")
+    ctx.script_cache[cache_key] = types
     return types
 
 

@@ -92,6 +92,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--out", default=None, help="把产出的归档 JSON 写到该路径")
     parser.add_argument("--force", action="store_true",
                         help="允许 --out 覆盖已存在的归档（默认拒绝，避免残缺包替换完整归档）")
+    parser.add_argument("--run-scripts", action="store_true",
+                        help="允许执行「合同类型」表里写的 Python 脚本（纯 --inspect 预览默认不执行）")
     parser.add_argument("--competition", type=int, default=None, help="导入到该比赛 id")
     parser.add_argument("--dry-run", action="store_true", help="预演导入（事务回滚，不落库）")
     parser.add_argument("--mode", choices=["append", "overwrite"], default="append")
@@ -116,10 +118,18 @@ def main(argv: list[str]) -> int:
         parser.error("请给出表格文件（.xlsx）或存放 CSV 的目录；用 --spec 查看规范")
 
     out_written: Path | None = None
+    # 审计 Z-08：纯预览（--inspect 且不产出/不导入）默认**不执行**工作簿里指定的脚本；
+    # 需要真产出或真导入时才执行（也可显式加 --run-scripts）。
+    run_scripts = bool(
+        args.run_scripts
+        or args.out is not None
+        or args.competition is not None
+        or not args.inspect
+    )
     try:
         builder, stats, notes = build_from_tables(
             Path(args.source), only_sheets=args.sheets, fallback_name=args.name,
-            name_override=args.name,
+            name_override=args.name, run_scripts=run_scripts,
         )
         if args.competition is not None:
             _try_resolve_card_fields(builder, args.competition, notes)
@@ -244,12 +254,16 @@ def build_from_tables(
     only_sheets: str | None = None,
     fallback_name: str | None = None,
     name_override: str | None = None,
+    run_scripts: bool = True,
 ) -> tuple[CompetitionBuilder, dict[str, int], list[str]]:
     """读取表格并逐表交给建包库，返回 (构建器, 每表行数, 提示)。
 
     注意：**表格里出现的表都会被处理**（`only_sheets` 除外）。引用解析依赖它们
     （例如「公司」表引用「产业类型」，「零件」表引用「原料」），所以不要按分组去裁表；
     `--scope` 只用来限制**导入范围**。
+
+    `run_scripts=False`（`--inspect` 纯预览）时不执行「合同类型」表里写的 Python 脚本
+    （审计 Z-08：工作簿是可转发文件，一格路径就能让打开者的机器执行任意本地脚本）。
     """
     if not source.exists():
         raise SheetBuildError(f"表格来源不存在：{source}")
@@ -260,7 +274,11 @@ def build_from_tables(
     meta = _competition_meta(tables, fallback_name or source.stem, override_name=name_override)
     builder = CompetitionBuilder(meta["name"], status=meta["status"], map_background=meta["map_background"])
 
-    ctx = SheetContext(builder=builder, base_dir=source.parent if source.is_file() else source)
+    ctx = SheetContext(
+        builder=builder,
+        base_dir=source.parent if source.is_file() else source,
+        run_scripts=run_scripts,
+    )
     stats: dict[str, int] = {}
 
     for name in tables:
