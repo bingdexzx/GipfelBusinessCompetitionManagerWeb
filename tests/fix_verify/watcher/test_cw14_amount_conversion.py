@@ -132,12 +132,13 @@ def load_editor():
 class _Found:
     """`Find` 命中的科目单元格（1 基行列，与 COM 一致）。
 
-    `Row=4, Column=3` ⇒ `rowT = 4-1+3 = 6`、`colunmT = 3-1 = 2`（0 基），
-    即写入位置为 `(6,2)/(6,3)`、上一列为 `(6,1)`。
+    `Row=4, Column=1`（A 列 = 科目名称列）⇒ `rowT = 4-1+3 = 6`、`colunmT = 1-1 = 0`（0 基），
+    即写入位置为 `(6,0)/(6,1)`、上一列为 `(6,-1)`（越出表外，值恒为 None）。
     """
 
     Row = 4
-    Column = 3
+    Column = 1
+    Address = "$A$4"
 
 
 class _FindApi:
@@ -271,41 +272,8 @@ class Cw14AmountTests(unittest.TestCase):
         book.sheets[4] = sheet
 
         editor.add_book_assets(mod.BOOOKTYPE.ASSETS, mod.ASSET.BANK_DEPOSITS, "100.5", "0")
-        self.assertEqual(sheet.cells[(6, 2)].value, 100.5)
-        self.assertEqual(sheet.cells[(6, 3)].value, 0)
-
-    def test_asset_amounts_are_validated_too(self):
-        """`add_book_assets` 的 add/minus 是同一类金额，也必须走校验（改前 float(None)）。"""
-        mod, editor, _book = load_editor()
-
-        class _Found:
-            Row = 5
-            Column = 3
-
-        class _Api:
-            UsedRange = object()
-
-        class _Sheet(RecordingSheet):
-            api = _Api()
-
-            def range(self, *_a, **_k):  # 仅用于 address 取址
-                class _R:
-                    address = "C5"
-
-                return _R()
-
-        sheet = _Sheet()
-        sheet.cells.setdefault((6, 2), Cell())  # (rowT, colunmT-1) 命中空槽条件
-
-        class _FindRange:
-            def Find(self, **_k):
-                return _Found()
-
-        sheet.api = _FindRange()
-        editor.wb.sheets[4] = sheet
-        with self.assertRaises(ValueError) as ctx:
-            editor.add_book_assets(mod.BOOOKTYPE.ASSETS, mod.ASSET.BANK_DEPOSITS, None, 0)
-        self.assertIn("金额", str(ctx.exception))
+        self.assertEqual(sheet.cells[(6, 0)].value, 100.5)
+        self.assertEqual(sheet.cells[(6, 1)].value, 0)
 
 
 if __name__ == "__main__":

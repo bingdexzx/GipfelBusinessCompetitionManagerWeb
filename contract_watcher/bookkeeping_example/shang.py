@@ -337,11 +337,27 @@ class xledit:
             add_value = n
         search_range = sht.api.UsedRange
         found_cell = search_range.Find(What=name.value,LookIn=xw.constants.FindLookIn.xlValues)
-        colunmT = 0
-        rowT = 0
-        rowT = found_cell.Row-1
-        colunmT = found_cell.Column-1
-        rowT += 3
+        # 审计 CW-18：改前不检查 Find 结果 —— 账套换版/科目改名/名称多一个空格导致未命中时，
+        # `found_cell` 是 None，紧接着的 `found_cell.Row` 抛 AttributeError，被 watcher 的
+        # dispatch 吞掉 ⇒ 该合同**静默漏账**（且按 CW-02 永不重试）；而 `Find` 命中标题/说明/
+        # 合计行里的同名文本时，代码继续按 `+3` 行向下找「两个空 formula 单元格」写入 ⇒
+        # 金额落进无关区域，账表被污染且没有任何报错。现在显式判空并校验命中位置。
+        if found_cell is None:
+            raise ValueError(
+                f"账套里找不到科目「{name.value}」：合同无法记账。"
+                "请确认账套版本与科目名称逐字一致（含全角括号等），或改用带该科目的账套后重试"
+            )
+        found_row, found_col = int(found_cell.Row), int(found_cell.Column)
+        colunmT = found_col - 1
+        rowT = found_row - 1 + 3
+        # 命中位置校验：必须落在该表的科目名称列（A 列），且起始写入行必须仍在表内。
+        # 否则说明 Find 命中的是标题/说明/合计行里的同名文本，继续写下去会污染无关区域。
+        if colunmT != 0 or rowT <= 0 or rowT >= int(sht.used_range.last_cell.row):
+            raise ValueError(
+                f"科目「{name.value}」的定位不可信（Find 命中 {found_cell.Address}，"
+                f"推导出写入起点 0 基行 {rowT}、列 {colunmT}）："
+                "疑似命中了标题/说明/合计行里的同名文本。请检查账套模板或科目名称后重试"
+            )
         while True:
             if(sht[rowT,colunmT].formula == '') and (sht[rowT,colunmT+1].formula == '') and (sht[rowT,colunmT-1].value == None):
                 sht[rowT,colunmT].value = add_value
