@@ -45,7 +45,13 @@ class BOOOKTYPE(Enum):
     EQUITY = 3
 
 
-getcontext().prec = 2
+# 审计 CW-08：这里原本有 `getcontext().prec = 2`，把**进程级** Decimal 精度改成 2 位有效数字。
+# import 本模块（README 教程就是这么教的）即生效，随后任何 Decimal 金额运算都会变成量级错误：
+#   Decimal('1234.56') + Decimal('0.44')  → 1.2E+3（1200）
+#   Decimal('12345.67') * 3               → 3.7E+4（37000，正确 37037.01）
+#   Decimal('999999.99') / 3              → 3.3E+5
+# 记账属于金额场景，精度必须保持默认（28 位有效数字）；确需限制精度请用
+# `with localcontext() as ctx: ctx.prec = ...` 只作用于局部，不要改全局上下文。
 
 class xledit:
     xlapp:xw.App = None
@@ -55,16 +61,35 @@ class xledit:
         p = Path(file)
         if(p.is_file() != True):
             raise
-        if debug == False:
-            self.xlapp = xw.App(visible=False,add_book=False)
-            self.wb = self.xlapp.books.open(file)
-            self.xlapp.api.ScreenUpdating = False
-            self.xlapp.api.DisplayAlerts = False
-        if debug == True:
-            self.xlapp = xw.App(visible=True,add_book=False)
-            self.wb = self.xlapp.books.open(file)
-            self.xlapp.api.ScreenUpdating = True
-            self.xlapp.api.DisplayAlerts = False
+        # 审计 CW-09：改前 App() 启动后若 books.open() 抛错（文件被人工 Excel 打开/只读/损坏/
+        # 网络盘瞬时不可用），异常直接冒泡且**没有 quit()** —— 每次失败泄漏一个隐藏 EXCEL.EXE，
+        # 它继续占用该 xlsx 使后续尝试更容易失败，而 watcher 又把异常吞掉 ⇒ 持续性静默漏账。
+        try:
+            if debug == False:
+                self.xlapp = xw.App(visible=False,add_book=False)
+                self.wb = self.xlapp.books.open(file)
+                self.xlapp.api.ScreenUpdating = False
+                self.xlapp.api.DisplayAlerts = False
+            if debug == True:
+                self.xlapp = xw.App(visible=True,add_book=False)
+                self.wb = self.xlapp.books.open(file)
+                self.xlapp.api.ScreenUpdating = True
+                self.xlapp.api.DisplayAlerts = False
+        except Exception:
+            self._quit_quietly()
+            raise
+
+    def _quit_quietly(self):
+        """异常路径下回收 Excel 进程（失败不影响原始异常）。"""
+        app = getattr(self, "xlapp", None)
+        if app is None:
+            return
+        try:
+            app.quit()
+        except Exception:  # noqa: BLE001 - 回收失败也要保留原始异常
+            pass
+        self.xlapp = None
+        self.wb = None
     def check(self):
         sht = self.wb.sheets[7]
         if sht.range('H80').value == 0:
