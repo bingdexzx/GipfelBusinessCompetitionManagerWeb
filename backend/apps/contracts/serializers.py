@@ -220,6 +220,21 @@ class ContractSerializer(serializers.Serializer):
         for p in selectable:
             cn = p.get("contractNumber")
             p["contractNumber"] = cn if (cn is not None and str(cn).strip()) else None
+        # companyId 必须为整数（null=尚未分配）：字符串/布尔/浮点/数组会让读取侧的
+        # int() 抛异常，进而一条脏数据打挂整场比赛的合同列表（审计 D-07）。
+        for p in selectable:
+            cid = p.get("companyId")
+            if cid is None:
+                continue
+            if isinstance(cid, bool) or not isinstance(cid, int):
+                raise serializers.ValidationError(
+                    {
+                        "parties": (
+                            f"参与方「{p.get('role') or '?'}」的 companyId 必须为整数或 null，"
+                            f"收到 {type(cid).__name__}: {cid!r}"
+                        )
+                    }
+                )
         return parties
 
     def validate(self, attrs: dict) -> dict:

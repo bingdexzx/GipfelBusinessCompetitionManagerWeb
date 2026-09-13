@@ -658,18 +658,48 @@ def _contract_to_engine_dict(contract: Contract) -> dict:
     }
 
 
+def _party_company_id(value) -> int | None:
+    """从参与方 JSON 里解析公司 id，非法/缺失一律返回 None（绝不抛异常）。
+
+    列表/详情接口要补全 `companyName`，历史数据里可能存在脏 `companyId`
+    （字符串、布尔、浮点、数组——创建接口此前不校验类型）。这里容错解析，
+    避免一条脏数据打挂整场比赛的合同列表（审计 D-07）。
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else None
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        try:
+            return int(s)
+        except ValueError:
+            try:
+                f = float(s)
+            except ValueError:
+                return None
+            return int(f) if f.is_integer() else None
+    return None
+
+
 def _enrich_party_companies(items: list[dict]) -> list[dict]:
     """给合同参与方补全公司名称（仅用于列表/详情展示，不写入存储）。
 
     一次性收集所有 companyId 后批量查表，避免 N+1；
-    主办方(isHost)无公司，公司名置 None。
+    主办方(isHost)无公司，公司名置 None；companyId 非法时同样置 None。
     """
     company_ids: set[int] = set()
     for it in items:
         parties = it.get("parties") if isinstance(it.get("parties"), list) else []
         for p in parties:
-            if isinstance(p, dict) and p.get("companyId") is not None:
-                company_ids.add(int(p["companyId"]))
+            if isinstance(p, dict):
+                cid = _party_company_id(p.get("companyId"))
+                if cid is not None:
+                    company_ids.add(cid)
     name_by_id: dict[int, str] = {}
     if company_ids:
         from apps.companies.models import Company
@@ -683,25 +713,25 @@ def _enrich_party_companies(items: list[dict]) -> list[dict]:
                 continue
             if p.get("isHost"):
                 p["companyName"] = None
-            elif p.get("companyId") is not None:
-                p["companyName"] = name_by_id.get(int(p["companyId"]))
-            else:
-                p["companyName"] = None
+                continue
+            cid = _party_company_id(p.get("companyId"))
+            p["companyName"] = name_by_id.get(cid) if cid is not None else None
     return items
 
 
 # ==================== 范围过滤（会签模型核心） ====================
 
 def _get_party_company_ids(parties_raw: str) -> list[int]:
-    """取合同实际参与方（非主办方）的公司 id 列表。"""
+    """取合同实际参与方（非主办方）的公司 id 列表（脏值忽略，不抛异常）。"""
     parties = parse_json_array(parties_raw)
-    return [
-        int(p["companyId"])
-        for p in parties
-        if isinstance(p, dict)
-        and not p.get("isHost")
-        and isinstance(p.get("companyId"), (int, float))
-    ]
+    out: list[int] = []
+    for p in parties:
+        if not isinstance(p, dict) or p.get("isHost"):
+            continue
+        cid = _party_company_id(p.get("companyId"))
+        if cid is not None and cid not in out:
+            out.append(cid)
+    return out
 
 
 def _contract_in_scopes(parties_raw: str, scopes: list[int]) -> bool:
