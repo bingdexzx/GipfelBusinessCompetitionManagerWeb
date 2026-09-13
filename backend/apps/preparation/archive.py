@@ -1203,11 +1203,17 @@ def build_export(cid: int, scope: str) -> dict:
                 "error": f"{type(e).__name__}: {e}",
             }
             continue
-        resources[res] = {
+        block: dict[str, Any] = {
             "label": RESOURCE_LABELS.get(res, res),
             "count": len(rows),
             "rows": rows[:_DETAIL_LIMIT],
         }
+        # 审计 R-11：改前导出把明细静默截断到 `_DETAIL_LIMIT` 行，`count` 却是全量 ——
+        # 导入侧既不校验也不提示，用户看到「3000 条」实际只搬了 2000 条。这里显式标记截断。
+        if len(rows) > _DETAIL_LIMIT:
+            block["truncated"] = True
+            block["dropped"] = len(rows) - _DETAIL_LIMIT
+        resources[res] = block
 
     return {
         "schemaVersion": SCHEMA_VERSION,
@@ -2699,6 +2705,29 @@ class ArchiveError(Exception):
     """归档文件结构非法。"""
 
 
+def truncated_resources(payload: Any) -> list[tuple[str, int, int]]:
+    """列出归档里被截断的资源：[(资源名, 总条数, 被丢弃条数)]（审计 R-11）。
+
+    导出侧超过 `_DETAIL_LIMIT` 时会写 `truncated: true` / `dropped: n`；这里据此提示调用方，
+    避免「导出 3000 条、实际只导入 2000 条」被当成全量搬运。
+    """
+    out: list[tuple[str, int, int]] = []
+    resources = (payload or {}).get("resources") if isinstance(payload, dict) else None
+    if not isinstance(resources, dict):
+        return out
+    for name, block in resources.items():
+        if not isinstance(block, dict):
+            continue
+        if block.get("truncated"):
+            total = int(block.get("count") or 0)
+            dropped = int(block.get("dropped") or 0)
+            if dropped <= 0:
+                rows = block.get("rows") or []
+                dropped = max(0, total - len(rows))
+            out.append((str(name), total, dropped))
+    return out
+
+
 def validate_archive(payload: Any) -> dict:
     """校验归档文件结构，返回归一化后的 payload。"""
     if not isinstance(payload, dict):
@@ -2721,12 +2750,20 @@ def validate_archive(payload: Any) -> dict:
 
 
 # 目标比赛「非空」判定用的比赛级模型（按依赖顺序，命中即为已有数据）
+#
+# 审计 R-12：改前探针漏了「比赛内消息、财年、节点类型、路径类型、地图连线」等模型 ——
+# 一个只含这些数据的比赛会被判为「空比赛」，导入时**跳过 allowNonEmpty 保护**直接写入
+# （dryRun 预览还显示 blocked=false，前端不会提示风险）。这里补全这些比赛级模型；
+# 科技前置关系（TechPrerequisite）没有 competition 外键，改按其所属科技节点过滤。
 _NON_EMPTY_PROBES: list[tuple[str, str]] = [
     ("公司", "companies.Company"),
     ("原料", "materials.Material"),
     ("零件", "parts.Part"),
     ("产品", "products.Product"),
     ("地图节点", "maps.MapNode"),
+    ("地图节点类型", "maps.MapNodeType"),
+    ("路径类型", "maps.PathType"),
+    ("地图连线", "maps.MapEdge"),
     ("科技节点", "tech_tree.TechNode"),
     ("区域", "regions.Region"),
     ("燃料", "fuels.Fuel"),
@@ -2739,19 +2776,38 @@ _NON_EMPTY_PROBES: list[tuple[str, str]] = [
     ("合同", "contracts.Contract"),
     ("消费者需求", "consumer_demands.ConsumerDemand"),
     ("参赛账号", "users.User"),
+    ("比赛内消息", "gipfel_messages.Message"),
+    ("财年", "competitions.FiscalYear"),
+]
+
+# 没有 competition 外键、但同样属于「该比赛已有数据」的模型：写成 (标签, 模型, 过滤表达式)
+_NON_EMPTY_INDIRECT_PROBES: list[tuple[str, str, str]] = [
+    ("科技前置关系", "tech_tree.TechPrerequisite", "node__competition_id"),
 ]
 
 
 def competition_occupancy(competition_id: int) -> list[tuple[str, int]]:
-    """统计目标比赛已有的业务数据（用于「空比赛才能导入」判定）。"""
+    """统计目标比赛已有的业务数据（用于「空比赛才能导入」判定）。
+
+    审计 R-12：模型路径写错（不存在的 app/model）时也必须当作「探针不可用」跳过，
+    不能让整个占用判定抛异常。
+    """
     from django.apps import apps as django_apps
 
     found: list[tuple[str, int]] = []
     for label, model_path in _NON_EMPTY_PROBES:
-        model = django_apps.get_model(model_path)
         try:
+            model = django_apps.get_model(model_path)
             n = model.objects.filter(competition_id=competition_id).count()
-        except Exception:  # noqa: BLE001 - 模型无 competition 字段时跳过
+        except Exception:  # noqa: BLE001 - 模型不存在/无 competition 字段时跳过
+            continue
+        if n:
+            found.append((label, n))
+    for label, model_path, lookup in _NON_EMPTY_INDIRECT_PROBES:
+        try:
+            model = django_apps.get_model(model_path)
+            n = model.objects.filter(**{lookup: competition_id}).count()
+        except Exception:  # noqa: BLE001 - 模型不存在/关联字段缺失时跳过
             continue
         if n:
             found.append((label, n))
@@ -2874,8 +2930,31 @@ def apply_import(
     result["skippedResources"] = [
         {"resource": r, "label": RESOURCE_LABELS.get(r, r)} for r in skipped_resources
     ]
+    # 审计 R-11：归档被导出侧截断（count > rows）时必须在导入结果里显式提示，
+    # 否则「导出 3000 条、只导入 2000 条」会被当成全量搬运完成。
+    _attach_truncation_notice(result, payload)
     result["problemCount"] = len(result["problems"])
     result["noteCount"] = len(result.get("notes") or [])
     return result
+
+
+def _attach_truncation_notice(result: dict, payload: Any) -> None:
+    """把「归档被截断」写进导入结果的 problems 与 truncatedResources（审计 R-11）。"""
+    truncated = truncated_resources(payload)
+    if not truncated:
+        return
+    detail = "、".join(
+        f"{RESOURCE_LABELS.get(name, name)}（共 {total} 条，缺 {dropped} 条）"
+        for name, total, dropped in truncated
+    )
+    result.setdefault("problems", []).append(
+        f"归档文件不完整：以下资源在导出时被截断（每条上限 {_DETAIL_LIMIT} 条），"
+        f"本次只导入了归档里现有的部分 —— {detail}。"
+        "请改用「只导某个分组」分批导出/导入，或直接在同一后端内复制比赛。"
+    )
+    result["truncatedResources"] = [
+        {"resource": name, "count": total, "dropped": dropped}
+        for name, total, dropped in truncated
+    ]
 
 
