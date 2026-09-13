@@ -59,26 +59,74 @@ def new_case(name: str) -> Path:
     return dst
 
 
-# ---------- Excel 进程回收（仅回收本用例期间新出现的） ----------
+# ---------- Excel 进程回收（审计 CW-22：只回收本脚本自己启动的 PID） ----------
+#
+# 改前 `reap(new)` 对「用例期间新出现的所有 EXCEL.EXE」执行 `taskkill /F`，会连用户自己打开、
+# 正在编辑的 Excel 一起强杀（未保存数据丢失）；而 `SOAK_REPORT.md:24` 又证明外部 taskkill 与
+# 该环境下的 COM 崩溃高度相关，误杀还会反过来污染后续用例结论。`excel_pids()` 当时还用**固定
+# 共享**的临时文件名，并发跑两个用例会互相覆盖解析结果（现已改为每次唯一命名）。
+#
+# 现在：只强杀「xlwings 记录到的、由本脚本打开的」PID；同时提供
+# `plan_reap(present, owned, before)` 供用例断言与日志展示 —— 用户自己的 Excel 永不在回收集合里。
+
 def excel_pids() -> set[int]:
-    tmp = Path(tempfile.gettempdir()) / "dsh_tasklist_out.txt"
-    os.system(f'tasklist /FI "IMAGENAME eq EXCEL.EXE" /FO CSV > "{tmp}"')
-    pids: set[int] = set()
+    """当前 EXCEL.EXE 的 PID 集合（解析 tasklist 输出；临时文件已唯一化）。"""
+    fd, tmp_name = tempfile.mkstemp(prefix="dsh_tasklist_", suffix=".csv")
+    os.close(fd)
+    tmp = Path(tmp_name)
     try:
-        for line in tmp.read_text(encoding="gbk", errors="ignore").splitlines()[1:]:
-            parts = [p.strip('"') for p in line.split('","')]
-            if len(parts) >= 2 and parts[1].isdigit():
-                pids.add(int(parts[1]))
-    except FileNotFoundError:
+        os.system(f'tasklist /FI "IMAGENAME eq EXCEL.EXE" /FO CSV > "{tmp}"')
+        pids: set[int] = set()
+        try:
+            for line in tmp.read_text(encoding="gbk", errors="ignore").splitlines()[1:]:
+                parts = [p.strip('"') for p in line.split('","')]
+                if len(parts) >= 2 and parts[1].isdigit():
+                    pids.add(int(parts[1]))
+        except FileNotFoundError:
+            pass
+        return pids
+    finally:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def plan_reap(present: set[int], owned: set[int], before: set[int]) -> dict:
+    """算出该强杀哪些 Excel PID（纯函数，便于用例断言）。
+
+    - `present`：用例结束时仍然存在的 EXCEL.EXE；
+    - `owned`：本脚本打开的 Excel 的 PID（由 xledger/run_case 登记）；
+    - `before`：用例开始前就已存在的 PID（用户自己的 Excel 一定在这里边）。
+
+    返回 `{"kill": 本脚本自己且仍存活的, "foreign": 用例期间出现但不属于本脚本的}`。
+    改前会对 `present - before` 全部 taskkill —— 用户的 Excel 若在此期间被打开就会被误杀。
+    """
+    kill = sorted(p for p in present if p in owned)
+    foreign = sorted(p for p in present if p not in owned and p not in before)
+    return {"kill": kill, "foreign": foreign}
+
+
+def register_owned(pid) -> None:
+    """登记「由本脚本启动」的 Excel PID（`xledit` 会自动登记，这里是补充入口）。"""
+    try:
+        xledit.owned_pids.add(int(pid))
+    except (TypeError, ValueError):
         pass
-    return pids
 
 
 def reap(new_pids: set[int]) -> None:
-    for pid in new_pids:
+    """只回收「本脚本自己启动」的 Excel PID；其它进程仅记录不杀。"""
+    owned = set(getattr(xledit, "owned_pids", set()))
+    present = excel_pids() if new_pids else set()
+    plan = plan_reap(present, owned, set())
+    for pid in plan["kill"]:
         os.system(f"taskkill /F /PID {pid} > nul 2>&1")
-    if new_pids:
-        log(f"   (已回收 Excel 进程: {sorted(new_pids)})")
+    if plan["foreign"]:
+        log(f"   (警告) 以下 Excel 进程不是本脚本启动的，**未回收**（可能是你自己的 Excel）: "
+            f"{plan['foreign']}")
+    if plan["kill"]:
+        log(f"   (已回收本脚本启动的 Excel 进程: {plan['kill']})")
 
 
 def cell(sht, r: int, c: int):
@@ -326,7 +374,16 @@ def main() -> None:
                        ensure_ascii=False, indent=2, default=str), encoding="utf-8")
         LOG_FH.close()
         LOG_FH = None
-    log(f"原文件 SHA256（运行后）: {src_sha}")
+    # 审计 CW-22：改前这里打印的「运行后」哈希其实是循环**之前**算的（`src_sha = sha(SRC)`），
+    # 脚本从未验证 target.xlsx 未被改动 —— `TEST_REPORT_v2.md:8` 声称的「运行前后哈希一致」
+    # 并非由脚本保障。现在重新计算并显式断言。
+    src_sha_after = sha(SRC)
+    log(f"原文件 SHA256（运行前）: {src_sha}")
+    log(f"原文件 SHA256（运行后）: {src_sha_after}")
+    if src_sha_after != src_sha:
+        log("✗ 原文件 target.xlsx 在运行期间被改动（哈希不一致）：请立即检查用例实现！")
+        sys.exit(1)
+    log("✓ 原文件哈希一致：目标模板未被用例改动")
 
 
 if __name__ == "__main__":

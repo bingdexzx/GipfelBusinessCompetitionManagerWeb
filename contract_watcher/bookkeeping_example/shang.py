@@ -178,6 +178,9 @@ class xledit:
     xlapp:xw.App = None
     wb:xw.Book = None
     entries_to_assets_money = ''
+    # 审计 CW-22：本进程启动过的 Excel PID（供 run_branch_tests 只回收「自己启动的」进程，
+    # 而不是把用例期间新出现的所有 EXCEL.EXE 一律 taskkill —— 那会误杀用户自己的 Excel）。
+    owned_pids: set = set()
     def __init__(self,file:str,debug:bool = False):
         p = Path(file)
         if(p.is_file() != True):
@@ -196,9 +199,18 @@ class xledit:
                 self.wb = self.xlapp.books.open(file)
                 self.xlapp.api.ScreenUpdating = True
                 self.xlapp.api.DisplayAlerts = False
+            self._remember_pid()
         except Exception:
             self._quit_quietly()
             raise
+
+    def _remember_pid(self):
+        """登记本次启动的 Excel PID（审计 CW-22：供脚本只回收自己启动的进程）。"""
+        pid = getattr(getattr(self.xlapp, "impl", None), "pid", None)
+        if pid is None:
+            pid = getattr(self.xlapp, "pid", None)
+        if isinstance(pid, int):
+            type(self).owned_pids.add(pid)
 
     def _quit_quietly(self):
         """异常路径下回收 Excel 进程（失败不影响原始异常）。"""
