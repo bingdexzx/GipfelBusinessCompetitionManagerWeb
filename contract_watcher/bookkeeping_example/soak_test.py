@@ -53,6 +53,7 @@ emit({"event": "start", "mode": MODE, "debug": DEBUG, "rounds": ROUNDS, "sleep":
 t_start = time.time()
 book = None
 ok_rounds = 0
+FAILED = False          # 审计 CW-21：出现不可恢复错误时置位，用于退出码与现场保留
 latencies: list[int] = []
 try:
     t0 = time.time()
@@ -87,7 +88,11 @@ try:
                       "trace_tail": traceback.format_exc().strip().splitlines()[-1],
                       "elapsed_s": round(time.time() - t_start, 1)})
                 if not recoverable:
-                    raise SystemExit(0)
+                    # 审计 CW-21：改前这里用「退出码 0」表示失败 —— 浸泡出现不可恢复错误时
+                    # 脚本调用方/CI/任务计划仍会把它当成功。改为非零退出码，
+                    # 并保留现场（临时 xlsx 与 jsonl 日志都不删），便于事后定位失效点。
+                    FAILED = True
+                    raise SystemExit(1)
         time.sleep(SLEEP)
     else:
         emit({"event": "completed", "rounds": ROUNDS, "elapsed_s": round(time.time() - t_start, 1)})

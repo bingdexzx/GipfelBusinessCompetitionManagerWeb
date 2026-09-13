@@ -132,3 +132,7 @@ try:
     print(f"TOTAL PASS={PASS} FAIL={FAIL}")
 finally:
     shutil.rmtree(TMP, ignore_errors=True)
+
+# 审计 CW-21：改前只打印 `TOTAL PASS/FAIL` 不设退出码 —— CI、任务计划、或"脚本跑完了没报错"
+# 的人工判断都会把失败当成功。任一断言失败即返回 1。
+sys.exit(1 if FAIL else 0)
