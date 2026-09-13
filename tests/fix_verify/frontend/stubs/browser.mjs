@@ -94,6 +94,9 @@ if (typeof globalThis.window === "undefined") {
     pathname: "/",
     hash: "",
     search: "",
+    reload() {
+      browserStub.reloads += 1;
+    },
   };
   win.localStorage = globalThis.localStorage;
   win.sessionStorage = globalThis.sessionStorage;
@@ -108,6 +111,29 @@ if (typeof globalThis.window === "undefined") {
 export const browserStub = {
   storage,
   window: globalThis.window,
+  /** window.location.reload() 调用次数（控件包变更广播会触发整页刷新）。 */
+  reloads: 0,
+  /** 测试可覆盖：模拟 component.js 执行（真实环境里它会设置 window.__widget_module__）。 */
+  onScriptLoad: () => {},
 };
+
+// document 桩：控件包通过 <script src=componentUrl> 加载，onload 后读 window.__widget_module__
+if (typeof globalThis.document === "undefined") {
+  const head = {
+    children: [],
+    appendChild(el) {
+      this.children.push(el);
+      browserStub.onScriptLoad(el.src);
+      if (typeof el.onload === "function") el.onload();
+    },
+  };
+  globalThis.document = {
+    head,
+    createElement(tag) {
+      return { tagName: String(tag).toUpperCase(), src: "", onload: null, onerror: null };
+    },
+  };
+  globalThis.window.document = globalThis.document;
+}
 
 export default browserStub;

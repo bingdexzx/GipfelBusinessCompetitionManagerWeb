@@ -84,6 +84,7 @@ export const useAuthStore = defineStore("auth", () => {
           if (res.user) user.value = res.user;
           else if (user.value) user.value.mustChangePassword = false;
           startHeartbeat();
+          notifyLoggedIn();
           changed = true;
         } else {
           // 兼容旧版本后端：未返回 token 时回到 login 重登路径
@@ -129,6 +130,7 @@ export const useAuthStore = defineStore("auth", () => {
     setActiveUser(res.user.id);
     setAccountItem("token", res.token);
     startHeartbeat();
+    notifyLoggedIn();
   }
 
   async function fetchProfile() {
@@ -178,6 +180,12 @@ export const useAuthStore = defineStore("auth", () => {
         // 401 已由响应拦截器处理；其余错误静默忽略，不中断心跳。
       }
     }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  /** 建立有效登录态后广播：启动阶段因无 token 而失败的一次性加载（自定义控件包，审计 M-01）
+   *  据此重试。与「auth:kicked」成对：一个表示登录态建立、一个表示登录态失效。 */
+  function notifyLoggedIn() {
+    window.dispatchEvent(new CustomEvent("auth:login"));
   }
 
   function logout() {

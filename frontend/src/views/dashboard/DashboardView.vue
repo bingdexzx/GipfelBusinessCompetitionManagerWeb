@@ -283,6 +283,11 @@ import {
   type WidgetConfig,
 } from "@/components/dashboard/types";
 import {
+  mergeLayoutForSave,
+  migrateLegacySizes,
+  splitStoredLayout,
+} from "@/components/dashboard/layoutStorage";
+import {
   useDashboardFields,
   type SelectableField,
 } from "@/composables/useDashboardFields";
@@ -335,24 +340,31 @@ const storageKey = computed(() => {
   return `dashboard.widgets.v1.u${uid}.c${compStore.competitionId ?? "none"}`;
 });
 
+/** 本次未能渲染、但必须原样保留在 localStorage 的控件（类型尚未注册）及其原始顺序。 */
+let preservedWidgets: WidgetConfig[] = [];
+let storedOrder: unknown[] = [];
+
 function loadWidgets() {
   try {
     const raw = localStorage.getItem(storageKey.value);
     const arr = raw ? (JSON.parse(raw) as any[]) : [];
     // 兼容旧版：仅有单一 size 的控件迁移为独立的宽 w / 高 h
-    const migrated = arr.map((w) => {
-      if (w && typeof w.size === "number" && typeof w.w !== "number") {
-        return { ...w, w: w.size, h: w.size, size: undefined };
-      }
-      return w as WidgetConfig;
-    });
-    // 丢弃类型未注册（既非内置、也非已注册自定义）的控件，
-    // 例如已被移除的「计数卡」(example-counter)，避免它被渲染成「未知控件」占位。
-    widgets.value = migrated.filter(
-      (w) => isBuiltinType(w.type) || isCustomType(w.type),
+    const migrated = migrateLegacySizes<WidgetConfig>(arr);
+    // 类型未注册的控件（既非内置、也非已注册自定义）本次不渲染，例如已被移除的
+    // 「计数卡」(example-counter)，避免被渲染成「未知控件」占位；但必须保留在存储里：
+    // 自定义控件包要登录后才拉得到，若在这里直接裁剪、又被下面的 deep watch 回写，
+    // 一次「登录前加载失败」的会话就会把用户已保存的自定义布局永久删除（审计 M-01）。
+    const split = splitStoredLayout<WidgetConfig>(
+      migrated,
+      (t) => isBuiltinType(t) || isCustomType(t),
     );
+    preservedWidgets = split.preserved;
+    storedOrder = split.order;
+    widgets.value = split.visible;
   } catch {
     widgets.value = [];
+    preservedWidgets = [];
+    storedOrder = [];
   }
 }
 
@@ -361,7 +373,10 @@ function saveWidgets() {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try {
-      localStorage.setItem(storageKey.value, JSON.stringify(widgets.value));
+      localStorage.setItem(
+        storageKey.value,
+        JSON.stringify(mergeLayoutForSave(widgets.value, preservedWidgets, storedOrder)),
+      );
     } catch {
       /* 忽略写入失败 */
     }
@@ -370,6 +385,8 @@ function saveWidgets() {
 
 watch(widgets, saveWidgets, { deep: true });
 watch(storageKey, () => loadWidgets());
+// 控件包是登录后才加载完成的；注册完成后重新读一次布局，把「当次未注册」的控件显示出来。
+window.addEventListener("widget-registry:changed", loadWidgets);
 
 function selectWidget(w: WidgetConfig) {
   selectedId.value = w.id;
@@ -400,6 +417,8 @@ function clearAll() {
   ElMessageBox.confirm("清空仪表盘上所有控件？此操作不可撤销。", { type: "warning" })
     .then(() => {
       widgets.value = [];
+      // 保留桶一并清空：否则回写时会把「未注册类型」的旧条目又合并回去（用户以为已清空）
+      preservedWidgets = [];
       selectedId.value = null;
     })
     .catch(() => {});
@@ -579,6 +598,7 @@ onMounted(() => {
   loadWidgets();
 });
 onBeforeUnmount(() => {
+  window.removeEventListener("widget-registry:changed", loadWidgets);
   if (saveTimer) {
     clearTimeout(saveTimer);
     saveTimer = null;
