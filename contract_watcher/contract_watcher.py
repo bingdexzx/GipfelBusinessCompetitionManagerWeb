@@ -471,8 +471,30 @@ def dispatch(contract: dict, registry: dict, out_dir: Path, competition_id: int 
 # ==================== 主循环 ====================
 
 def save_state(state: dict) -> None:
-    """持久化进度。"""
-    STATE_FILE.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    """持久化进度（原子写，审计 CW-13）。
+
+    改前直接 `write_text`：写一半被中断（断电 / 进程被杀 / 磁盘满）会留下**截断的 JSON**，
+    下一次启动 `json.loads` 抛错后静默把 state 当空对象 → 水位与待处理队列一起丢失
+    （旧版本会因此全量重放历史合同；现在虽不会重放，但待处理合同与目录缓存也会丢）。
+    改为临时文件 + `os.replace` 原子替换，并保留一份 .bak 便于事后诊断。
+    """
+    import os
+
+    payload = json.dumps(state, ensure_ascii=False)
+    tmp = STATE_FILE.with_name(STATE_FILE.name + ".tmp")
+    try:
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(payload, encoding="utf-8")
+        if STATE_FILE.exists():
+            try:
+                STATE_FILE.with_name(STATE_FILE.name + ".bak").write_text(
+                    STATE_FILE.read_text(encoding="utf-8"), encoding="utf-8"
+                )
+            except OSError:
+                pass
+        os.replace(tmp, STATE_FILE)
+    except OSError:
+        log.exception("进度文件写入失败：%s", STATE_FILE)
 
 
 def establish_baseline(
@@ -670,7 +692,15 @@ def main() -> int:
     if STATE_FILE.exists():
         try:
             state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            # 审计 CW-13：改前静默 `state = {}` —— 损坏时水位/待处理队列静默丢失且无任何提示。
+            # 现在记 error 并把坏文件改名留证，便于排查（内容不再被下一轮覆盖）。
+            log.error("进度文件损坏（%s: %s），已按空进度启动；坏文件保留为 %s.corrupt",
+                      type(e).__name__, e, STATE_FILE.name)
+            try:
+                STATE_FILE.replace(STATE_FILE.with_name(STATE_FILE.name + ".corrupt"))
+            except OSError:
+                pass
             state = {}
 
     backend = Backend(args.server, args.username, args.password)
