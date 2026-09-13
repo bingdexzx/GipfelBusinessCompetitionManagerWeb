@@ -124,8 +124,11 @@ def main(argv: list[str]) -> int:
 
         competition_id = args.competition
         if args.create_competition and competition_id is None:
-            competition_id = _create_competition(archive["sourceCompetition"]["name"],
-                                                 archive["resources"].get("competitionMeta", {}))
+            competition_id = _create_competition(
+                archive["sourceCompetition"]["name"],
+                archive["resources"].get("competitionMeta", {}),
+                dry_run=bool(args.dry_run),
+            )
             args.competition = competition_id
 
         if args.out:
@@ -170,6 +173,13 @@ def main(argv: list[str]) -> int:
         print(f"已写出归档：{out_written}")
 
     if args.inspect or (not args.out and args.competition is None):
+        _print_summary(archive)
+        return 0
+
+    if args.competition is not None and args.competition < 0:
+        # Z-09：dry-run 且比赛尚不存在 —— 没有可导入的目标（也不该为了预演去建库），
+        # 只做建包预览
+        print("预演：比赛尚不存在（dry-run 不落库），本次只做建包预览")
         _print_summary(archive)
         return 0
 
@@ -243,11 +253,15 @@ def build_from_tables(
     return builder, stats, notes
 
 
-def _create_competition(name: str, meta_block: dict) -> int:
+def _create_competition(name: str, meta_block: dict, *, dry_run: bool = False) -> int:
     """按表格里的比赛名新建（或复用同名）比赛，返回比赛 id。
 
     只做一件事：写入 `Competition` 这一行（比赛名全局唯一，同名直接复用），
     其余内容仍由既有导入引擎落库。
+
+    审计 Z-09：`--dry-run` 时**不落库**（改前先 create 再 apply_import，而 create 在这次
+    事务之外 → 预演也会真实建出一场空比赛，与规范「一行都不落库」的承诺相反）。
+    此时返回一个临时 id 供后续流程打印/预览，导入侧仍按 dry_run 回滚。
     """
     from apps.competitions.models import Competition
 
@@ -256,11 +270,14 @@ def _create_competition(name: str, meta_block: dict) -> int:
     if rows and isinstance(rows[0], dict):
         status = str(rows[0].get("status") or status).upper()
     competition = Competition.objects.filter(name=name).first()
-    if competition is None:
-        competition = Competition.objects.create(name=name, status=status)
-        print(f"已新建比赛：#{competition.id}「{competition.name}」（状态 {competition.status}）")
-    else:
+    if competition is not None:
         print(f"复用已有比赛：#{competition.id}「{competition.name}」（状态 {competition.status}）")
+        return competition.id
+    if dry_run:
+        print(f"预演：将新建比赛「{name}」（状态 {status}）—— dry-run 不落库")
+        return -1
+    competition = Competition.objects.create(name=name, status=status)
+    print(f"已新建比赛：#{competition.id}「{competition.name}」（状态 {competition.status}）")
     return competition.id
 
 
