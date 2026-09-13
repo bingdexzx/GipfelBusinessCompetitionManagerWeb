@@ -1542,16 +1542,14 @@ _CHILD_OF: dict[str, tuple[tuple[str, str], ...]] = {
     "overviewCards": (("regions", "regionId"),),
 }
 
-# 追加模式下：该资源任一「列表型父引用」命中被保留记录时，整行跳过
-_CHILD_OF_LIST: dict[str, tuple[tuple[str, str], ...]] = {
-    # users 的公司范围引用 companies（列表）
-    "users": (
-        ("companies", "companyScopes"),
-        ("companies", "viewCompanyScopes"),
-        ("companies", "contractViewCompanyScopes"),
-        ("companies", "stockCompanyScopes"),
-    ),
-}
+# 追加模式下：该资源任一「列表型父引用」命中被保留记录时，整行跳过。
+#
+# 审计 R-04：这里原本登记了 users 的四个公司范围字段（companyScopes / viewCompanyScopes /
+# contractViewCompanyScopes / stockCompanyScopes）。账号范围只是**引用**公司，账号本身是否存在
+# 只取决于 username；按「引用的公司已存在」整行跳过，会让推荐的分步导入流程（先导参赛主体、
+# 再导账号与权限）一个账号都不建，还给出「保留未改动」的误导性提示。故 users 不再登记在此；
+# 账号的去重与合并交给 _imp_users 按 username 处理。
+_CHILD_OF_LIST: dict[str, tuple[tuple[str, str], ...]] = {}
 
 
 def _filter_rows_for_mode(resource: str, rows: list[dict], ctx: ImportContext) -> list[dict]:
