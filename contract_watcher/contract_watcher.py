@@ -263,7 +263,13 @@ def default_archive(contract: dict, ctx: dict) -> Path:
     return f
 
 
-def dispatch(contract: dict, registry: dict, out_dir: Path, competition_id: int | None) -> None:
+def dispatch(contract: dict, registry: dict, out_dir: Path, competition_id: int | None) -> bool:
+    """分发一个已执行合同；返回是否处理成功。
+
+    改前：异常在此被吞掉且无返回值，调用方（主循环）只按列表 max 推进水位 —— 处理失败的
+    合同被水位越过，永久静默漏记、永不重试、无告警（审计 CW-02）。现在把成败回传给调用方，
+    由调用方记入待处理队列并推迟水位。
+    """
     key = (contract.get("contractType") or {}).get("key") or "unknown"
     ctx = {
         "out_dir": out_dir,
@@ -281,11 +287,125 @@ def dispatch(contract: dict, registry: dict, out_dir: Path, competition_id: int 
             fn(contract, ctx)
             log.info("已按类型处理 contract=#%s type=%s handler=%s", contract["id"], key,
                      getattr(fn, "__name__", fn))
+        return True
     except Exception:  # noqa: BLE001 - 单个合同处理失败不影响后续与网页端
-        log.exception("处理合同 #%s(type=%s) 失败（已隔离）", contract["id"], key)
+        log.exception("处理合同 #%s(type=%s) 失败：记入待处理队列，水位不越过它，下一轮重试",
+                      contract["id"], key)
+        return False
 
 
 # ==================== 主循环 ====================
+
+def save_state(state: dict) -> None:
+    """持久化进度。"""
+    STATE_FILE.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+
+
+def establish_baseline(
+    backend: "Backend", state: dict, competition_id: int | None, backfill: bool
+) -> bool:
+    """建立首次运行基线（进度水位），返回水位是否可用。
+
+    改前：`fetch_executed_ids` 抛异常时会把 `lastExecutedAt=""` **写进 state** —— 水位一旦为
+    空，下一轮所有历史 EXECUTED 合同都被判为「新通过」而全量重放，配合无幂等键的处理函数就是
+    重复记账（审计 CW-01：一次网络抖动即触发）。
+
+    现在：拉取失败不写水位（保持「未建立」状态），本轮不处理任何合同，下一轮重试；
+    只有确实拿到列表（哪怕是空列表）才写入基线。`--backfill` 是用户显式要求回填存量，
+    此时才允许空水位。
+    """
+    if "baselineAt" not in state:
+        state["baselineAt"] = now_iso()
+    if "lastExecutedAt" in state:
+        return True
+    if backfill:
+        state["lastExecutedAt"] = ""
+        save_state(state)
+        log.warning("首次运行基线：已指定 --backfill，水位置空 → 存量已执行合同将全部处理一次")
+        return True
+    try:
+        rows = backend.fetch_executed_ids(competition_id)
+    except Exception as e:  # noqa: BLE001 - 拿不到基线就不能开始处理
+        save_state(state)  # 只落 baselineAt，不落 lastExecutedAt
+        log.warning(
+            "首次运行基线建立失败（%s）：本轮不处理任何合同，下一轮重试；"
+            "不会写入空水位（否则历史合同会被全量重放）", e,
+        )
+        return False
+    state["lastExecutedAt"] = max((t for _, t in rows), default="")
+    save_state(state)
+    log.info(
+        "首次运行基线已建立：lastExecutedAt=%r（%d 条历史已执行合同不再处理；如需回填请用 --backfill）",
+        state["lastExecutedAt"], len(rows),
+    )
+    return True
+
+
+def process_fresh_contracts(
+    backend: "Backend", state: dict, registry: dict, out_dir: Path, competition_id: int | None
+) -> None:
+    """处理「新通过」的合同，并安全推进水位（审计 CW-02）。
+
+    改前：dispatch 吞异常且无返回值，水位按列表 max 推进 —— 处理失败或详情状态不符的合同
+    被水位越过，永久静默漏记、永不重试、无告警。
+
+    现在：
+      - 上一轮失败的合同存于 state["pendingExecuted"]，每轮先重试，成功才移出队列；
+      - 水位只推进到「已成功处理」的最新 executedAt，失败合同不会被水位越过；
+      - 详情状态不符（列表说 EXECUTED、详情说不是）同样记入待处理并告警，而不是静默跳过。
+    """
+    rows = backend.fetch_executed_ids(competition_id)
+    watermark = state.get("lastExecutedAt") or ""
+    pending = state.get("pendingExecuted") or []
+
+    # 待处理队列（含上一轮失败的）+ 本轮新出现的，按 executedAt 升序、按合同 id 去重
+    queue: dict[int, str] = {}
+    for item in pending:
+        try:
+            queue[int(item["id"])] = str(item.get("executedAt") or "")
+        except (KeyError, TypeError, ValueError):
+            continue
+    for cid, et in rows:
+        if et > watermark:
+            queue[int(cid)] = str(et)
+    items = sorted(queue.items(), key=lambda kv: (kv[1], kv[0]))
+
+    advanced_to = watermark
+    still_pending: list[dict] = []
+    for cid, et in items:
+        try:
+            contract = backend.fetch_contract_detail(cid)
+        except Exception as e:  # noqa: BLE001 - 拉详情失败同样不能丢
+            log.warning("拉取合同 #%s 详情失败（%s）→ 记入待处理，下一轮重试", cid, e)
+            still_pending.append({"id": cid, "executedAt": et})
+            continue
+        if contract.get("status") != "EXECUTED":
+            log.warning(
+                "合同 #%s 详情状态为 %s（列表却给出 executedAt=%s）→ 记入待处理并告警，不推进水位",
+                cid, contract.get("status"), et,
+            )
+            still_pending.append({"id": cid, "executedAt": et})
+            continue
+        if dispatch(contract, registry, out_dir, competition_id):
+            if et > advanced_to:
+                advanced_to = et
+        else:
+            still_pending.append({"id": cid, "executedAt": et})
+
+    state["pendingExecuted"] = still_pending
+    if advanced_to > watermark:
+        state["lastExecutedAt"] = advanced_to
+        save_state(state)
+    elif still_pending:
+        # 水位没动也要落盘：待处理队列必须在重启后继续重试
+        save_state(state)
+    if still_pending:
+        log.error(
+            "仍有 %d 个合同未处理成功（%s），已保留在待处理队列，下一轮重试；"
+            "请检查 handlers.py 与输出目录权限",
+            len(still_pending), [p["id"] for p in still_pending],
+        )
+
 
 def sync_catalog(backend: Backend, state: dict, registry_ref: list) -> bool:
     """类型目录同步：新 key 生成默认函数；改名的 key 自动改名；返回目录是否有变化。"""
@@ -369,21 +489,21 @@ def main() -> int:
     last_mtime = HANDLERS_FILE.stat().st_mtime
     sync_catalog(backend, state, registry)
 
-    if "baselineAt" not in state:
-        state["baselineAt"] = now_iso()
-        state["lastExecutedAt"] = ""
-        if not args.backfill:
-            try:
-                rows = backend.fetch_executed_ids(args.competition)
-                state["lastExecutedAt"] = max((t for _, t in rows), default="")
-            except Exception:  # noqa: BLE001
-                state["lastExecutedAt"] = ""
-        STATE_FILE.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    # 首次运行基线：未建立成功前不处理任何合同（审计 CW-01）
+    baseline_ready = establish_baseline(backend, state, args.competition, args.backfill)
     log.info("监听启动 server=%s competition=%s out=%s backfill=%s",
              args.server, args.competition, out_dir, args.backfill)
 
     while True:
         try:
+            # 0) 基线未建立（首次拉取失败）→ 每轮重试，期间不处理合同
+            if not baseline_ready:
+                baseline_ready = establish_baseline(
+                    backend, state, args.competition, args.backfill
+                )
+                if not baseline_ready:
+                    time.sleep(max(0.5, args.interval))
+                    continue
             # 1) handlers.py 被手动修改 → 热加载
             try:
                 mtime = HANDLERS_FILE.stat().st_mtime
@@ -395,21 +515,8 @@ def main() -> int:
                 pass
             # 2) 类型目录同步（新 key 生成 / key 改名自动改名）
             sync_catalog(backend, state, registry)
-            # 3) 检测合同通过
-            rows = backend.fetch_executed_ids(args.competition)
-            last_seen = state.get("lastExecutedAt") or ""
-            fresh = sorted([(cid, t) for cid, t in rows if t > last_seen], key=lambda x: x[1])
-            for cid, et in fresh:
-                contract = backend.fetch_contract_detail(cid)
-                if contract.get("status") != "EXECUTED":
-                    continue
-                dispatch(contract, registry[0], out_dir, args.competition)
-                last_seen = max(last_seen, et)
-            # 4) 持久化进度
-            new_max = max((t for _, t in rows), default="")
-            if new_max and new_max > (state.get("lastExecutedAt") or ""):
-                state["lastExecutedAt"] = new_max
-                STATE_FILE.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+            # 3) 检测合同通过并处理；水位只在成功处理后推进（失败进待处理队列重试）
+            process_fresh_contracts(backend, state, registry[0], out_dir, args.competition)
         except urllib.error.HTTPError as e:
             if e.code == 401:
                 log.warning("登录态失效，下一轮自动重登")
