@@ -222,6 +222,54 @@ class ContractSerializer(serializers.Serializer):
             p["contractNumber"] = cn if (cn is not None and str(cn).strip()) else None
         return parties
 
+    def validate(self, attrs: dict) -> dict:
+        """比赛域隔离：参与方公司必须属于本合同所属比赛。
+
+        只校验「非主办方且已分配公司」的参与方（companyId 为空表示尚未分配，草稿允许）。
+        不校验会让持 contract:manage 的账号可把参与方指向别的比赛的公司，执行时
+        跨租户改写他人公司的产业字段（引擎侧另有兜底校验）。
+        """
+        competition_id = attrs.get("competitionId")
+        if competition_id is None and self.instance is not None:
+            competition_id = self.instance.competition_id
+        parties = attrs.get("parties")
+        if parties is None and self.instance is not None:
+            parties = _parse_json(self.instance.parties, [])
+        if competition_id is None or not isinstance(parties, list):
+            return attrs
+
+        company_ids = sorted(
+            {
+                p["companyId"]
+                for p in parties
+                if isinstance(p, dict)
+                and not p.get("isHost")
+                and isinstance(p.get("companyId"), int)
+                and not isinstance(p.get("companyId"), bool)
+            }
+        )
+        if not company_ids:
+            return attrs
+
+        from apps.companies.models import Company
+
+        found = set(
+            Company.objects.filter(
+                pk__in=company_ids, competition_id=competition_id
+            ).values_list("id", flat=True)
+        )
+        missing = [cid for cid in company_ids if cid not in found]
+        if missing:
+            raise serializers.ValidationError(
+                {
+                    "parties": (
+                        f"参与方公司 {missing} 不存在或不属于本合同所属比赛"
+                        f"（比赛 {competition_id}）"
+                    )
+                }
+            )
+        return attrs
+
     def create(self, validated_data: dict) -> Contract:
         cid = validated_data["competitionId"]
         _assert_competition_exists(cid)

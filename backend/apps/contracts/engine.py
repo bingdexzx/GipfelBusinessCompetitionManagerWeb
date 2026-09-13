@@ -1198,6 +1198,28 @@ def _require_competition(competition_id, label: str):
         raise BusinessError(f"计算{label}缺少比赛上下文（competitionId）", code=400, status_code=400)
 
 
+def assert_company_in_competition(company_id, competition_id, company_name: str | None = None) -> None:
+    """比赛域隔离：参与方公司必须属于本合同所属比赛。
+
+    合同参与方的 companyId 由调用方指定，若不校验比赛归属，构造一份「参与方公司指向
+    别的比赛」的合同即可跨租户读取/改写他人公司的产业字段（见审计 D-02）。
+    这里在引擎取值与落账两条路径上各校验一次；competition_id 缺失时不做限制
+    （无比赛上下文的纯计算场景）。
+    """
+    if not competition_id:
+        return
+    from apps.companies.models import Company
+
+    if Company.objects.filter(pk=company_id, competition_id=competition_id).exists():
+        return
+    label = f"公司「{company_name}」" if company_name else f"公司(#{company_id})"
+    raise BusinessError(
+        f"{label}不属于本合同所属比赛(#{competition_id})，已拒绝该操作（比赛域隔离）",
+        code=403,
+        status_code=403,
+    )
+
+
 def compute_material_list_carbon(raw, competition_id):
     if not isinstance(raw, dict):
         return 0
@@ -1677,6 +1699,7 @@ def read_company_field_value(role: str, field_key: str, ctx: EvalCtx):
     company = Company.objects.filter(pk=company_id).values("id", "name", "industry_type_id").first()
     if not company:
         raise BusinessError(f"公司不存在(#{company_id})", code=400, status_code=400)
+    assert_company_in_competition(company_id, ctx.competition_id if ctx else None, company.get("name"))
     if not company.get("industry_type_id"):
         raise BusinessError(f"公司「{company['name']}」未设置产业类型，无法读取产业字段「{field_key}」", code=400, status_code=400)
     defn = IndustryField.objects.filter(
@@ -2266,6 +2289,7 @@ class ContractEngine:
         company = Company.objects.filter(pk=company_id).values("name", "industry_type_id").first()
         if not company:
             raise BusinessError(f"公司不存在(#{company_id})", code=400, status_code=400)
+        assert_company_in_competition(company_id, ctx.competition_id if ctx else None, company.get("name"))
         if not company.get("industry_type_id"):
             raise BusinessError(f"公司「{company['name']}」未设置产业类型，无法操作产业字段", code=400, status_code=400)
         field = IndustryField.objects.filter(industry_type_id=company["industry_type_id"], field_key=field_key).values("id", "field_type", "config", "name", "default_value").first()
@@ -2340,7 +2364,12 @@ class ContractEngine:
         company_ids = [p["companyId"] for p in parties if not p.get("isHost") and p.get("companyId") is not None]
         if not company_ids:
             return
-        companies = {c["id"]: c for c in Company.objects.filter(id__in=company_ids).values("id", "name", "industry_type_id")}
+        company_qs = Company.objects.filter(id__in=company_ids)
+        # 比赛域隔离：只预加载本合同所属比赛的公司；跨比赛参与方不进缓存，
+        # 取值/落账会走原始路径并由 assert_company_in_competition 拒绝。
+        if ctx.competition_id:
+            company_qs = company_qs.filter(competition_id=ctx.competition_id)
+        companies = {c["id"]: c for c in company_qs.values("id", "name", "industry_type_id")}
         type_ids = list({c["industry_type_id"] for c in companies.values() if c.get("industry_type_id")})
         fields = list(IndustryField.objects.filter(industry_type_id__in=type_ids).values("id", "field_key", "field_type", "default_value", "industry_type_id", "name")) if type_ids else []
         field_by_id = {f["id"]: f for f in fields}
