@@ -1,0 +1,9 @@
+1) 打开 OK
+2) 单元格读取 OK: '库存商品成本期末移动平均结转报告'
+3) 执行 Find(LookIn=xlValues, What='原材料') on sheets[4]
+4) Find 返回: $J$1
+5) Find 之后读取 sheets[1] 单元格（关键判定点）
+6) 读取成功: None
+7) 再执行一次 Find 前的正常写操作
+8) 写操作成功
+9) save ok

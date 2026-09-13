@@ -1,0 +1,51 @@
+{
+  "case": "20_item_raw",
+  "seconds": 66.2,
+  "records": [
+    {
+      "case": "20_item_raw",
+      "step": "初始 last_row",
+      "data": 199,
+      "error": null,
+      "output": null
+    },
+    {
+      "case": "20_item_raw",
+      "step": "新建物料 add=True",
+      "data": "ok",
+      "error": null,
+      "output": null
+    },
+    {
+      "case": "20_item_raw",
+      "step": "物料行定位",
+      "data": {
+        "last_row": 199,
+        "name_row": null
+      },
+      "error": null,
+      "output": null
+    },
+    {
+      "case": "20_item_raw",
+      "step": "已有物料 add=True（插行分支）",
+      "data": null,
+      "error": "Traceback (most recent call last):\n  File \"C:\\Users\\wuhao\\Desktop\\shang\\gipfel\\GipfelBusinessCompetitionManagerWeb\\contract_watcher\\bookkeeping_example\\run_branch_tests.py\", line 211, in _item_case\n    b.add_book_item(thing, name, 50, Decimal(\"60\"), True, False)\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\wuhao\\Desktop\\shang\\gipfel\\GipfelBusinessCompetitionManagerWeb\\contract_watcher\\bookkeeping_example\\shang.py\", line 106, in add_book_item\n    sht = self.wb.sheets[1]\n          ^^^^^^^^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\main.py\", line 1143, in sheets\n    return Sheets(impl=self.impl.sheets)\n                       ^^^^^^^^^^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\_xlwindows.py\", line 841, in sheets\n    return Sheets(xl=self.xl.Worksheets)\n                     ^^^^^^^^^^^^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\_xlwindows.py\", line 199, in __getattr__\n    v = getattr(self._inner, item)\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\_win32patch.py\", line 55, in __getattr__\n    return getattr(d, attr)\n  File \"E:\\python3.14.6\\Lib\\site-packages\\win32com\\client\\__init__.py\", line 590, in __getattr__\n    return self._ApplyTypes_(*args)\n           ~~~~~~~~~~~~~~~~~^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\win32com\\client\\__init__.py\", line 581, in _ApplyTypes_\n    self._oleobj_.InvokeTypes(dispid, 0, wFlags, retType, argTypes, *args),\n    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\npywintypes.com_error: (-2147023174, 'RPC 服务器不可用。', None, None)\n",
+      "output": null
+    },
+    {
+      "case": "20_item_raw",
+      "step": "已有物料 minus=True（出库分支）",
+      "data": null,
+      "error": "Traceback (most recent call last):\n  File \"C:\\Users\\wuhao\\Desktop\\shang\\gipfel\\GipfelBusinessCompetitionManagerWeb\\contract_watcher\\bookkeeping_example\\run_branch_tests.py\", line 216, in _item_case\n    b.add_book_item(thing, name, 30, Decimal(\"0\"), False, True)\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\wuhao\\Desktop\\shang\\gipfel\\GipfelBusinessCompetitionManagerWeb\\contract_watcher\\bookkeeping_example\\shang.py\", line 106, in add_book_item\n    sht = self.wb.sheets[1]\n          ^^^^^^^^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\main.py\", line 1143, in sheets\n    return Sheets(impl=self.impl.sheets)\n                       ^^^^^^^^^^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\_xlwindows.py\", line 841, in sheets\n    return Sheets(xl=self.xl.Worksheets)\n                     ^^^^^^^^^^^^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\_xlwindows.py\", line 199, in __getattr__\n    v = getattr(self._inner, item)\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\_win32patch.py\", line 55, in __getattr__\n    return getattr(d, attr)\n  File \"E:\\python3.14.6\\Lib\\site-packages\\win32com\\client\\__init__.py\", line 590, in __getattr__\n    return self._ApplyTypes_(*args)\n           ~~~~~~~~~~~~~~~~~^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\win32com\\client\\__init__.py\", line 581, in _ApplyTypes_\n    self._oleobj_.InvokeTypes(dispid, 0, wFlags, retType, argTypes, *args),\n    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\npywintypes.com_error: (-2147023174, 'RPC 服务器不可用。', None, None)\n",
+      "output": null
+    },
+    {
+      "case": "20_item_raw",
+      "step": "用例整体异常",
+      "data": null,
+      "error": "Traceback (most recent call last):\n  File \"C:\\Users\\wuhao\\Desktop\\shang\\gipfel\\GipfelBusinessCompetitionManagerWeb\\contract_watcher\\bookkeeping_example\\run_branch_tests.py\", line 220, in _item_case\n    b.wb.app.calculate()\n    ^^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\main.py\", line 1152, in app\n    return App(impl=self.impl.app)\n                    ^^^^^^^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\_xlwindows.py\", line 845, in app\n    return App(xl=self.xl.Application)\n                  ^^^^^^^^^^^^^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\_xlwindows.py\", line 199, in __getattr__\n    v = getattr(self._inner, item)\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\_win32patch.py\", line 55, in __getattr__\n    return getattr(d, attr)\n  File \"E:\\python3.14.6\\Lib\\site-packages\\win32com\\client\\__init__.py\", line 590, in __getattr__\n    return self._ApplyTypes_(*args)\n           ~~~~~~~~~~~~~~~~~^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\win32com\\client\\__init__.py\", line 581, in _ApplyTypes_\n    self._oleobj_.InvokeTypes(dispid, 0, wFlags, retType, argTypes, *args),\n    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\npywintypes.com_error: (-2147023174, 'RPC 服务器不可用。', None, None)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"C:\\Users\\wuhao\\Desktop\\shang\\gipfel\\GipfelBusinessCompetitionManagerWeb\\contract_watcher\\bookkeeping_example\\run_branch_tests.py\", line 318, in main\n    fn()\n    ~~^^\n  File \"C:\\Users\\wuhao\\Desktop\\shang\\gipfel\\GipfelBusinessCompetitionManagerWeb\\contract_watcher\\bookkeeping_example\\run_branch_tests.py\", line 182, in case_20_item_raw\n    _item_case(\"20_item_raw\", things.RAWMETRIAL, 1, \"测试原料A\")\n    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\wuhao\\Desktop\\shang\\gipfel\\GipfelBusinessCompetitionManagerWeb\\contract_watcher\\bookkeeping_example\\run_branch_tests.py\", line 226, in _item_case\n    b.save()\n    ~~~~~~^^\n  File \"C:\\Users\\wuhao\\Desktop\\shang\\gipfel\\GipfelBusinessCompetitionManagerWeb\\contract_watcher\\bookkeeping_example\\shang.py\", line 77, in save\n    self.wb.save()\n    ~~~~~~~~~~~~^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\main.py\", line 1191, in save\n    with self.app.properties(display_alerts=False):\n         ^^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\main.py\", line 1152, in app\n    return App(impl=self.impl.app)\n                    ^^^^^^^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\_xlwindows.py\", line 845, in app\n    return App(xl=self.xl.Application)\n                  ^^^^^^^^^^^^^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\_xlwindows.py\", line 199, in __getattr__\n    v = getattr(self._inner, item)\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\_win32patch.py\", line 55, in __getattr__\n    return getattr(d, attr)\n  File \"E:\\python3.14.6\\Lib\\site-packages\\win32com\\client\\__init__.py\", line 590, in __getattr__\n    return self._ApplyTypes_(*args)\n           ~~~~~~~~~~~~~~~~~^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\win32com\\client\\__init__.py\", line 581, in _ApplyTypes_\n    self._oleobj_.InvokeTypes(dispid, 0, wFlags, retType, argTypes, *args),\n    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\npywintypes.com_error: (-2147023174, 'RPC 服务器不可用。', None, None)\n",
+      "output": null
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+===== CASE 40_assets 开始 =====
+[ok  ] 40_assets :: 资产-银行存款 add=500, minus=0
+[ok  ] 40_assets :: 资产-银行存款 科目定位
+[ERR ] 40_assets :: 负债-短期借款(应互换) add=500, minus=0 -> pywintypes.com_error: (-2147023174, 'RPC 服务器不可用。', None, None)
+[ERR ] 40_assets :: 用例整体异常 -> pywintypes.com_error: (-2147023174, 'RPC 服务器不可用。', None, None)
+===== CASE 40_assets 结束（66.9s，异常 2 条）=====

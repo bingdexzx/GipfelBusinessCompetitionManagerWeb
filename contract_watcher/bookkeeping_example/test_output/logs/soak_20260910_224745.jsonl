@@ -1,0 +1,6 @@
+{"event": "start", "rounds": 30, "sleep": 10.0, "xlsx": "C:\\Users\\wuhao\\Desktop\\shang\\gipfel\\GipfelBusinessCompetitionManagerWeb\\contract_watcher\\bookkeeping_example\\test_output\\soak_20260910_224745.xlsx"}
+{"event": "opened", "open_seconds": 63.2, "excel_pid": null, "excel_mem": null}
+{"event": "round", "i": 1, "t": 63.3, "read_write_ms": 78, "a1": "银行账户明细账", "scratch_ok": true, "excel_alive": false, "elapsed_total_s": 63.4}
+{"event": "round", "i": 2, "t": 73.4, "error": "com_error: (-2147023174, 'RPC 服务器不可用。', None, None)", "trace_tail": "pywintypes.com_error: (-2147023174, 'RPC 服务器不可用。', None, None)", "excel_alive": false}
+{"event": "soak_aborted", "round": 2, "failures": 1, "elapsed_s": 73.5}
+{"event": "save_failed", "error": "com_error: (-2147023174, 'RPC 服务器不可用。', None, None)"}

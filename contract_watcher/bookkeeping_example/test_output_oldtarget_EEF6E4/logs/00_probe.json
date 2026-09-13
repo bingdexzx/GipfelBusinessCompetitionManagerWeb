@@ -1,0 +1,43 @@
+{
+  "case": "00_probe",
+  "seconds": 67.1,
+  "records": [
+    {
+      "case": "00_probe",
+      "step": "0 基索引探测（0 是否合法）",
+      "data": {
+        "(0, 0)": {
+          "value": "银行账户明细账",
+          "formula": "银行账户明细账"
+        },
+        "(1, 1)": {
+          "value": "账户初始资金",
+          "formula": "账户初始资金"
+        },
+        "(2, 2)": {
+          "value": null,
+          "formula": ""
+        },
+        "(0, 2)": {
+          "value": null,
+          "formula": ""
+        },
+        "(2, 0)": {
+          "value": null,
+          "formula": ""
+        }
+      },
+      "error": null,
+      "output": null
+    },
+    {
+      "case": "00_probe",
+      "step": "used_range.last_cell",
+      "data": {
+        "row": 164
+      },
+      "error": null,
+      "output": null
+    }
+  ]
+}

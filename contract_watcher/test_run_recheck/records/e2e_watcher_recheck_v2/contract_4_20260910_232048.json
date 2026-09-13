@@ -1,0 +1,62 @@
+{
+  "id": 4,
+  "competitionId": 3,
+  "contractTypeId": 3,
+  "name": "E2E 重测合同",
+  "status": "EXECUTED",
+  "parties": [
+    {
+      "role": "甲方",
+      "companyId": 1,
+      "contractNumber": "E2E-002",
+      "companyName": null
+    },
+    {
+      "role": "主办方",
+      "isHost": true,
+      "companyName": null
+    }
+  ],
+  "inputs": {
+    "amount": 200
+  },
+  "executionLog": null,
+  "executionResult": null,
+  "signedAt": null,
+  "executedAt": "2026-09-10T15:20:46.731818Z",
+  "contractType": {
+    "id": 3,
+    "key": "e2e_watcher_recheck_v2",
+    "name": "E2E 重测合同",
+    "description": null,
+    "partyCount": 2,
+    "partyRoles": [
+      {
+        "role": "甲方",
+        "isHost": false,
+        "label": "甲方"
+      },
+      {
+        "role": "主办方",
+        "isHost": true,
+        "label": "主办方"
+      }
+    ],
+    "inputSchema": [
+      {
+        "key": "amount",
+        "label": "采购数量",
+        "type": "NUMBER"
+      }
+    ],
+    "effects": [],
+    "conditions": [],
+    "graph": null,
+    "schemaVersion": 1,
+    "enabled": true,
+    "createdAt": "2026-09-10T15:20:20.802010Z",
+    "updatedAt": "2026-09-10T15:20:20.802028Z"
+  },
+  "createdAt": "2026-09-10T15:20:46.732413Z",
+  "updatedAt": "2026-09-10T15:20:46.732419Z"
+}

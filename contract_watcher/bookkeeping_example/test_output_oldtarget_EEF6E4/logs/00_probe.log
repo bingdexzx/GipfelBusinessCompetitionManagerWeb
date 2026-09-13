@@ -1,0 +1,4 @@
+===== CASE 00_probe 开始 =====
+[ok  ] 00_probe :: 0 基索引探测（0 是否合法）
+[ok  ] 00_probe :: used_range.last_cell
+===== CASE 00_probe 结束（67.1s，异常 0 条）=====

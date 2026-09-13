@@ -1,0 +1,8 @@
+===== CASE 20_item_raw 开始 =====
+[ok  ] 20_item_raw :: 初始 last_row
+[ok  ] 20_item_raw :: 新建物料 add=True
+[ok  ] 20_item_raw :: 物料行定位
+[ERR ] 20_item_raw :: 已有物料 add=True（插行分支） -> pywintypes.com_error: (-2147023174, 'RPC 服务器不可用。', None, None)
+[ERR ] 20_item_raw :: 已有物料 minus=True（出库分支） -> pywintypes.com_error: (-2147023174, 'RPC 服务器不可用。', None, None)
+[ERR ] 20_item_raw :: 用例整体异常 -> pywintypes.com_error: (-2147023174, 'RPC 服务器不可用。', None, None)
+===== CASE 20_item_raw 结束（66.2s，异常 3 条）=====

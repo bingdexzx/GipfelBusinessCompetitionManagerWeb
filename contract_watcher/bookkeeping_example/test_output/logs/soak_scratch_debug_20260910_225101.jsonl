@@ -1,0 +1,11 @@
+{"event": "start", "mode": "scratch", "debug": true, "rounds": 25, "sleep": 0.0, "xlsx": "C:\\Users\\wuhao\\Desktop\\shang\\gipfel\\GipfelBusinessCompetitionManagerWeb\\contract_watcher\\bookkeeping_example\\test_output\\soak_scratch_debug_20260910_225101.xlsx"}
+{"event": "opened", "open_seconds": 65.9, "visible": true}
+{"event": "round_ok", "i": 1, "ms": 234, "elapsed_s": 66.7}
+{"event": "round_ok", "i": 2, "ms": 171, "elapsed_s": 66.9}
+{"event": "round_ok", "i": 3, "ms": 152, "elapsed_s": 67.1}
+{"event": "round_ok", "i": 4, "ms": 148, "elapsed_s": 67.2}
+{"event": "round_ok", "i": 5, "ms": 137, "elapsed_s": 67.3}
+{"event": "round_ok", "i": 6, "ms": 179, "elapsed_s": 67.5}
+{"event": "round_fail", "i": 7, "ok_rounds": 6, "error": "com_error: (-536870910, 'OLE error 0xe0000002', None, None)", "trace_tail": "pywintypes.com_error: (-536870910, 'OLE error 0xe0000002', None, None)", "elapsed_s": 67.7}
+{"event": "saved_ok"}
+{"event": "summary", "mode": "scratch", "debug": true, "ok_rounds": 6, "max_ms": 234, "avg_ms": 170, "first_ms": 234, "last_ms": 179, "elapsed_s": 68.4}

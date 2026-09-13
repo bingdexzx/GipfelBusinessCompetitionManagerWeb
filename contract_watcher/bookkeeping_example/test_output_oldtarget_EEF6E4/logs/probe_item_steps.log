@@ -1,0 +1,78 @@
+1) xledit(...) 打开工作簿
+2) ok: 已打开
+3) sheets[1].name = '原材料(加工用)'
+4) used_range.last_cell.row = 222
+5) sht[0,0].value = '库存商品成本期末移动平均结转报告'
+6) sht[4,0].value = 'asd'
+7) sht[4,0].color = (0, 255, 0)
+8) sht[3,0].value = None
+9) 试写远端单元格 R1C1
+10) ok: 读改写同值
+11) 试 small merge (A200:L200)
+12) ok: merge
+13) 试 Find on sheets[4]
+14) Find 结果: $J$1
+15) 试 add_book_item 新建物料（完整调用）
+EXC: Traceback (most recent call last):
+  File "C:\Users\wuhao\Desktop\shang\gipfel\GipfelBusinessCompetitionManagerWeb\tests\_probe_item.py", line 53, in <module>
+    b.add_book_item(things.RAWMETRIAL, "探针原料", 10, Decimal("5"), True, False)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wuhao\Desktop\shang\gipfel\GipfelBusinessCompetitionManagerWeb\contract_watcher\bookkeeping_example\shang.py", line 114, in add_book_item
+    if (sht[i,0].value != None):
+        ^^^^^^^^^^^^^^
+  File "E:\python3.14.6\Lib\site-packages\xlwings\main.py", line 2386, in value
+    return conversion.read(self, None, self._options)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\python3.14.6\Lib\site-packages\xlwings\conversion\__init__.py", line 84, in read
+    ctx = ConversionContext(rng=rng, value=value, engine_name=engine_name)
+  File "E:\python3.14.6\Lib\site-packages\xlwings\conversion\framework.py", line 15, in __init__
+    self.engine = rng.sheet.book.app.engine if rng else xlwings.engines["excel"]
+                                               ^^^
+  File "E:\python3.14.6\Lib\site-packages\xlwings\main.py", line 1968, in __len__
+    return len(self.impl)
+  File "E:\python3.14.6\Lib\site-packages\xlwings\_xlwindows.py", line 1185, in __len__
+    return (self.xl and self.xl.Count) or 0
+            ^^^^^^^
+  File "E:\python3.14.6\Lib\site-packages\xlwings\_xlwindows.py", line 1158, in xl
+    xl_sheet.Cells(row + nrows - 1, col + ncols - 1),
+    ^^^^^^^^^^^^^^
+  File "E:\python3.14.6\Lib\site-packages\xlwings\_xlwindows.py", line 199, in __getattr__
+    v = getattr(self._inner, item)
+  File "E:\python3.14.6\Lib\site-packages\xlwings\_win32patch.py", line 55, in __getattr__
+    return getattr(d, attr)
+  File "E:\python3.14.6\Lib\site-packages\win32com\client\__init__.py", line 590, in __getattr__
+    return self._ApplyTypes_(*args)
+           ~~~~~~~~~~~~~~~~~^^^^^^^
+  File "E:\python3.14.6\Lib\site-packages\win32com\client\__init__.py", line 581, in _ApplyTypes_
+    self._oleobj_.InvokeTypes(dispid, 0, wFlags, retType, argTypes, *args),
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+pywintypes.com_error: (-2147023174, 'RPC 服务器不可用。', None, None)
+
+EXC(save): Traceback (most recent call last):
+  File "C:\Users\wuhao\Desktop\shang\gipfel\GipfelBusinessCompetitionManagerWeb\tests\_probe_item.py", line 60, in <module>
+    b.save()
+    ~~~~~~^^
+  File "C:\Users\wuhao\Desktop\shang\gipfel\GipfelBusinessCompetitionManagerWeb\contract_watcher\bookkeeping_example\shang.py", line 77, in save
+    self.wb.save()
+    ~~~~~~~~~~~~^^
+  File "E:\python3.14.6\Lib\site-packages\xlwings\main.py", line 1191, in save
+    with self.app.properties(display_alerts=False):
+         ^^^^^^^^
+  File "E:\python3.14.6\Lib\site-packages\xlwings\main.py", line 1152, in app
+    return App(impl=self.impl.app)
+                    ^^^^^^^^^^^^^
+  File "E:\python3.14.6\Lib\site-packages\xlwings\_xlwindows.py", line 845, in app
+    return App(xl=self.xl.Application)
+                  ^^^^^^^^^^^^^^^^^^^
+  File "E:\python3.14.6\Lib\site-packages\xlwings\_xlwindows.py", line 199, in __getattr__
+    v = getattr(self._inner, item)
+  File "E:\python3.14.6\Lib\site-packages\xlwings\_win32patch.py", line 55, in __getattr__
+    return getattr(d, attr)
+  File "E:\python3.14.6\Lib\site-packages\win32com\client\__init__.py", line 590, in __getattr__
+    return self._ApplyTypes_(*args)
+           ~~~~~~~~~~~~~~~~~^^^^^^^
+  File "E:\python3.14.6\Lib\site-packages\win32com\client\__init__.py", line 581, in _ApplyTypes_
+    self._oleobj_.InvokeTypes(dispid, 0, wFlags, retType, argTypes, *args),
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+pywintypes.com_error: (-2147023174, 'RPC 服务器不可用。', None, None)
+

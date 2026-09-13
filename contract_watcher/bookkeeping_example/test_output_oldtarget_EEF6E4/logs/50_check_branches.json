@@ -1,0 +1,37 @@
+{
+  "case": "50_check_branches",
+  "seconds": 67.6,
+  "records": [
+    {
+      "case": "50_check_branches",
+      "step": "H80 原始",
+      "data": {
+        "value": null,
+        "formula": ""
+      },
+      "error": null,
+      "output": null
+    },
+    {
+      "case": "50_check_branches",
+      "step": "check() H80=0",
+      "data": null,
+      "error": null,
+      "output": "right"
+    },
+    {
+      "case": "50_check_branches",
+      "step": "check() H80=1",
+      "data": null,
+      "error": null,
+      "output": "资产>负债+所有者权益"
+    },
+    {
+      "case": "50_check_branches",
+      "step": "check() H80=-1",
+      "data": null,
+      "error": null,
+      "output": "资产<负债+所有者权益"
+    }
+  ]
+}

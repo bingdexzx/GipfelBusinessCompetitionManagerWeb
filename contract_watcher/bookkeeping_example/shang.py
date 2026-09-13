@@ -1,0 +1,290 @@
+import datetime as dt
+import xlwings as xw
+from pathlib import Path
+from decimal import Decimal,getcontext
+from enum import Enum
+
+class things(Enum):
+    RAWMETRIAL = 1
+    COMPENT = 2
+    PORDUCT = 3
+class ASSET(Enum):
+    BANK_DEPOSITS = "银行存款"
+    LAND_USE_RIGHTS = "土地使用权"
+    RAW_MATERIALS = "原材料"
+    SEMI_FINISHED_PARTS = "半成品（零件）"
+    FIXED_ASSETS = "固定资产"
+    ACCOUNTS_RECEIVABLE = "应收账款"
+    ACCOUNTS_PAYABLE = "应付账款"
+    INVENTORY_GOODS = "库存商品"
+    INDUSTRIAL_PROPERTY = "工业产权及专有技术"
+    ACCUMULATED_DEPRECIATION = "累计折旧"
+    TRADING_FINANCIAL_ASSETS = "交易性金融资产"
+class LIABILITIES(Enum):
+    ADVANCE_RECEIVABLES = "预收账款"
+    SHORT_TERM_LOANS = "短期借款"
+    ACCOUNTS_PAYABLE = "应付账款"
+    EMPLOYEE_BENEFITS_PAYABLE = "应付职工薪酬"
+class EQUITY(Enum):
+    PRODUCT_SALES_REVENUE = "产品（商品）销售收入"
+    INVESTMENT_INCOME = "投资收益"
+    OTHER_OPERATING_INCOME = "其他业务收入"
+    MAIN_OPERATING_COST_INVENTORY = "主营业务成本-存货成本"
+    MAIN_OPERATING_COST_LABOR = "主营业务成本-人工"
+    MAIN_OPERATING_TAXES = "主营业务税金及附加"
+    SELLING_EXPENSES = "销售费用"
+    ADMINISTRATIVE_EXPENSES = "管理费用"
+    FINANCIAL_EXPENSES_INTEREST = "财务费用（利息费用）"
+    PAID_IN_CAPITAL = "实收资本"
+    CAPITAL_RESERVE = "资本公积"
+    UNDISTRIBUTED_PROFIT = "未分配利润"
+    NON_OPERATING_INCOME = "营业外收入"
+class BOOOKTYPE(Enum):
+    ASSETS = 1
+    LIABILITIES = 2
+    EQUITY = 3
+
+
+getcontext().prec = 2
+
+class xledit:
+    xlapp:xw.App = None
+    wb:xw.Book = None
+    entries_to_assets_money = ''
+    def __init__(self,file:str,debug:bool = False):
+        p = Path(file)
+        if(p.is_file() != True):
+            raise
+        if debug == False:
+            self.xlapp = xw.App(visible=False,add_book=False)
+            self.wb = self.xlapp.books.open(file)
+            self.xlapp.api.ScreenUpdating = False
+            self.xlapp.api.DisplayAlerts = False
+        if debug == True:
+            self.xlapp = xw.App(visible=True,add_book=False)
+            self.wb = self.xlapp.books.open(file)
+            self.xlapp.api.ScreenUpdating = True
+            self.xlapp.api.DisplayAlerts = False
+    def check(self):
+        sht = self.wb.sheets[7]
+        if sht.range('H80').value == 0:
+            print("right")
+        if sht.range('H80').value > 0:
+            print("资产>负债+所有者权益")
+        if sht.range('H80').value < 0:
+            print("资产<负债+所有者权益")
+    def save(self):
+        self.wb.save()
+        self.wb.close()
+        self.xlapp.quit()
+    def add_book_entries(self,add:Decimal,minus:Decimal,number:str,about:str):
+        sht = self.wb.sheets[0]
+        cdt = dt.date.today()
+        dtstr = cdt.strftime("%Y/%m/%d")
+        i = 2
+        while (sht[i,6].value != None):
+            i += 1
+        sht[i,0].value = dtstr
+        if(i == 2):
+            sht[i,2].value = 1
+        if (sht[i,2].options(numbers=int).value != 1):
+            sht[i,2].value =  sht[i-1,2].value + 1
+        if (add != 0):
+            sht[i,3].value = float(add)
+        if (minus != 0):
+            sht[i,4].value = float(minus)
+        if (sht[i,2].options(numbers=int).value != 1):
+            sht[i,5].formula = f'=F{i}+D{i+1}-E{i+1}'
+        elif (sht[i,2].options(numbers=int).value == 1):
+            sht[i,5].formula = f'=B{i+1}+D{i+1}-E{i+1}'
+        self.entries_to_assets_money = sht[i,5].get_address(include_sheetname=True)
+        sht[i,6].value = str(number) + " " + str(about)
+        self.wb.save()
+    def add_book_item(self,thing:things,name:str,number:int,price:Decimal,add:bool,minus:bool):
+        #
+        if thing == things.RAWMETRIAL:
+            sht = self.wb.sheets[1]
+        elif thing == things.COMPENT:
+            sht = self.wb.sheets[2]
+        elif thing == things.PORDUCT:
+            sht = self.wb.sheets[3]
+        #
+        i = 0
+        while (i != sht.used_range.last_cell.row):
+            if (sht[i,0].value != None):
+                if(sht[i+4,0].value == name):
+                    break
+                if((sht[i+4,0].color == (0,255,0))and(sht[i+4,0].value == None)):
+                    break
+                i += 1
+                continue
+            i += 1
+        if(i == sht.used_range.last_cell.row):
+            i -= 1
+            sht[i,0].value = '库存商品成本期末移动平均结转报告'
+            sht.range(f'A{i+1}:L{i+1}').merge()
+            sht[i+1,0].value = '编制单位：XXX公司'#可以处理
+            cdt = dt.date.today()
+            dtstr = cdt.strftime("%Y/%m/%d")
+            sht[i+1,8].value = f'报告日期：{dtstr}'
+            sht.range(f'I{i+2}:K{i+2}').merge()
+            sht[i+2,0].value = '库存货品名称及批次'
+            sht.range(f'A{i+3}:A{i+4}').merge()
+            sht[i+2,1].value = '期初数'
+            sht.range(f'B{i+3}:C{i+3}').merge()
+            sht[i+3,1].value = '数量'
+            sht[i+3,2].value = '总计金额'
+            sht[i+2,3].value = '采购入库'
+            sht.range(f'D{i+3}:F{i+3}').merge()
+            sht[i+2,3].color = '#FFFF00'
+            sht[i+3,3].value = '数量'
+            sht[i+5,3].value = 0
+            sht[i+6,3].value = 0
+            sht[i+3,4].value = '单价'
+            sht[i+3,5].value = '采购金额'
+            sht[i+2,6].value = '耗用出库'
+            sht.range(f'G{i+3}:I{i+3}').merge()
+            sht[i+2,6].color = '#FF3399'
+            sht[i+3,6].value = '数量'
+            sht[i+5,6].value = 0
+            sht[i+6,6].value = 0
+            sht[i+3,7].value = '加权平均单价'
+            sht[i+3,8].value = '出库金额'
+            sht[i+2,9].value = '结存'
+            sht.range(f'J{i+3}:L{i+3}').merge()
+            sht[i+2,9].color = '#FF8000'
+            sht[i+3,9].value = '剩余数量'
+            sht[i+3,10].value = '加权平均单价'
+            sht[i+3,11].value = '剩余总额'
+            sht[i+4,0].color = '#00FF00'
+            sht[i+4,0].value = name
+            sht[i+4,2].formula = f'=20*B{i+5}'
+            if (thing.value != 3):
+                sht[i+5,5].formula = f'=D{i+6}*E{i+6}'
+                sht[i+6,5].formula = f'=D{i+7}*E{i+7}'
+            elif thing.value == 3:
+                sht[i+5,4].formula = f'=IF(D{i+6}=0,0,F{i+6}/D{i+6})'
+                sht[i+6,4].formula = f'=IF(D{i+7}=0,0,F{i+7}/D{i+7})'
+            sht[i+6,7].formula = f'=K{i+6}'
+            sht[i+5,8].formula = f'=IF(F{i+6},G{i+6}*G{i+6},0)'
+            sht[i+6,8].formula = f'=IF(F{i+7},G{i+7}*G{i+7},0)'
+            sht[i+5,9].formula = f'=D{i+6}-G{i+6}+J{i+5}'
+            sht[i+6,9].formula = f'=D{i+7}-G{i+7}+J{i+6}'
+            sht[i+5,10].formula = f'=IF(J{i+6}=0,0,L{i+6}/J{i+6})'
+            sht[i+6,10].formula = f'=IF(J{i+7}=0,0,L{i+7}/J{i+7})'
+            sht[i+5,11].formula = f'=IF(F{i+6},L{i+5}-I{i+6},L{i+5}+F{i+6})'
+            sht[i+6,11].formula = f'=IF(F{i+7},L{i+6}-I{i+7},L{i+6}+F{i+7})'
+            sht[i+7,5].value = '本期采购入库'
+            sht[i+7,6].formula = f'=SUM(F{i+6}:F{i+7})'
+            sht[i+7,7].value = '本期出库金额'
+            sht[i+7,8].formula = f'=SUM(I{i+6}:I{i+7})'
+            sht[i+7,10].value = '剩余总额'
+            sht[i+7,11].formula = f'=L{i+7}'
+            if (thing.value != 3):
+                sht[i+9,9].value = '结存'
+                sht[i+9,10].value = '总库存净额'
+                allplus:str = ''
+                for m in range(1,i+9+1):
+                    if(sht[m,10].value == '剩余总额'):
+                        allplus += sht[m,11].get_address(row_absolute=False,column_absolute=False) + '+'
+                allplus = allplus[:-1]
+                sht[i+9,11].formula = f'={allplus}'
+                if thing.value == 1:
+                    shtT = self.wb.sheets[4]
+                    search_range = sht.api.UsedRange
+                    found_cell = search_range.Find(What='原材料',LookIn=xw.constants.FindLookIn.xlValues)
+                    shtTT = shtT.range(found_cell.Address)
+                    sht[shtTT+2,shtTT-1].value = f'={sht[i+9,11].get_address(include_sheetname=True,row_absolute=False,column_absolute=False)}'
+                if thing.value == 2:
+                    shtT = self.wb.sheets[4]
+                    search_range = sht.api.UsedRange
+                    found_cell = search_range.Find(What='半成品（零件）',LookIn=xw.constants.FindLookIn.xlValues)
+                    shtTT = shtT.range(found_cell.Address)
+                    sht[shtTT+2,shtTT-1].value = f'={sht[i+9,11].get_address(include_sheetname=True,row_absolute=False,column_absolute=False)}'
+            if(thing.value == 3):
+                sht[i+9,9].value = '结转'
+                sht[i+9,10].value = '总商品净额'
+                sht[i+10,10].value = '主营业务成本'
+                allplus:str = ''
+                for m in range(1,i+9+1):
+                    if(sht[m,10].value == '剩余总额'):
+                        allplus += sht[m,11].get_address(row_absolute=False,column_absolute=False) + '+'
+                allplus = allplus[:-1]
+                sht[i+9,11].formula = f'={allplus}'
+                allplus:str = ''
+                for m in range(1,i+9+1):
+                    if(sht[m,10].value == '本期出库金额：'):
+                        allplus += sht[m,7].get_address(row_absolute=False,column_absolute=False) + '+'
+                allplus = allplus[:-1]
+                sht[i+9,11].formula = f'={allplus}'
+                shtT = self.wb.sheets[4]
+                search_range = sht.api.UsedRange
+                found_cell = search_range.Find(What='库存商品',LookIn=xw.constants.FindLookIn.xlValues)
+                shtTT = shtT.range(found_cell.Address)
+                sht[shtTT+2,shtTT-1].value = f'={sht[i+9,11].get_address(include_sheetname=True,row_absolute=False,column_absolute=False)}'
+                shtT = self.wb.sheets[6]
+                search_range = sht.api.UsedRange
+                found_cell = search_range.Find(What='主营业务成本-存货成本',LookIn=xw.constants.FindLookIn.xlValues)
+                shtTT = shtT.range(found_cell.Address)
+                sht[shtTT+2,shtTT-1].value = f'={sht[i+10,11].get_address(include_sheetname=True,row_absolute=False,column_absolute=False)}'
+        #写入数据
+        if sht[i+4,0].value == None:
+            sht[i+4,0].value = name
+        while True:
+            if i == sht.used_range.last_cell.row:
+                break
+            if (sht[i+6,3].value == 0) and (sht[i+6,6].value == 0):
+                if add == True:
+                    if sht[i+7,5].value == '本期采购入库':
+                        sht.range(f'{i+8}:{i+8}').insert(shift='down')
+                        sht.range(f'A{i+7}:L{i+7}').autofill(sht.range(f'A{i+8}:L{i+8}'))
+                    sht[i+6,3].value = number
+                    if thing.value == 3:
+                        sht[i+6,5].value = float(price)
+                        break
+                    sht[i+6,4].value = float(price)
+                    break
+                if minus ==True:
+                    if sht[i+7,5].value == '本期采购入库':
+                        sht.range(f'{i+8}:{i+8}').insert(shift='down')
+                        sht.range(f'A{i+7}:L{i+7}').autofill(sht.range(f'A{i+8}:L{i+8}'))
+                    sht[i+6,6].value = number
+                    break
+            i += 1
+        self.wb.save()
+    def add_book_assets(self,type:BOOOKTYPE,name:ASSET,add:Decimal,minus:Decimal):
+        #
+        if type == BOOOKTYPE.ASSETS:
+            sht = self.wb.sheets[4]
+        elif type == BOOOKTYPE.LIABILITIES:
+            sht = self.wb.sheets[5]
+            n = minus
+            minus = add
+            add = n
+        elif type == BOOOKTYPE.EQUITY:
+            sht = self.wb.sheets[6]
+            n = minus
+            minus = add
+            add = n
+        search_range = sht.api.UsedRange
+        found_cell = search_range.Find(What=name.value,LookIn=xw.constants.FindLookIn.xlValues)
+        colunmT = 0
+        rowT = 0
+        rowT = found_cell.Row-1
+        colunmT = found_cell.Column-1
+        rowT += 3
+        while True:
+            if(sht[rowT,colunmT].formula == '') and (sht[rowT,colunmT+1].formula == '') and (sht[rowT,colunmT-1].value == None):
+                sht[rowT,colunmT].value = float(add)
+                sht[rowT,colunmT+1].value = float(minus)
+                break
+            if sht[rowT,colunmT-1].value != None:
+                sht.range(f'{sht[rowT,colunmT-1].address}:{sht[rowT+1,colunmT+1].address}').api.Cut()
+                sht.range(f'{sht[rowT+1,colunmT]}').paste()
+                if name.value == '银行存款':
+                    sht[rowT+2,colunmT+1].formula = f'{sht[rowT+2,colunmT].address}-{self.entries_to_assets_money}'
+                sht[rowT,colunmT].value = float(add)
+                sht[rowT,colunmT+1].value = float(minus)
+                break
+            rowT += 1
+        self.wb.save()

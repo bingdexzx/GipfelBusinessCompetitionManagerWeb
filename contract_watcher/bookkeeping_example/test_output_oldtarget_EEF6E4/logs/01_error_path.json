@@ -1,0 +1,13 @@
+{
+  "case": "01_error_path",
+  "seconds": 0.0,
+  "records": [
+    {
+      "case": "01_error_path",
+      "step": "不存在的文件",
+      "data": null,
+      "error": "RuntimeError: No active exception to reraise",
+      "output": null
+    }
+  ]
+}

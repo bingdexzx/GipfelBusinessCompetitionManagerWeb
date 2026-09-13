@@ -1,0 +1,117 @@
+{
+  "case": "10_bank_entries",
+  "seconds": 66.4,
+  "records": [
+    {
+      "case": "10_bank_entries",
+      "step": "初始 last_row",
+      "data": 164,
+      "error": null,
+      "output": null
+    },
+    {
+      "case": "10_bank_entries",
+      "step": "add_book_entries(add!=0)",
+      "data": "ok",
+      "error": null,
+      "output": null
+    },
+    {
+      "case": "10_bank_entries",
+      "step": "add_book_entries(minus!=0)",
+      "data": "ok",
+      "error": null,
+      "output": null
+    },
+    {
+      "case": "10_bank_entries",
+      "step": "add_book_entries(add=minus=0)",
+      "data": "ok",
+      "error": null,
+      "output": null
+    },
+    {
+      "case": "10_bank_entries",
+      "step": "调用后 last_row",
+      "data": 164,
+      "error": null,
+      "output": null
+    },
+    {
+      "case": "10_bank_entries",
+      "step": "entries_to_assets_money",
+      "data": "银行流水账!$F$5",
+      "error": null,
+      "output": null
+    },
+    {
+      "case": "10_bank_entries",
+      "step": "第2-8行 A-G 快照",
+      "data": [
+        {
+          "r2c0": {
+            "value": "2026-09-10 00:00:00",
+            "formula": "46275"
+          },
+          "r2c2": {
+            "value": 1.0,
+            "formula": "1"
+          },
+          "r2c3": {
+            "value": 1000.0,
+            "formula": "1000"
+          },
+          "r2c5": {
+            "value": 1000.0,
+            "formula": "=B3+D3-E3"
+          },
+          "r2c6": {
+            "value": "C001 合同收款",
+            "formula": "C001 合同收款"
+          }
+        },
+        {
+          "r3c0": {
+            "value": "2026-09-10 00:00:00",
+            "formula": "46275"
+          },
+          "r3c2": {
+            "value": 2.0,
+            "formula": "2"
+          },
+          "r3c4": {
+            "value": 300.0,
+            "formula": "300"
+          },
+          "r3c5": {
+            "value": 700.0,
+            "formula": "=F3+D4-E4"
+          },
+          "r3c6": {
+            "value": "C002 合同付款",
+            "formula": "C002 合同付款"
+          }
+        },
+        {
+          "r4c0": {
+            "value": "2026-09-10 00:00:00",
+            "formula": "46275"
+          },
+          "r4c2": {
+            "value": 3.0,
+            "formula": "3"
+          }
+        }
+      ],
+      "error": null,
+      "output": null
+    },
+    {
+      "case": "10_bank_entries",
+      "step": "用例整体异常",
+      "data": null,
+      "error": "Traceback (most recent call last):\n  File \"C:\\Users\\wuhao\\Desktop\\shang\\gipfel\\GipfelBusinessCompetitionManagerWeb\\contract_watcher\\bookkeeping_example\\run_branch_tests.py\", line 318, in main\n    fn()\n    ~~^^\n  File \"C:\\Users\\wuhao\\Desktop\\shang\\gipfel\\GipfelBusinessCompetitionManagerWeb\\contract_watcher\\bookkeeping_example\\run_branch_tests.py\", line 178, in case_10_bank_entries\n    b.save()\n    ~~~~~~^^\n  File \"C:\\Users\\wuhao\\Desktop\\shang\\gipfel\\GipfelBusinessCompetitionManagerWeb\\contract_watcher\\bookkeeping_example\\shang.py\", line 77, in save\n    self.wb.save()\n    ~~~~~~~~~~~~^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\main.py\", line 1191, in save\n    with self.app.properties(display_alerts=False):\n         ^^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\main.py\", line 1152, in app\n    return App(impl=self.impl.app)\n                    ^^^^^^^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\_xlwindows.py\", line 845, in app\n    return App(xl=self.xl.Application)\n                  ^^^^^^^^^^^^^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\_xlwindows.py\", line 199, in __getattr__\n    v = getattr(self._inner, item)\n  File \"E:\\python3.14.6\\Lib\\site-packages\\xlwings\\_win32patch.py\", line 55, in __getattr__\n    return getattr(d, attr)\n  File \"E:\\python3.14.6\\Lib\\site-packages\\win32com\\client\\__init__.py\", line 590, in __getattr__\n    return self._ApplyTypes_(*args)\n           ~~~~~~~~~~~~~~~~~^^^^^^^\n  File \"E:\\python3.14.6\\Lib\\site-packages\\win32com\\client\\__init__.py\", line 581, in _ApplyTypes_\n    self._oleobj_.InvokeTypes(dispid, 0, wFlags, retType, argTypes, *args),\n    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\npywintypes.com_error: (-2147023174, 'RPC 服务器不可用。', None, None)\n",
+      "output": null
+    }
+  ]
+}

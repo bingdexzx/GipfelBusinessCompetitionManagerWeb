@@ -1,0 +1,45 @@
+{"event": "start", "mode": "scratch", "debug": true, "rounds": 40, "sleep": 0.0, "xlsx": "C:\\Users\\wuhao\\Desktop\\shang\\gipfel\\GipfelBusinessCompetitionManagerWeb\\contract_watcher\\bookkeeping_example\\test_output\\soak_scratch_debug_20260910_225951.xlsx"}
+{"event": "opened", "open_seconds": 65.4, "visible": true}
+{"event": "round_ok", "i": 1, "ms": 426, "attempts": 1, "elapsed_s": 66.5}
+{"event": "round_ok", "i": 2, "ms": 211, "attempts": 1, "elapsed_s": 66.7}
+{"event": "round_ok", "i": 3, "ms": 242, "attempts": 1, "elapsed_s": 67.0}
+{"event": "round_ok", "i": 4, "ms": 148, "attempts": 1, "elapsed_s": 67.1}
+{"event": "round_ok", "i": 5, "ms": 182, "attempts": 1, "elapsed_s": 67.3}
+{"event": "round_ok", "i": 6, "ms": 173, "attempts": 1, "elapsed_s": 67.5}
+{"event": "round_ok", "i": 7, "ms": 167, "attempts": 1, "elapsed_s": 67.6}
+{"event": "round_ok", "i": 8, "ms": 199, "attempts": 1, "elapsed_s": 67.8}
+{"event": "round_ok", "i": 9, "ms": 209, "attempts": 1, "elapsed_s": 68.0}
+{"event": "round_ok", "i": 10, "ms": 193, "attempts": 1, "elapsed_s": 68.2}
+{"event": "round_ok", "i": 11, "ms": 170, "attempts": 1, "elapsed_s": 68.4}
+{"event": "round_ok", "i": 12, "ms": 236, "attempts": 1, "elapsed_s": 68.6}
+{"event": "round_ok", "i": 13, "ms": 167, "attempts": 1, "elapsed_s": 68.8}
+{"event": "round_ok", "i": 14, "ms": 177, "attempts": 1, "elapsed_s": 69.0}
+{"event": "round_ok", "i": 15, "ms": 338, "attempts": 1, "elapsed_s": 69.3}
+{"event": "round_ok", "i": 16, "ms": 188, "attempts": 1, "elapsed_s": 69.5}
+{"event": "round_ok", "i": 17, "ms": 131, "attempts": 1, "elapsed_s": 69.6}
+{"event": "round_ok", "i": 18, "ms": 161, "attempts": 1, "elapsed_s": 69.8}
+{"event": "round_ok", "i": 19, "ms": 194, "attempts": 1, "elapsed_s": 70.0}
+{"event": "round_ok", "i": 20, "ms": 89, "attempts": 1, "elapsed_s": 70.1}
+{"event": "round_ok", "i": 21, "ms": 145, "attempts": 1, "elapsed_s": 70.2}
+{"event": "round_ok", "i": 22, "ms": 150, "attempts": 1, "elapsed_s": 70.4}
+{"event": "round_ok", "i": 23, "ms": 168, "attempts": 1, "elapsed_s": 70.6}
+{"event": "round_ok", "i": 24, "ms": 175, "attempts": 1, "elapsed_s": 70.7}
+{"event": "round_ok", "i": 25, "ms": 131, "attempts": 1, "elapsed_s": 70.9}
+{"event": "round_ok", "i": 26, "ms": 131, "attempts": 1, "elapsed_s": 71.0}
+{"event": "round_ok", "i": 27, "ms": 157, "attempts": 1, "elapsed_s": 71.2}
+{"event": "round_ok", "i": 28, "ms": 144, "attempts": 1, "elapsed_s": 71.3}
+{"event": "round_ok", "i": 29, "ms": 123, "attempts": 1, "elapsed_s": 71.4}
+{"event": "round_ok", "i": 30, "ms": 224, "attempts": 1, "elapsed_s": 71.7}
+{"event": "round_ok", "i": 31, "ms": 264, "attempts": 1, "elapsed_s": 71.9}
+{"event": "round_ok", "i": 32, "ms": 250, "attempts": 1, "elapsed_s": 72.2}
+{"event": "round_ok", "i": 33, "ms": 354, "attempts": 1, "elapsed_s": 72.5}
+{"event": "round_ok", "i": 34, "ms": 155, "attempts": 1, "elapsed_s": 72.7}
+{"event": "round_ok", "i": 35, "ms": 148, "attempts": 1, "elapsed_s": 72.8}
+{"event": "round_ok", "i": 36, "ms": 188, "attempts": 1, "elapsed_s": 73.0}
+{"event": "round_ok", "i": 37, "ms": 190, "attempts": 1, "elapsed_s": 73.2}
+{"event": "round_ok", "i": 38, "ms": 202, "attempts": 1, "elapsed_s": 73.4}
+{"event": "round_ok", "i": 39, "ms": 123, "attempts": 1, "elapsed_s": 73.5}
+{"event": "round_ok", "i": 40, "ms": 162, "attempts": 1, "elapsed_s": 73.7}
+{"event": "completed", "rounds": 40, "elapsed_s": 73.7}
+{"event": "saved_ok"}
+{"event": "summary", "mode": "scratch", "debug": true, "ok_rounds": 40, "max_ms": 426, "avg_ms": 190, "first_ms": 426, "last_ms": 162, "elapsed_s": 74.5}

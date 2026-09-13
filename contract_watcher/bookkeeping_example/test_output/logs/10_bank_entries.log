@@ -1,0 +1,10 @@
+===== CASE 10_bank_entries 开始 =====
+[ok  ] 10_bank_entries :: 初始 last_row
+[ok  ] 10_bank_entries :: add_book_entries(add!=0)
+[ok  ] 10_bank_entries :: add_book_entries(minus!=0)
+[ok  ] 10_bank_entries :: add_book_entries(add=minus=0)
+[ok  ] 10_bank_entries :: 调用后 last_row
+[ok  ] 10_bank_entries :: entries_to_assets_money
+[ok  ] 10_bank_entries :: 第2-8行 A-G 快照
+[ERR ] 10_bank_entries :: 用例整体异常 -> pywintypes.com_error: (-2147023174, 'RPC 服务器不可用。', None, None)
+===== CASE 10_bank_entries 结束（66.4s，异常 1 条）=====

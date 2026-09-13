@@ -1,0 +1,11 @@
+{"event": "start", "mode": "idle", "debug": false, "rounds": 6, "sleep": 30.0, "xlsx": "C:\\Users\\wuhao\\Desktop\\shang\\gipfel\\GipfelBusinessCompetitionManagerWeb\\contract_watcher\\bookkeeping_example\\test_output\\soak_idle_20260910_230107.xlsx"}
+{"event": "opened", "open_seconds": 63.4, "visible": false}
+{"event": "round_ok", "i": 1, "ms": 87, "attempts": 1, "elapsed_s": 63.5}
+{"event": "round_ok", "i": 2, "ms": 31, "attempts": 1, "elapsed_s": 93.6}
+{"event": "round_ok", "i": 3, "ms": 59, "attempts": 1, "elapsed_s": 123.6}
+{"event": "round_ok", "i": 4, "ms": 32, "attempts": 1, "elapsed_s": 153.6}
+{"event": "round_ok", "i": 5, "ms": 52, "attempts": 1, "elapsed_s": 183.7}
+{"event": "round_ok", "i": 6, "ms": 41, "attempts": 1, "elapsed_s": 213.8}
+{"event": "completed", "rounds": 6, "elapsed_s": 243.8}
+{"event": "saved_ok"}
+{"event": "summary", "mode": "idle", "debug": false, "ok_rounds": 6, "max_ms": 87, "avg_ms": 50, "first_ms": 87, "last_ms": 41, "elapsed_s": 244.0}

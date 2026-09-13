@@ -1,0 +1,6 @@
+===== CASE 50_check_branches 开始 =====
+[ok  ] 50_check_branches :: H80 原始
+[ok  ] 50_check_branches :: check() H80=0
+[ok  ] 50_check_branches :: check() H80=1
+[ok  ] 50_check_branches :: check() H80=-1
+===== CASE 50_check_branches 结束（67.6s，异常 0 条）=====

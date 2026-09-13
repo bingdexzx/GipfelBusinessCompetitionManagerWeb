@@ -1,0 +1,17 @@
+{"event": "start", "mode": "idle", "debug": true, "rounds": 12, "sleep": 30.0, "xlsx": "C:\\Users\\wuhao\\Desktop\\shang\\gipfel\\GipfelBusinessCompetitionManagerWeb\\contract_watcher\\bookkeeping_example\\test_output\\soak_idle_debug_20260910_225230.xlsx"}
+{"event": "opened", "open_seconds": 65.8, "visible": true}
+{"event": "round_ok", "i": 1, "ms": 111, "attempts": 1, "elapsed_s": 66.5}
+{"event": "round_ok", "i": 2, "ms": 100, "attempts": 1, "elapsed_s": 96.6}
+{"event": "round_ok", "i": 3, "ms": 68, "attempts": 1, "elapsed_s": 126.7}
+{"event": "round_ok", "i": 4, "ms": 55, "attempts": 1, "elapsed_s": 156.8}
+{"event": "round_ok", "i": 5, "ms": 88, "attempts": 1, "elapsed_s": 186.9}
+{"event": "round_ok", "i": 6, "ms": 79, "attempts": 1, "elapsed_s": 217.0}
+{"event": "round_ok", "i": 7, "ms": 72, "attempts": 1, "elapsed_s": 247.0}
+{"event": "round_ok", "i": 8, "ms": 90, "attempts": 1, "elapsed_s": 277.1}
+{"event": "round_ok", "i": 9, "ms": 91, "attempts": 1, "elapsed_s": 307.2}
+{"event": "round_ok", "i": 10, "ms": 57, "attempts": 1, "elapsed_s": 337.3}
+{"event": "round_ok", "i": 11, "ms": 93, "attempts": 1, "elapsed_s": 367.4}
+{"event": "round_ok", "i": 12, "ms": 120, "attempts": 1, "elapsed_s": 397.5}
+{"event": "completed", "rounds": 12, "elapsed_s": 427.5}
+{"event": "saved_ok"}
+{"event": "summary", "mode": "idle", "debug": true, "ok_rounds": 12, "max_ms": 120, "avg_ms": 85, "first_ms": 111, "last_ms": 120, "elapsed_s": 428.1}

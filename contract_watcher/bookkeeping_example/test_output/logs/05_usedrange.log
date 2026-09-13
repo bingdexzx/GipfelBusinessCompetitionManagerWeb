@@ -1,0 +1,15 @@
+===== CASE 05_usedrange 开始 =====
+  sheet[0] {'sheet': 0, 'name': '银行流水账', 'last_row': 164, 'last_col': 17}
+  sheet[1] {'sheet': 1, 'name': '原材料(加工用)', 'last_row': 199, 'last_col': 12}
+  sheet[2] {'sheet': 2, 'name': '零件（加工用）', 'last_row': 199, 'last_col': 12}
+  sheet[3] {'sheet': 3, 'name': '商品（各实体用）', 'last_row': 182, 'last_col': 12}
+  sheet[4] {'sheet': 4, 'name': '明细账汇总-资产类科目', 'last_row': 31, 'last_col': 47}
+  sheet[5] {'sheet': 5, 'name': '明细账汇总-负债类科目', 'last_row': 21, 'last_col': 17}
+  sheet[6] {'sheet': 6, 'name': '明细账汇总-损益类科目', 'last_row': 25, 'last_col': 51}
+  sheet[7] {'sheet': 7, 'name': '资产负债表', 'last_row': 80, 'last_col': 8}
+  sheet[8] {'sheet': 8, 'name': '利润表', 'last_row': 48, 'last_col': 42}
+  sheet[9] {'sheet': 9, 'name': '计算', 'last_row': 163, 'last_col': 51}
+  sheet[10] {'sheet': 10, 'name': '现金流量表', 'last_row': 30, 'last_col': 7}
+  sheet[11] {'sheet': 11, 'name': '常用财务分析表', 'last_row': 41, 'last_col': 7}
+[ok  ] 05_usedrange :: 12 张表 used_range
+===== CASE 05_usedrange 结束（67.5s，异常 0 条）=====

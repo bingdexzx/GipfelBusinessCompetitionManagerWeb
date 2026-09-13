@@ -1,0 +1,5 @@
+===== CASE 20_item_raw 开始 =====
+[ok  ] 20_item_raw :: 初始 last_row
+[ERR ] 20_item_raw :: 新建物料 add=True -> pywintypes.com_error: (-2147023174, 'RPC 服务器不可用。', None, None)
+[ERR ] 20_item_raw :: 用例整体异常 -> pywintypes.com_error: (-2147023174, 'RPC 服务器不可用。', None, None)
+===== CASE 20_item_raw 结束（66.7s，异常 2 条）=====

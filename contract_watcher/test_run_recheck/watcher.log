@@ -1,0 +1,7 @@
+2026-09-10 23:20:08,486 INFO 监听启动 server=http://127.0.0.1:8123 competition=None out=C:\Users\wuhao\Desktop\shang\gipfel\GipfelBusinessCompetitionManagerWeb\contract_watcher\test_run_recheck\records backfill=False
+2026-09-10 23:20:20,948 INFO 类型目录发现新 key=e2e_watcher_recheck → 已自动生成默认函数
+2026-09-10 23:20:21,056 INFO 已按类型处理 contract=#3 type=e2e_watcher_recheck handler=handle_e2e_watcher_recheck_passed
+2026-09-10 23:20:23,060 INFO handlers.py 已变更，热加载完成
+2026-09-10 23:20:39,796 INFO 类型 key 改名 e2e_watcher_recheck → e2e_watcher_recheck_v2（typeId=3）→ 已自动改名并保留函数体
+2026-09-10 23:20:41,871 INFO handlers.py 已变更，热加载完成
+2026-09-10 23:20:48,246 INFO 已按类型处理 contract=#4 type=e2e_watcher_recheck_v2 handler=handle_e2e_watcher_recheck_v2_passed
