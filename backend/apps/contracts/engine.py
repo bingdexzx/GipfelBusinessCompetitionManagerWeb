@@ -555,7 +555,20 @@ def combine_values(v1: Any, v2: Any, vop: str, field_type: str) -> Any:
 # 明确不支持成员访问(a.b)，从语法层面堵死 constructor/Function 等逃逸路径。
 
 class _SafeExpressionError(Exception):
-    pass
+    """受限表达式求值失败（语法/未定义标识符/函数计算失败）。"""
+
+
+def _call_guarded(name: str, func, args: list):
+    """调用公式函数并归一化异常。
+
+    数学域错误（`log(0)`、`sqrt(-1)`、`asin(2)`）、溢出（`pow(10,1000)`）、
+    除零（`log(x, 1)`）与参数个数/类型不符都会抛原生异常；改前它们直接冒到接口层
+    变成 500。公式是用户输入，必须转成可读的业务错误（审计 D-04）。
+    """
+    try:
+        return func(*args)
+    except (ValueError, OverflowError, ZeroDivisionError, TypeError) as e:
+        raise _SafeExpressionError(f"函数 {name}() 计算失败: {e}") from e
 
 
 def _tok_is_ident_start(c: str) -> bool:
@@ -902,16 +915,21 @@ class _FormulaParser:
                 return self.scope[name]
             if name in _BUILTIN_CONSTS:
                 return _BUILTIN_CONSTS[name]
-            return 0  # 未定义变量回退为 0
+            # 未定义标识符不再回退为 0：金额公式里拼错变量名会静默按 0 参与计算，
+            # 配合 op=SET 还会把字段直接写成 0，而合同照常置为「已执行」（审计 D-04）。
+            # 改为报错，由 eval_value_spec 转成 400 业务错误。
+            raise _SafeExpressionError(
+                f'未定义变量: "{name}"（请核对该标识符是否为产业字段、输入项或公式变量）'
+            )
         raise _SafeExpressionError(f'意外的记号: "{t[1] or t[0]}"')
 
     def _call_fn(self, name: str, args: list):
         builtin = _BUILTIN_FUNCS.get(name)
         if builtin is not None:
-            return builtin(*args)
+            return _call_guarded(name, builtin, args)
         sc = self.scope.get(name)
         if callable(sc):
-            return sc(*args)
+            return _call_guarded(name, sc, args)
         raise _SafeExpressionError(f"未知函数: {name}")
 
 
@@ -1142,10 +1160,21 @@ def apply_op(op: str, args: list, scope: dict | None = None) -> Any:
             return x // y if x % y == 0 else Decimal(x) / Decimal(y)
         return x / y
     if op == "EXP":
-        return math.exp(float(num(a[0])))
+        x = num(a[0])
+        try:
+            return math.exp(float(x))
+        except (ValueError, OverflowError) as e:
+            # 参数过大/非法 → 改前 OverflowError 直接 500（审计 D-04）
+            raise BusinessError(f"EXP 计算失败（参数 {x}）: {e}", code=400, status_code=400) from e
     if op == "LOG":
         x = float(num(a[0])); base = float(num(a[1]))
-        return math.log(x) / math.log(base) if base > 0 else math.log(x)
+        try:
+            return math.log(x) / math.log(base) if base > 0 else math.log(x)
+        except (ValueError, ZeroDivisionError) as e:
+            # 真数为 0/负数 → ValueError；底数为 1 → math.log(1)=0 作分母 → ZeroDivisionError
+            raise BusinessError(
+                f"LOG 计算失败（真数 {x}，底数 {base}）: {e}", code=400, status_code=400
+            ) from e
     if op == "MIN":
         return min(num(a[0]), num(a[1]))
     if op == "MAX":
