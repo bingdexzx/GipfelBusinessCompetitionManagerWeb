@@ -27,6 +27,8 @@ logger = logging.getLogger("gipfel")
 
 EVENT_RESOURCE_CHANGED = "resource:changed"
 EVENT_PERMISSIONS_CHANGED = "permissions:changed"
+#: 通知客户端「需要重新认证」（顶号 / 被禁用 / 密码被重置后由前端清登录态并跳登录页）
+EVENT_AUTH_REQUIRED = "auth:required"
 
 # 序列计数器
 _seq_lock = threading.Lock()
@@ -348,6 +350,41 @@ def emit_resource_changed_to_users(
 def emit_to_users(user_ids, event: str, data) -> None:
     for uid in user_ids or []:
         _emit_sio(event, data, room=f"user-{uid}")
+
+
+async def kick_user_sessions_async(user_id: int, reason: str) -> None:
+    """异步实现：通知并**真正断开**某账号的全部 Socket.IO 会话。
+
+    只发 `auth:required` 不够——客户端若不响应（或恶意客户端根本不理会），
+    连接仍然留在 `user-{id}` / `comp-{id}` 房间里继续收广播。因此先通知、再逐个
+    `sio.disconnect(sid)`（审计 I-01 顶号 / I-03 管理动作）。
+    """
+    from .gateway import sio
+
+    room = f"user-{user_id}"
+    try:
+        await sio.emit(EVENT_AUTH_REQUIRED, {"reason": reason}, room=room)
+    except Exception:  # noqa: BLE001
+        logger.debug("auth:required 通知失败 user=%s", user_id, exc_info=True)
+    try:
+        # get_participants 是同步生成器，产出 (sid, eio_sid)
+        for sid, _eio_sid in list(sio.manager.get_participants("/", room)):
+            try:
+                await sio.disconnect(sid)
+            except Exception:  # noqa: BLE001
+                logger.debug("断开 socket 失败 sid=%s", sid, exc_info=True)
+    except Exception:  # noqa: BLE001
+        logger.debug("读取房间成员失败 user=%s", user_id, exc_info=True)
+
+
+def kick_user_sessions(user_id: int, reason: str = "token_version_mismatch") -> None:
+    """同步入口：把某账号的所有在线会话踢下线（loop 未就绪时静默跳过）。
+
+    调用场景：登录顶号、管理员重置密码、管理员禁用账号。
+    """
+    if user_id is None:
+        return
+    _run_coro_on_loop(kick_user_sessions_async(int(user_id), reason))
 
 
 def emit_to_competition(competition_id: int | None, event: str, data) -> None:

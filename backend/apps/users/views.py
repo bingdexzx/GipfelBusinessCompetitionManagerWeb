@@ -18,6 +18,7 @@ from apps.common.exceptions import BusinessError
 from apps.common.guards import PermissionsPermission, require_permissions
 from apps.common.pagination import paginated_response, parse_pagination
 from apps.common.permissions import assert_grant_allowed
+from apps.realtime.emit import kick_user_sessions
 
 from .models import User
 from .serializers import UserSerializer, dump_json_scope
@@ -121,7 +122,14 @@ class UserUpdateView(APIView):
             "permissions", user.permissions_list
         )
         _assert_grant(request, effective_role, effective_perms)
+        was_active = user.is_active
         serializer.save()
+        # 禁用立即生效：吊销已签发 token 并断开在线 socket（认证层也有 is_active 兜底，
+        # 但已建立的 Socket.IO 连接只在握手时校验，不主动踢就会一直留在房间里）
+        if was_active and not user.is_active:
+            user.token_version = (user.token_version or 0) + 1
+            user.save(update_fields=["token_version", "updated_at"])
+            kick_user_sessions(user.id, reason="inactive")
         return Response(UserSerializer(user).data)
 
 
@@ -162,7 +170,19 @@ class UserPasswordView(APIView):
         else:
             must_change = request.data.get("mustChangePassword")
             user.must_change_password = True if must_change is None else bool(must_change)
-        user.save(update_fields=["password_hash", "must_change_password", "updated_at"])
+        # 重置密码 = 吊销该账号的所有已签发 token：否则被怀疑失窃/已在线的会话
+        # 在重置后仍可继续使用（改密接口 ChangePasswordView 与登录都会递增 token_version，
+        # 唯独管理员重置这条路径漏了 —— 审计 I-03）。
+        user.token_version = (user.token_version or 0) + 1
+        user.save(
+            update_fields=[
+                "password_hash",
+                "must_change_password",
+                "token_version",
+                "updated_at",
+            ]
+        )
+        kick_user_sessions(user.id, reason="password_reset")
         return Response(UserSerializer(user).data)
 
 
