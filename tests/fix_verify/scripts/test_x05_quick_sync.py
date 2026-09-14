@@ -46,12 +46,19 @@ class X05QuickSyncTests(unittest.TestCase):
             self.code, r'snapshot_sqlite "\$src" "\$snap"',
             "push 分支必须对活库做快照",
         )
-        # rsync 的参数跨行（`\` 续行），故这里只断言「推送参数里出现的是 $snap」且不含活库
+        # rsync 的参数跨行（`\` 续行），故这里只断言「该条 rsync 语句里出现的是 $snap」且不含活库。
+        # 注：X-25 之后 `-e` 用的是共享变量 $RSYNC_SSH；语句之外的 else 分支（.env 推送）仍用 $src，
+        #     因此窗口必须严格截到该语句结束，不能按固定字符数取。
         i = self.text.find('log_info "推送: $item（快照）"')
         self.assertGreater(i, 0, "push 数据库分支必须明确标注是推送快照")
-        push_block = self.text[i: i + 400]
-        self.assertIn('"$snap"', push_block, f"必须推送快照文件，实际 {push_block!r}")
-        self.assertNotIn('"$src"', push_block, f"不得再推送活库 $src，实际 {push_block!r}")
+        stmt: list[str] = []
+        for ln in self.text[i:].splitlines()[1:]:
+            stmt.append(ln)
+            if not ln.rstrip().endswith("\\"):
+                break
+        push_stmt = "\n".join(stmt)
+        self.assertIn('"$snap"', push_stmt, f"必须推送快照文件，实际 {push_stmt!r}")
+        self.assertNotIn('"$src"', push_stmt, f"不得再推送活库 $src，实际 {push_stmt!r}")
 
     def test_snapshot_is_cleaned_up(self):
         """快照目录必须用 mktemp -d 并在退出时清理（含密钥/业务数据）。"""
