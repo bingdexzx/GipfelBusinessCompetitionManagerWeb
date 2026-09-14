@@ -1,0 +1,14 @@
+# 行尾策略（生产可用性，不是风格问题）
+#
+# 背景：本仓库在 Windows 上通常开 `core.autocrlf=true`，工作区检出为 CRLF；
+# Linux 的 bash **不接受 CRLF**（报 `$'\r': command not found` / `syntax error near
+# unexpected token '$'{\r'`），Git for Windows 的 bash 却容忍 —— 于是"本机跑得好好的"
+# 脚本一到服务器就全废。deploy/README.md 里"服务器连不上 GitHub 就打个 tar 包传上去"
+# 的流程、以及把 Windows 工作区经 /mnt/c 或 zip 交给服务器，都会踩到这个坑。
+#
+# 实测（Ubuntu 26.04 / GNU bash 5.3.9）：
+#   工作区 CRLF 副本 → 8/8 个 .sh `bash -n` 全部 FAIL
+#   LF 副本          → 8/8 个 .sh `bash -n` 全部 OK
+#
+# 因此：shell 脚本**强制 LF**，与平台无关。
+*.sh text eol=lf
