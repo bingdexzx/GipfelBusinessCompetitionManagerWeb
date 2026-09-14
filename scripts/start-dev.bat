@@ -1,6 +1,7 @@
 @echo off
 REM ========================================================================
-REM  Gipfel - DEVELOPMENT - Start Django (8000) + Vite (5173) + LogViewer (8120)
+REM  Gipfel - DEVELOPMENT - Start Django (8000) + Vite (5173) + LogViewer
+REM  (the LogViewer port comes from backend\.env LOG_VIEWER_PORT, default 8120)
 REM  Pure ASCII file (English comments only).
 REM
 REM  This batch only checks the preconditions and then hands over to
@@ -39,8 +40,25 @@ if not exist "%FRONTEND%\node_modules\.bin\vite.cmd" (
   goto :fail
 )
 
+REM  Audit X-19: `start` is asynchronous, so its exit code says nothing about
+REM  whether the services came up - the old script returned 0 unconditionally.
+REM  Run the same precondition checks synchronously first; only spawn the
+REM  window when they pass. (A service that dies AFTER a successful handover
+REM  is still reported only inside the new window - run
+REM  `python scripts\dev.py stop` and check its output in that case.)
+echo [INFO]  Checking preconditions ...
+"%PY%" "%~dp0dev.py" --check-only
+if errorlevel 1 (
+  echo [ERROR] Preconditions not met; services were NOT started.
+  goto :fail
+)
+
 echo [INFO]  Starting Gipfel dev services in a new window ("Gipfel Dev") ...
 start "Gipfel Dev" "%PY%" "%~dp0dev.py"
+if errorlevel 1 (
+  echo [ERROR] Could not spawn the "Gipfel Dev" window.
+  goto :fail
+)
 exit /b 0
 
 :fail

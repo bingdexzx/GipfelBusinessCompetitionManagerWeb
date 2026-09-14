@@ -560,13 +560,44 @@ def _handle_signal(signum, frame) -> None:  # noqa: ARG001
     _stop_requested = True
 
 
+def check_command() -> int:
+    """同步前置检查（审计 X-19）：依赖是否存在 + 三个开发端口是否空闲。
+
+    背景：`start` 是**异步**启动，父批处理拿不到子进程的退出码，于是 `start-dev.bat`
+    改前无论 dev.py 是否成功都 `exit /b 0` —— CI/IDE 把"启动失败"当成功，后续步骤
+    在超时后才失败。这个入口把同一套 `_check_preconditions` 同步跑一遍，失败返回 1，
+    供 start-dev.bat 在 `start` 之前调用。
+
+    刻意**不**调用 `_pause_if_console()`：是否暂停由调用方（批处理的 :fail 分支）决定，
+    避免双击用户被要求按两次回车。
+    """
+    logviewer_port = _read_logviewer_port()
+    services = _build_services(logviewer_port)
+    print("=" * 72)
+    print(" Gipfel dev preconditions check")
+    print("=" * 72)
+    passed = _check_preconditions(logviewer_port, services)
+    if passed:
+        ok("Preconditions OK.")
+    else:
+        error("Preconditions FAILED; services were NOT started.")
+    return 0 if passed else 1
+
+
 def main() -> int:
     _prepare_console()
 
+    arg = sys.argv[1].strip().lower() if len(sys.argv) > 1 else ""
+
     # 审计 D-01 / D-02：`dev.py stop` 是安全的清理入口（逐条校验进程身份后才停，
     # 端口占用只报告不代杀）。`scripts\stop-dev.bat` 现在只是它的包装。
-    if len(sys.argv) > 1 and sys.argv[1].strip().lower() in ("stop", "--stop"):
+    if arg in ("stop", "--stop"):
         return stop_command()
+
+    # 审计 X-19：同步前置检查，供 start-dev.bat 在 `start` 之前调用，让"启动失败"
+    # 能真正反映到批处理/调用方的退出码上。
+    if arg in ("check", "--check-only"):
+        return check_command()
 
     logviewer_port = _read_logviewer_port()
     services = _build_services(logviewer_port)
