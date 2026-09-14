@@ -13,6 +13,18 @@
 #   指定安装目录：
 #     bash scripts/quick-sync.sh push user@remote-ip /opt/gipfel
 #
+#   非 22 端口 / 指定私钥 / 指定 known_hosts：
+#     bash scripts/quick-sync.sh push user@remote-ip /opt/gipfel \
+#         --ssh-port 2222 --ssh-key ~/.ssh/id_ed25519 --ssh-known-hosts ~/.ssh/known_hosts
+#
+# 审计 X-25：改前本脚本**完全不支持**自定义端口与私钥，只用
+#   `-e "ssh -o StrictHostKeyChecking=accept-new"`
+# 在非 22 端口的服务器上根本无法工作，且首次连接会自动信任任意主机密钥。
+# 现在与 migrate-server.sh 一致：`-o BatchMode=yes`（不再回退到交互式口令提示而挂住）、
+# 端口范围校验、可选 known_hosts 固定（给了就改 StrictHostKeyChecking=yes）。
+# 注意：`ssh -i <私钥路径>` 会把路径暴露在同机 `ps` 里 —— 生产环境更推荐把 Host/Port/IdentityFile
+# 写进 `~/.ssh/config`，脚本里就不必再传 --ssh-key。
+#
 #  注意（审计 X-20）：install-dir 若写成相对路径，会按**当前工作目录**解析成绝对路径，
 #  而不是按脚本所在目录。脚本会把它规范化并打印出来，push 前还会校验该目录确实是
 #  一份完整的安装目录（含 backend/），避免把别的目录里的同名文件推给生产机。
@@ -65,19 +77,50 @@ log_info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
-# 参数
-ACTION="${1:-}"
-REMOTE="${2:-}"
-INSTALL_DIR="${3:-/opt/gipfel}"
+# 参数（审计 X-25：位置参数保持不变，另支持若干 --ssh-* 选项）
+ACTION=""
+REMOTE=""
+INSTALL_DIR="/opt/gipfel"
+SSH_PORT=""
+SSH_KEY=""
+SSH_KNOWN_HOSTS=""
+
+_args=("$@")
+_i=0
+while [[ "$_i" -lt "${#_args[@]}" ]]; do
+    _a="${_args[$_i]}"
+    case "$_a" in
+        --ssh-port)        SSH_PORT="${_args[$((_i + 1))]:-}"; _i=$((_i + 2)) ;;
+        --ssh-key)         SSH_KEY="${_args[$((_i + 1))]:-}"; _i=$((_i + 2)) ;;
+        --ssh-known-hosts) SSH_KNOWN_HOSTS="${_args[$((_i + 1))]:-}"; _i=$((_i + 2)) ;;
+        *)                 _i=$((_i + 1)) ;;
+    esac
+done
+
+# 位置参数（跳过所有 --ssh-* 及其取值）
+_pos=()
+_i=0
+while [[ "$_i" -lt "${#_args[@]}" ]]; do
+    _a="${_args[$_i]}"
+    case "$_a" in
+        --ssh-port|--ssh-key|--ssh-known-hosts) _i=$((_i + 2)) ;;
+        *) _pos+=("$_a"); _i=$((_i + 1)) ;;
+    esac
+done
+ACTION="${_pos[0]:-}"
+REMOTE="${_pos[1]:-}"
+INSTALL_DIR="${_pos[2]:-/opt/gipfel}"
 
 if [[ -z "$ACTION" || -z "$REMOTE" ]]; then
-    echo "用法: $0 <push|pull> <user@host> [install-dir]"
+    echo "用法: $0 <push|pull> <user@host> [install-dir] [--ssh-port PORT] [--ssh-key PATH] [--ssh-known-hosts PATH]"
     echo ""
     echo "示例:"
     echo "  $0 push root@192.168.1.100"
     echo "  $0 pull root@192.168.1.50 /opt/gipfel"
+    echo "  $0 push root@192.168.1.100 /opt/gipfel --ssh-port 2222 --ssh-key ~/.ssh/id_ed25519"
     echo ""
     echo "install-dir 可省略（默认 /opt/gipfel）。写成相对路径时按当前目录解析。"
+    echo "--ssh-known-hosts 给出后，主机密钥按该文件严格校验（StrictHostKeyChecking=yes）。"
     exit 1
 fi
 
@@ -118,6 +161,27 @@ case "$ACTION" in
         exit 1
         ;;
 esac
+
+# 审计 X-25：SSH 选项改为 bash 数组，逐参数独立传递（含空格的私钥路径不再被分词拆开），
+# 并补 `-o BatchMode=yes`（密钥不可用时直接失败，而不是回退到交互式口令提示把脚本挂住）。
+SSH_PORT="${SSH_PORT:-22}"
+if ! [[ "$SSH_PORT" =~ ^[0-9]+$ ]] || (( SSH_PORT < 1 || SSH_PORT > 65535 )); then
+    log_error "--ssh-port 必须是 1-65535 的整数（收到: $SSH_PORT）"
+    exit 2
+fi
+SSH_OPTS=(-p "$SSH_PORT" -o BatchMode=yes -o ConnectTimeout=10)
+if [[ -n "$SSH_KNOWN_HOSTS" ]]; then
+    SSH_OPTS+=(-o "UserKnownHostsFile=$SSH_KNOWN_HOSTS" -o StrictHostKeyChecking=yes)
+else
+    SSH_OPTS+=(-o StrictHostKeyChecking=accept-new)
+    log_warn "未指定 --ssh-known-hosts：首次连接将自动信任目标主机密钥（只防后续变更，不防首次中间人）。"
+fi
+if [[ -n "$SSH_KEY" ]]; then
+    SSH_OPTS+=(-i "$SSH_KEY")
+    log_warn "已用 -i 指定私钥；该路径会出现在同机 ps 中，生产环境建议改用 ~/.ssh/config 的 IdentityFile。"
+fi
+printf -v _ssh_opts_q '%q ' "${SSH_OPTS[@]}"
+RSYNC_SSH="ssh ${_ssh_opts_q% }"
 
 # 同步的数据列表
 SYNC_ITEMS=(
@@ -215,16 +279,16 @@ for item in "${SYNC_ITEMS[@]}"; do
                 snapshot_sqlite "$src" "$snap"
                 check_sqlite_file "$snap"
                 log_info "推送: $item（快照）"
-                rsync -avz --progress -e "ssh -o StrictHostKeyChecking=accept-new" \
+                rsync -avz --progress -e "$RSYNC_SSH" \
                     "$snap" "$REMOTE:$dst"
             else
                 log_info "推送: $item"
                 # 审计 X-02 同类：`.env` 含全部密钥，强制 600
                 if [[ "$item" == *".env" ]]; then
                     rsync -avz --progress --chmod=F600 \
-                        -e "ssh -o StrictHostKeyChecking=accept-new" "$src" "$REMOTE:$dst"
+                        -e "$RSYNC_SSH" "$src" "$REMOTE:$dst"
                 else
-                    rsync -avz --progress -e "ssh -o StrictHostKeyChecking=accept-new" "$src" "$REMOTE:$dst"
+                    rsync -avz --progress -e "$RSYNC_SSH" "$src" "$REMOTE:$dst"
                 fi
             fi
         else
@@ -233,7 +297,7 @@ for item in "${SYNC_ITEMS[@]}"; do
     elif [[ "$ACTION" == "pull" ]]; then
         log_info "拉取: $item"
         mkdir -p "$(dirname "$src")"
-        rsync -avz --progress -e "ssh -o StrictHostKeyChecking=accept-new" "$REMOTE:$src" "$(dirname "$src")/"
+        rsync -avz --progress -e "$RSYNC_SSH" "$REMOTE:$src" "$(dirname "$src")/"
         if [[ "$item" == "backend/db.sqlite3" ]]; then
             check_sqlite_file "$src" || {
                 log_error "拉取到的数据库不可用: $src —— 请勿在此状态下启动后端（会新建空库）"

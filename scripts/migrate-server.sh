@@ -54,6 +54,7 @@ SKIP_SERVICES=false
 DRY_RUN=false
 SSH_PORT=22
 SSH_KEY=""
+SSH_KNOWN_HOSTS=""
 
 # ==================== 参数解析 ====================
 # 审计 X-21：改前 usage() 固定 `exit 0`，于是三类调用——用户主动求助（-h）、参数拼错、
@@ -75,7 +76,10 @@ usage() {
   --skip-services       跳过服务配置（仅传输数据）
   --dry-run             模拟运行，不实际执行
   --ssh-port PORT       SSH 端口（默认: 22）
-  --ssh-key PATH        SSH 私钥路径
+  --ssh-key PATH        SSH 私钥路径（注意：路径会出现在同机 ps 中，
+                        生产环境建议改用 ~/.ssh/config 的 IdentityFile）
+  --ssh-known-hosts PATH  known_hosts 文件；给出后按该文件严格校验主机密钥
+                        （StrictHostKeyChecking=yes），不再 accept-new
   -h, --help            显示帮助
 
 示例：
@@ -103,6 +107,7 @@ while [[ $# -gt 0 ]]; do
         --dry-run)    DRY_RUN=true; shift ;;
         --ssh-port)   SSH_PORT="$2"; shift 2 ;;
         --ssh-key)    SSH_KEY="$2"; shift 2 ;;
+        --ssh-known-hosts) SSH_KNOWN_HOSTS="$2"; shift 2 ;;
         -h|--help)    usage 0 ;;
         *)            log_error "未知参数: $1"; usage 2 ;;
     esac
@@ -146,9 +151,19 @@ fi
 # SSH 命令构建
 # 审计 X-03：改前用字符串累加（`SSH_OPTS="... -i $SSH_KEY"`）再交给 `ssh $SSH_OPTS`，
 # 键路径含空格时会被分词拆开；改为 bash 数组后每个参数都是一个独立 argv。
-SSH_OPTS=(-p "$SSH_PORT" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o BatchMode=yes)
+SSH_OPTS=(-p "$SSH_PORT" -o ConnectTimeout=10 -o BatchMode=yes)
+# 审计 X-25：改前无条件 `accept-new` —— 首次连接自动信任任意主机密钥，只防后续变更、
+# 不防首次中间人；而本脚本的流程是"以 root 推送 .env（含全部密钥）"。现在允许传入
+# known_hosts：给了就按文件严格校验（yes），没给才退回 accept-new 并明确告警。
+if [[ -n "$SSH_KNOWN_HOSTS" ]]; then
+    SSH_OPTS+=(-o "UserKnownHostsFile=$SSH_KNOWN_HOSTS" -o StrictHostKeyChecking=yes)
+else
+    SSH_OPTS+=(-o StrictHostKeyChecking=accept-new)
+    warn "未指定 --ssh-known-hosts：首次连接将自动信任目标主机密钥（只防后续变更，不防首次中间人）。"
+fi
 if [[ -n "$SSH_KEY" ]]; then
     SSH_OPTS+=(-i "$SSH_KEY")
+    warn "已用 -i 指定私钥；该路径会出现在同机 ps 中，生产环境建议改用 ~/.ssh/config 的 IdentityFile。"
 fi
 
 # `-e` 的参数是「一条命令字符串」，这里用 printf %q 转义后拼装
