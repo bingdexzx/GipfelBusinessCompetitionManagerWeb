@@ -136,3 +136,37 @@ assert_log_viewer_port_consistent() {
     fi
     return 0
 }
+
+# 把路径规范成**绝对路径**（不要求目标已存在）。审计 X-20。
+#
+# 相对路径按**当前工作目录**（$PWD）解析 —— 与用户直觉一致，而不是按脚本所在目录：
+# `bash scripts/quick-sync.sh push host ./opt/gipfel` 或在别的 cwd 下用相对路径调用时，
+# 改前 `INSTALL_DIR` 原样透传，`rsync` 会把**另一个目录**里的同名文件当成数据源推给
+# 生产机（直接覆盖目标机的 db.sqlite3 / .env），pull 方向也会在意外位置建目录。
+#
+# 优先用 `realpath -m`（coreutils）；不可用时退回纯 bash 实现（同样处理 `.` 与 `..`）。
+# 用法：absolutize_dir <路径>   —— 结果经 stdout 返回，失败返回 1
+absolutize_dir() {
+    local p="${1:-}"
+    [[ -n "$p" ]] || return 1
+    if command -v realpath >/dev/null 2>&1; then
+        local resolved=""
+        if resolved=$(realpath -m -- "$p" 2>/dev/null) && [[ -n "$resolved" ]]; then
+            printf '%s' "$resolved"
+            return 0
+        fi
+    fi
+    # 兜底：相对路径接到 $PWD 后逐段折叠
+    [[ "$p" == /* ]] || p="$PWD/$p"
+    local out="" seg
+    local IFS='/'
+    for seg in $p; do
+        case "$seg" in
+            ""|".") continue ;;
+            "..")   out="${out%/*}" ;;
+            *)      out="${out}/${seg}" ;;
+        esac
+    done
+    printf '%s' "${out:-/}"
+}
+
