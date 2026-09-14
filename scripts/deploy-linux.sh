@@ -35,6 +35,10 @@ SKIP_INSTALL_DEPS=0
 FORCE_OVERWRITE=0
 PUBLIC_IP=""   # 显式指定公网 IP（无域名纯 IP 部署日志查看器用）；非空则跳过自动探测与交互填写
 PUBLIC_IP_SET=0  # 标记 --public-ip 是否由用户显式传入（用于结尾提示区分「用户指定」与「自动探测」）
+# 审计 X-22：改前脚本把 SEED_ADMIN_PASSWORD **明文**写进 stdout（生成处 + 结尾摘要），
+# 部署若被 `| tee deploy.log`、CI 捕获、screen/tmux 回滚缓冲或堡垒机命令记录留存，
+# 拿到日志的人就能在管理员首次登录前直接以 admin 接管系统。默认不再打印。
+PRINT_SEED_PASSWORD=0
 LV_PUBLIC_IP=""  # 预初始化：set -u 下 DJANGO_ALLOWED_HOSTS 自愈块可能在其未赋值时引用（如 .env 已存在且无需纠正）
 
 usage() {
@@ -47,6 +51,8 @@ Usage: $0 [options]
   --with-nginx                 配置 nginx 虚拟主机
   --skip-install-deps          跳过 apt install（已知环境已装好）
   --force-overwrite            即使 INSTALL_DIR 存在也覆盖（保留 backup）
+  --print-seed-password        在**交互终端**（stdout 为 TTY）上显示初始管理员口令；
+                               默认不显示，请自行 `sudo grep ^SEED_ADMIN_PASSWORD= <安装目录>/backend/.env`
   -h, --help                   显示本帮助
 EOF
 }
@@ -59,6 +65,7 @@ while [[ $# -gt 0 ]]; do
         --with-nginx)         WITH_NGINX=1; shift ;;
         --skip-install-deps)  SKIP_INSTALL_DEPS=1; shift ;;
         --force-overwrite)    FORCE_OVERWRITE=1; shift ;;
+        --print-seed-password) PRINT_SEED_PASSWORD=1; shift ;;
         -h|--help)            usage; exit 0 ;;
         *) echo "未知参数 $1"; usage; exit 2 ;;
     esac
@@ -315,7 +322,8 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
     else
         echo "LOGVIEWER_SECRET_KEY=${LVSECRET}" >> "$INSTALL_DIR/backend/.env"
     fi
-    echo "[DIAG] LOGVIEWER_SECRET_KEY 已生成并写入（$(date +%T)）" >&2
+    # 审计 X-22：只报告"做了什么"，不枚举密钥名
+    echo "[DIAG] 日志查看器防直连密钥已生成并写入（$(date +%T)）" >&2
 
     # 默认管理员密码：首次部署自动生成强随机密码（settings.py 也会兜底生成，但这里显式写入 .env 便于运维查看）
     ADMIN_PW="$(head -c 16 /dev/urandom | base64 | tr -d '\n+/=' | head -c 20)"
@@ -324,10 +332,19 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
     else
         echo "SEED_ADMIN_PASSWORD=${ADMIN_PW}" >> "$INSTALL_DIR/backend/.env"
     fi
-    ok "管理员密码已生成：admin / ${ADMIN_PW}（首次登录强制改密）"
-    echo "[DIAG] SEED_ADMIN_PASSWORD 已生成并写入（$(date +%T)）" >&2
+    if [[ "$PRINT_SEED_PASSWORD" == "1" && -t 1 ]]; then
+        ok "管理员密码已生成：admin / ${ADMIN_PW}（首次登录强制改密）"
+    else
+        ok "管理员初始密码已生成并写入 ${INSTALL_DIR}/backend/.env 的 SEED_ADMIN_PASSWORD（首次登录强制改密）"
+        ok "需要查看：sudo grep '^SEED_ADMIN_PASSWORD=' ${INSTALL_DIR}/backend/.env"
+        if [[ "$PRINT_SEED_PASSWORD" == "1" ]]; then
+            warn "--print-seed-password 已给出，但 stdout 不是终端（管道/CI）—— 为避免口令进入日志，此处不打印。"
+        fi
+    fi
+    echo "[DIAG] 管理员初始口令已生成并写入（$(date +%T)）" >&2
 
-    echo "[DIAG] 首次部署 .env 生成完毕（$(date +%T)），JWT_SECRET/DJANGO_SECRET_KEY/LOGVIEWER_SECRET_KEY/SEED_ADMIN_PASSWORD 已就绪" >&2
+    # 审计 X-22：改前这里把 4 个密钥名逐个枚举到 stderr —— 单行不敏感提示即可
+    echo "[DIAG] 首次部署所需密钥/口令已全部生成并写入（$(date +%T)）" >&2
 fi
 
 # 解析日志查看器 nginx 公网监听端口（.env 已就绪，vhost/URL/防火墙/输出提示全流程共用），
@@ -638,14 +655,20 @@ echo
 ok "部署完成！"
 echo
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-# 读取管理员密码并醒目输出
-_SEED_PW="$(grep -E '^SEED_ADMIN_PASSWORD=' "$INSTALL_DIR/backend/.env" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]$//")"
-if [[ -n "$_SEED_PW" ]]; then
-    echo "  👤 管理员账号：admin"
-    echo "  🔑 管理员密码：${_SEED_PW}"
+# 审计 X-22：改前这里无条件把 .env 里的 SEED_ADMIN_PASSWORD 明文回显到 stdout。
+# 现在只有「显式 --print-seed-password 且 stdout 是终端」才显示，其余情况给查看命令。
+echo "  👤 管理员账号：admin"
+if [[ "$PRINT_SEED_PASSWORD" == "1" && -t 1 ]]; then
+    _SEED_PW="$(grep -E '^SEED_ADMIN_PASSWORD=' "$INSTALL_DIR/backend/.env" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]$//")"
+    if [[ -n "$_SEED_PW" ]]; then
+        echo "  🔑 管理员密码：${_SEED_PW}"
+    else
+        echo "  🔑 管理员密码：admin23（默认值，建议登录后立即修改）"
+    fi
 else
-    echo "  👤 管理员账号：admin"
-    echo "  🔑 管理员密码：admin23（默认值，建议登录后立即修改）"
+    echo "  🔑 管理员密码：见 ${INSTALL_DIR}/backend/.env 的 SEED_ADMIN_PASSWORD"
+    echo "     查看命令：sudo grep '^SEED_ADMIN_PASSWORD=' ${INSTALL_DIR}/backend/.env"
+    echo "     （如需在本终端直接显示，可加 --print-seed-password 重跑）"
 fi
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo
