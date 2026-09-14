@@ -180,7 +180,13 @@ _pull_failed_hint() {
     warn "git pull 失败（多为服务器访问 GitHub 的网络抖动/被墙）。"
     warn "为避免「新数据库结构 + 旧代码」这类不一致状态，默认**中止更新**，服务保持原样。"
     warn "可稍后重试，或配置镜像后重跑："
-    warn "  git config --global url.\"https://ghproxy.net/https://github.com/\".insteadOf \"https://github.com/\""
+    # 审计 X-26：改前这里推荐 `git config --global` —— 它会把机器上**所有**
+    # https://github.com/ 请求（含携带凭据的私有仓库请求）改写到第三方代理域名。
+    # 现在只推荐在当前 clone 目录里按仓库配置，并给出撤销命令。
+    warn "  配置镜像（在部署目录里执行，**只影响该仓库**；不要用 --global）："
+    warn "    git -C $INSTALL_DIR config url.\"https://ghproxy.net/https://github.com/\".insteadOf \"https://github.com/\""
+    warn "  撤销：git -C $INSTALL_DIR config --unset url.\"https://ghproxy.net/https://github.com/\".insteadOf"
+    warn "  若以前加过全局配置，请用 git config --global --unset url.\"https://ghproxy.net/https://github.com/\".insteadOf 撤销。"
     warn "镜像可用性随时间变化，也可尝试 ghfast.top / gh-proxy.com / mirror.ghproxy.com 等前缀。"
     warn "确实要在旧代码上只做数据层修复时，可显式加 --allow-stale-code 继续（会全程告警）。"
 }

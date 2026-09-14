@@ -39,8 +39,17 @@ sudo bash scripts/deploy-linux.sh --install-dir /opt/gipfel --with-nginx
 > - **重试**：GnuTLS -110 常为瞬时抖动，直接重跑 `git pull` 一两次即可成功；
 > - **一次性镜像 pull**（不改全局配置）：
 >   `git pull https://ghproxy.net/https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git master`
-> - 或让本机后续所有 git 操作自动走镜像（之后普通 `git clone` / `git pull` 即可，update-from-github.sh 的 pull 同样受益）：
->   `git config --global url."https://ghproxy.net/https://github.com/".insteadOf "https://github.com/"`
+> - 或让**当前仓库**后续 git 操作走镜像（在 clone 目录里执行；之后普通 `git pull` 即可，
+>   `update-from-github.sh` 的 pull 同样受益）：
+>   ```bash
+>   cd /opt/GipfelBusinessCompetitionManagerWeb     # 你的 clone 目录
+>   git config url."https://ghproxy.net/https://github.com/".insteadOf "https://github.com/"
+>   # 用毕撤销：git config --unset url."https://ghproxy.net/https://github.com/".insteadOf
+>   ```
+>   **不要用 `--global`**：那会把机器上**所有** `https://github.com/` 请求改写到第三方代理域名，
+>   包括携带 `Authorization` 头/私有仓库凭据的请求，代理可以记录甚至篡改代码。若已加过全局配置，
+>   用 `git config --global --unset url."https://ghproxy.net/https://github.com/".insteadOf` 撤销。
+>   按仓库配置只影响这一个 clone，风险面小得多。
 > - 镜像前缀可用性随时间变化，可依次尝试：`https://ghproxy.net/`、`https://ghfast.top/`、`https://gh-proxy.com/`、`https://mirror.ghproxy.com/`、`https://gitclone.com/github.com/`（挑能连的）。
 
 > **镜像也不稳、想直接用 GitHub 地址拉取？** 可在服务器上安装 FastGitHub（本地代理加速/恢复 GitHub 连接），之后所有 git/curl 命令自动走 `127.0.0.1:38457` 即可正常访问 GitHub：
@@ -65,7 +74,7 @@ sudo unzip -d /opt /opt/fastgithub_linux-x64.zip
  git clone https://github.com/bingdexzx/GipfelBusinessCompetitionManagerWeb.git /opt/GipfelBusinessCompetitionManagerWeb
  cd /opt/GipfelBusinessCompetitionManagerWeb
 > ```
-> 注意：FastGitHub 进程需保持运行；生产服务器建议用 `systemd` 或 `nohup/screen` 常驻。apt/pip/npm 等流量也会走该代理，通常无碍；若只想让 git 走代理，可用上方 `git config --global url...insteadOf` 方案。
+> 注意：FastGitHub 进程需保持运行；生产服务器建议用 `systemd` 或 `nohup/screen` 常驻。apt/pip/npm 等流量也会走该代理，通常无碍；若只想让 git 走代理，可用上方**按仓库**的 `git config url...insteadOf` 方案（不要用 `--global`，见该处说明）。
 
 > **服务器完全连不上 GitHub（连镜像也不行）？** 在能访问 GitHub / 已含代码的机器上打包源码传上去，再在服务器本地跑脚本（不需要服务器联网到 GitHub）：
 > ```bash
@@ -231,11 +240,46 @@ sudo bash scripts/update-from-github.sh \
 
 ### 回滚
 
+> **先看清楚**：`/opt/gipfel/_backup/<时间戳>/` 只含**数据**（`db.sqlite3`、`uploads/`、`.env`），
+> **不含代码**。只恢复数据库不恢复代码，会得到"新代码 + 旧库"或"旧库 + 新代码"的版本错配 ——
+> 尤其是已经跑过 `migrate` 的库，旧代码不一定认它的表结构。所以回滚要**数据与代码一起**做。
+
 ```bash
-# 当前代码目录改名，把 _backup 里最近的完整复制回来，再 restart 即可
-sudo -u gipfel cp /opt/gipfel/_backup/2025-08-31_1200/db.sqlite3 /opt/gipfel/backend/
-sudo systemctl restart gipfel
+set -e
+BK=/opt/gipfel/_backup/2025-08-31_1200          # 换成实际要回滚到的时间戳目录（ls /opt/gipfel/_backup/）
+cd /opt/GipfelBusinessCompetitionManagerWeb      # 你的 clone 目录
+
+# 0) 先记录当前版本，并把"现在"再备份一份（回滚本身也可能出错）
+sudo git -C /opt/GipfelBusinessCompetitionManagerWeb rev-parse HEAD | tee /tmp/gipfel_rollback_from.txt
+sudo -u gipfel cp -a /opt/gipfel/backend/db.sqlite3 "/opt/gipfel/_backup/db.sqlite3.before-rollback-$(date +%F_%H%M%S)"
+
+# 1) 停服务（避免迁移/替换过程中仍有写入）
+sudo systemctl stop gipfel gipfel-logviewer
+
+# 2) 代码回退到上一个可用 tag/commit（不知道退到哪就用 git log --oneline 挑）
+sudo git -C /opt/GipfelBusinessCompetitionManagerWeb checkout <上一个 tag 或 commit>
+
+# 3) 恢复数据
+sudo -u gipfel cp "$BK/db.sqlite3" /opt/gipfel/backend/db.sqlite3
+[ -d "$BK/uploads" ] && sudo -u gipfel cp -a "$BK/uploads/." /opt/gipfel/backend/uploads/
+[ -f "$BK/.env" ]    && sudo -u gipfel cp "$BK/.env" /opt/gipfel/backend/.env
+sudo chown gipfel:gipfel /opt/gipfel/backend/db.sqlite3 /opt/gipfel/backend/.env
+sudo chmod 600 /opt/gipfel/backend/.env
+
+# 4) 按回退后的代码重装依赖、重建前端、回退数据库结构
+sudo -u gipfel /opt/gipfel/backend/.venv/bin/pip install -r /opt/gipfel/backend/requirements.txt
+cd /opt/GipfelBusinessCompetitionManagerWeb/frontend && sudo npm ci && sudo npm run build
+# 若本次升级引入过新迁移，需要退回到旧迁移点（<app> 与迁移名取自 git show <旧commit>:backend/apps/<app>/migrations/）：
+#   sudo -u gipfel /opt/gipfel/backend/.venv/bin/python /opt/gipfel/backend/manage.py migrate <app> <上一个迁移名>
+
+# 5) 起服务并确认
+sudo systemctl start gipfel gipfel-logviewer
+curl -fsS --max-time 5 http://127.0.0.1/api/health && echo " 后端 OK"
+systemctl is-active gipfel gipfel-logviewer
 ```
+
+> 更稳的做法：不要在服务器上手工挑文件回滚，而是 `git revert` 出问题的那次改动并**重新跑一遍**
+> `scripts/update-from-github.sh`（数据仍由 `_backup` 兜底）。`_backup/*` 只作最后手段。
 
 ---
 
