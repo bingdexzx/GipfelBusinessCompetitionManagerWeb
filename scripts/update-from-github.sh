@@ -258,10 +258,32 @@ fi
 ok "代码已更新到最新，开始应用更新"
 
 # ---------------- 1. 备份数据库/上传/配置 ----------------
+# 审计 X-10：migrate 之后还有 collectstatic / 前端构建 / 重启服务等步骤，任何一步失败都会
+# 留下"新库结构 + 旧代码 + 服务停摆"；这里注册失败陷阱，把回滚命令说清楚。
+MIGRATE_STARTED=0
+MIGRATE_OK=0
+PRE_MIGRATE_DB_SNAPSHOT=""
+_on_exit() {
+    local rc=$?
+    if [[ "$rc" != "0" && "$MIGRATE_STARTED" == "1" && "$MIGRATE_OK" != "1" ]]; then
+        echo
+        warn "脚本以退出码 $rc 结束，且已执行过 migrate（或正在执行）—— 数据库结构可能已改变。"
+        print_rollback_hint "$INSTALL_DIR" "$PRE_MIGRATE_DB_SNAPSHOT" "$BACKUP_DIR" "$CODE_HEAD_BEFORE"
+    fi
+    exit "$rc"
+}
+trap _on_exit EXIT
+
 BACKUP_DIR="$INSTALL_DIR/_backup/$(date +%F_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
 if [[ -f "$INSTALL_DIR/backend/db.sqlite3" ]]; then
-    cp -a "$INSTALL_DIR/backend/db.sqlite3" "$BACKUP_DIR/" && log "已备份数据库 → $BACKUP_DIR/db.sqlite3"
+    # 审计 X-10：改前是 `cp -a` 活库 —— WAL 下可能得到不一致的副本，而它是唯一回滚副本。
+    if snapshot_sqlite_consistent "$INSTALL_DIR/backend/db.sqlite3" "$BACKUP_DIR/db.sqlite3"; then
+        PRE_MIGRATE_DB_SNAPSHOT="$BACKUP_DIR/db.sqlite3"
+        log "已做数据库一致性快照 → $PRE_MIGRATE_DB_SNAPSHOT"
+    else
+        err "无法为现有数据库生成一致性快照（$BACKUP_DIR/db.sqlite3）—— 没有它就无法回滚，已中止。"
+    fi
 fi
 [[ -d "$INSTALL_DIR/backend/uploads" ]] && cp -a "$INSTALL_DIR/backend/uploads" "$BACKUP_DIR/" 2>/dev/null || true
 [[ -f "$INSTALL_DIR/backend/.env" ]]    && cp -a "$INSTALL_DIR/backend/.env"    "$BACKUP_DIR/" 2>/dev/null || true
@@ -310,6 +332,8 @@ if [[ ! -d .venv ]]; then
 fi
 ".venv/bin/pip" install -r requirements.txt
 ".venv/bin/python" manage.py check --fail-level ERROR
+# 审计 X-10：从这里开始数据库结构可能改变；若后续任一步失败，EXIT trap 会打印回滚指引。
+MIGRATE_STARTED=1
 ".venv/bin/python" manage.py migrate --noinput
 ".venv/bin/python" manage.py collectstatic --noinput
 # 日志查看器静态资源（独立项目，settings=logviewer.settings）
@@ -317,6 +341,7 @@ log "收集日志查看器静态资源"
 cd "$INSTALL_DIR/backend/logviewer"
 "$INSTALL_DIR/backend/.venv/bin/python" manage.py collectstatic --noinput --settings=logviewer.settings
 cd "$INSTALL_DIR/backend"
+MIGRATE_OK=1
 ok "后端依赖与数据库迁移完成"
 
 # ---------------- 3. 更新前端构建 ----------------

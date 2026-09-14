@@ -170,3 +170,116 @@ absolutize_dir() {
     printf '%s' "${out:-/}"
 }
 
+# 一致性快照一个 SQLite 库（审计 X-10）。
+#
+# 为什么不能用 `cp -a`：服务在跑时库可能处于 WAL 模式，`cp` 抓到的页与 WAL 不一致，
+# 拿到的是一个"看起来正常、打开却可能损坏或缺最近事务"的文件 —— 而这是**唯一的回滚副本**。
+# 这里用 SQLite 自己的 `VACUUM INTO`（只读打开、无需停服）导出一份自洽副本，并校验
+# 文件头与 `pragma integrity_check`；没有 python3 时退回 `cp -a` 并明确告警。
+#
+# 用法：snapshot_sqlite_consistent <源库> <目标文件>   —— 成功返回 0
+snapshot_sqlite_consistent() {
+    local src="$1"
+    local dst="$2"
+    [[ -f "$src" ]] || return 1
+    mkdir -p "$(dirname -- "$dst")" 2>/dev/null || true
+
+    # 解释器可用性要**实际探测**：某些环境下 `python3` 只是 Windows Store 存根，
+    # `command -v` 能找到但一执行就失败。可用 PYTHON_FOR_SNAPSHOT 覆盖（测试/venv 场景）。
+    local py="${PYTHON_FOR_SNAPSHOT:-python3}"
+    if ! "$py" -c 'import sqlite3' >/dev/null 2>&1; then
+        py=""
+    fi
+
+    if [[ -n "$py" ]]; then
+        if ! "$py" - "$src" "$dst" <<'PY'
+import sqlite3, sys
+src, dst = sys.argv[1], sys.argv[2]
+try:
+    con = sqlite3.connect(f"file:{src}?mode=ro", uri=True, timeout=30)
+    try:
+        con.execute("VACUUM INTO ?", (dst,))
+    finally:
+        con.close()
+except sqlite3.Error as exc:
+    print(f"VACUUM INTO 失败: {exc}", file=sys.stderr)
+    sys.exit(1)
+PY
+        then
+            warn "一致性快照失败（VACUUM INTO）：$src"
+            return 1
+        fi
+    else
+        warn "找不到可用的 python3（可用 PYTHON_FOR_SNAPSHOT 指定），退回 cp -a —— 活库上可能得到不一致的副本"
+        cp -a "$src" "$dst" || return 1
+    fi
+
+    [[ -s "$dst" ]] || { warn "快照为空：$dst"; return 1; }
+    if [[ "$(head -c 15 "$dst" 2>/dev/null || true)" != "SQLite format 3" ]]; then
+        warn "快照不是合法 SQLite 文件：$dst"
+        return 1
+    fi
+    if [[ -n "$py" ]]; then
+        if ! "$py" - "$dst" <<'PY'
+import sqlite3, sys
+try:
+    con = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+    try:
+        row = con.execute("pragma integrity_check").fetchone()
+    finally:
+        con.close()
+except sqlite3.Error as exc:
+    print(f"打开失败: {exc}", file=sys.stderr)
+    sys.exit(1)
+if not row or row[0] != "ok":
+    print(f"integrity_check: {row}", file=sys.stderr)
+    sys.exit(1)
+PY
+        then
+            warn "快照完整性校验未通过：$dst"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+# 部署/升级中途失败时，打印"怎么退回去"的确切命令（审计 X-10）。
+#
+# 背景：脚本在 `migrate` 之后还有 collectstatic / 前端构建 / 服务重启 / nginx 等步骤，
+# 任何一步失败都会留下"新库结构 + 旧代码 + 服务停摆"的状态；而 `_backup/*` **只含数据
+# 不含代码**，只恢复数据库会得到版本错配。这里把数据与代码两侧的命令一次说清。
+#
+# 用法：print_rollback_hint <安装目录> <数据库快照> <备份目录> [<升级前的 commit>]
+print_rollback_hint() {
+    local install_dir="$1"
+    local db_snapshot="$2"
+    local backup_dir="$3"
+    local code_head="${4:-}"
+    local _echo="warn"
+    command -v warn >/dev/null 2>&1 || _echo="echo"
+
+    $_echo "──────── 回滚指引（照抄即可） ────────"
+    $_echo "本轮已在 migrate 之后失败：数据库结构可能是新的，而代码/服务未必配套。"
+    $_echo "1) 停服务:        sudo systemctl stop gipfel gipfel-logviewer"
+    if [[ -n "$db_snapshot" && -f "$db_snapshot" ]]; then
+        $_echo "2) 恢复数据库:    sudo -u gipfel cp -a '$db_snapshot' '$install_dir/backend/db.sqlite3'"
+    else
+        $_echo "2) 恢复数据库:    未生成快照，请从 '$backup_dir' 里取 db.sqlite3"
+    fi
+    $_echo "3) 恢复上传/配置: sudo -u gipfel cp -a '$backup_dir/uploads/.' '$install_dir/backend/uploads/' 2>/dev/null; \\"
+    $_echo "                  sudo -u gipfel cp -a '$backup_dir/.env' '$install_dir/backend/.env' 2>/dev/null; \\"
+    $_echo "                  sudo chown gipfel:gipfel '$install_dir/backend/db.sqlite3' '$install_dir/backend/.env'; sudo chmod 600 '$install_dir/backend/.env'"
+    if [[ -n "$code_head" ]]; then
+        $_echo "4) 回退代码:      sudo git -C '$install_dir' checkout '$code_head'   # 本轮升级前的 commit"
+    else
+        $_echo "4) 回退代码:      sudo git -C '$install_dir' checkout <上一个可用 tag/commit>"
+    fi
+    $_echo "5) 重装依赖/前端: sudo -u gipfel '$install_dir/backend/.venv/bin/pip' install -r '$install_dir/backend/requirements.txt'; \\"
+    $_echo "                  cd '$install_dir/frontend' && sudo npm ci && sudo npm run build"
+    $_echo "6) 起服务确认:    sudo systemctl start gipfel gipfel-logviewer && curl -fsS --max-time 5 http://127.0.0.1/api/health"
+    $_echo "备份目录（只含数据，不含代码）: $backup_dir"
+    $_echo "─────────────────────────────────────"
+    return 0
+}
+
+
