@@ -43,7 +43,9 @@ INSTALL_DIR="/opt/gipfel"
 BACKUP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gipfel-migration-XXXXXX")"
 KEEP_BACKUP=false
 _cleanup_backup() {
-    if [[ "$KEEP_BACKUP" != true && "$DRY_RUN" != true && -n "$BACKUP_DIR" && -d "$BACKUP_DIR" ]]; then
+    # 审计 X-21：改前 dry-run 也跳过清理，于是每次 `--dry-run` 都在 /tmp 留下一个
+    # `gipfel-migration-XXXXXX` 空目录（预演本应零副作用）。现在只有 --keep-backup 才保留。
+    if [[ "$KEEP_BACKUP" != true && -n "$BACKUP_DIR" && -d "$BACKUP_DIR" ]]; then
         rm -rf "$BACKUP_DIR"
     fi
 }
@@ -54,7 +56,11 @@ SSH_PORT=22
 SSH_KEY=""
 
 # ==================== 参数解析 ====================
+# 审计 X-21：改前 usage() 固定 `exit 0`，于是三类调用——用户主动求助（-h）、参数拼错、
+# 必填参数缺失——退出码全是 0，`&&` 串联或监控包装无法区分"看过帮助"和"参数写错了"。
+# 现在接受一个状态码：-h/--help → 0；参数错误 → 2；必填缺失 → 1。
 usage() {
+    local _usage_status="${1:-0}"
     cat <<EOF
 用法: $0 [选项]
 
@@ -82,7 +88,7 @@ usage() {
   # 使用自定义 SSH 端口和密钥
   sudo $0 --mode push --target root@192.168.1.100 --ssh-port 2222 --ssh-key ~/.ssh/id_rsa
 EOF
-    exit 0
+    exit "$_usage_status"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -97,25 +103,25 @@ while [[ $# -gt 0 ]]; do
         --dry-run)    DRY_RUN=true; shift ;;
         --ssh-port)   SSH_PORT="$2"; shift 2 ;;
         --ssh-key)    SSH_KEY="$2"; shift 2 ;;
-        -h|--help)    usage ;;
-        *)            log_error "未知参数: $1"; usage ;;
+        -h|--help)    usage 0 ;;
+        *)            log_error "未知参数: $1"; usage 2 ;;
     esac
 done
 
 # ==================== 参数验证 ====================
 if [[ -z "$MODE" ]]; then
     log_error "必须指定 --mode (push 或 pull)"
-    usage
+    usage 1
 fi
 
 if [[ "$MODE" == "push" && -z "$TARGET" ]]; then
     log_error "推送模式必须指定 --target USER@HOST"
-    usage
+    usage 1
 fi
 
 if [[ "$MODE" == "pull" && -z "$SOURCE" ]]; then
     log_error "拉取模式必须指定 --source USER@HOST"
-    usage
+    usage 1
 fi
 
 # 审计 X-03：`--install-dir` 会被拼进远端命令里由 root shell 执行，必须先做**白名单校验**。
@@ -128,6 +134,13 @@ fi
 if [[ "$INSTALL_DIR" == *".."* ]]; then
     log_error "--install-dir 不得包含 '..'（收到: $INSTALL_DIR）"
     exit 1
+fi
+
+# 审计 X-21 / X-25：`--ssh-port` 改前不做数字/范围校验，`-p abc` 或 `-p 99999` 会被原样
+# 拼进 `ssh -p`，报错信息晦涩（"Bad port 'abc'"）。这里按"参数错误"提前拦下（退出码 2）。
+if ! [[ "$SSH_PORT" =~ ^[0-9]+$ ]] || (( SSH_PORT < 1 || SSH_PORT > 65535 )); then
+    log_error "--ssh-port 必须是 1-65535 的整数（收到: $SSH_PORT）"
+    exit 2
 fi
 
 # SSH 命令构建
@@ -144,11 +157,26 @@ RSYNC_SSH="ssh ${_ssh_opts_q% }"
 
 # ==================== 辅助函数 ====================
 
-# 检查远程命令是否存在
+# 检查远程命令是否存在（审计 X-21：--dry-run 下不得建立真实连接）
 check_remote_command() {
     local host="$1"
     local cmd="$2"
+    if [[ "$DRY_RUN" == true ]]; then
+        log_info "[DRY-RUN] 将检查 $host 上是否存在: $cmd"
+        return 0
+    fi
     ssh "${SSH_OPTS[@]}" "$host" "command -v $cmd >/dev/null 2>&1" 2>/dev/null
+}
+
+# 连通性探测（审计 X-21：改前这里是裸 `ssh`，`--dry-run` 依然会真实建连并要求免密登录与
+# 主机指纹，离线/CI 环境根本无法预演——与帮助文本承诺的"模拟运行，不实际执行"不符）
+check_remote_conn() {
+    local host="$1"
+    if [[ "$DRY_RUN" == true ]]; then
+        log_info "[DRY-RUN] 将检查与 $host 的 SSH 连通性"
+        return 0
+    fi
+    ssh "${SSH_OPTS[@]}" "$host" "echo ok" >/dev/null 2>&1
 }
 
 # 在远程执行命令
@@ -232,7 +260,7 @@ if [[ "$MODE" == "push" ]]; then
     log_info "源目录检查通过"
 
     log_step "[2/6] 检查目标服务器连接..."
-    if ! ssh "${SSH_OPTS[@]}" "$REMOTE" "echo ok" >/dev/null 2>&1; then
+    if ! check_remote_conn "$REMOTE"; then
         log_error "无法连接到目标服务器: $REMOTE"
         log_error "请检查 SSH 连接和防火墙设置"
         exit 1
@@ -345,7 +373,7 @@ elif [[ "$MODE" == "pull" ]]; then
     REMOTE="$SOURCE"
 
     log_step "[1/6] 检查源服务器连接..."
-    if ! ssh "${SSH_OPTS[@]}" "$REMOTE" "echo ok" >/dev/null 2>&1; then
+    if ! check_remote_conn "$REMOTE"; then
         log_error "无法连接到源服务器: $REMOTE"
         exit 1
     fi
@@ -361,7 +389,9 @@ elif [[ "$MODE" == "pull" ]]; then
 
     # 创建本地备份目录
     log_step "[3/6] 创建本地备份目录..."
-    mkdir -p "$BACKUP_DIR"
+    if [[ "$DRY_RUN" != true ]]; then
+        mkdir -p "$BACKUP_DIR"
+    fi
     log_info "备份目录: $BACKUP_DIR"
 
     # 拉取数据文件
@@ -371,7 +401,7 @@ elif [[ "$MODE" == "pull" ]]; then
         local_path="$BACKUP_DIR/$item"
 
         # 检查远程文件是否存在
-        if ssh "${SSH_OPTS[@]}" "$REMOTE" "test -e $INSTALL_DIR/$item" 2>/dev/null; then
+        if remote_exec "$REMOTE" "test -e $INSTALL_DIR/$item" 2>/dev/null; then
             log_info "拉取: $item"
             mkdir -p "$(dirname "$local_path")"
             rsync_transfer "$remote_path" "$(dirname "$local_path")/"
