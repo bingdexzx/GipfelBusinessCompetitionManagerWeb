@@ -687,22 +687,26 @@ if [[ $WITH_NGINX -eq 1 ]]; then
         sed -i -E "/^# === NGINX_SSL_443_LOGVIEWER_START ===$/,/^# === NGINX_SSL_443_LOGVIEWER_END ===$/ { /^# === NGINX_SSL/! { s/^# //; s/^#$// } }" "$VHOST_OUT"
         # 日志查看器「域名 + 非标准 TLS 端口」块（--logviewer-tls-port）：
         #   域名走 Cloudflare 时 CF 只代理固定端口，默认 8120 不在其中，而 log.<域名>
-        #   又可能加不了记录 —— 于是用同一主机名的 CF 受支持端口（建议 8443）。
+        #   又可能加不了记录 —— 于是用同一主机名的 CF 受支持端口（8443）。
         if [[ -n "$LOGVIEWER_TLS_PORT" ]]; then
             sed -i -E "/^# === LOGVIEWER_TLS_PORT_START ===$/,/^# === LOGVIEWER_TLS_PORT_END ===$/ { /^# === LOGVIEWER_TLS/! { s/^# //; s/^#$// } }" "$VHOST_OUT"
-            if ! grep -q "listen ${LOGVIEWER_TLS_PORT} ssl" "$VHOST_OUT"; then
-                err "已请求 --logviewer-tls-port ${LOGVIEWER_TLS_PORT}，但产物里没有 'listen ${LOGVIEWER_TLS_PORT} ssl' —— 模板的 LOGVIEWER_TLS_PORT 标记可能被改动，请检查 deploy/nginx-gipfel.conf"
-            fi
         else
             # 未启用：整段删除，避免残留 __LOG_VIEWER_TLS_PORT__ 占位符让 nginx -t 失败
             sed -i '/^# === LOGVIEWER_TLS_PORT_START ===$/,/^# === LOGVIEWER_TLS_PORT_END ===$/d' "$VHOST_OUT"
         fi
+        # ★ 占位符替换必须**先于下面所有检查**：检查的是「替换完成后的最终产物」。
+        #   曾把 `grep 'listen <端口> ssl'` 放在端口替换之前 → 那一刻产物里还是
+        #   `listen __LOG_VIEWER_TLS_PORT__ ssl;`，grep 必然失败并误报「模板被改动」。
         sed -i -e "s|__SSL_CERT__|${SSL_CERT}|g" -e "s|__SSL_KEY__|${SSL_KEY}|g" "$VHOST_OUT"
         if [[ -n "$LOGVIEWER_TLS_PORT" ]]; then
             sed -i "s|__LOG_VIEWER_TLS_PORT__|${LOGVIEWER_TLS_PORT}|g" "$VHOST_OUT"
         fi
         if grep -q '__SSL_CERT__\|__SSL_KEY__\|__LOG_VIEWER_TLS_PORT__' "$VHOST_OUT"; then
             err "vhost 仍残留占位符（__SSL_CERT__/__SSL_KEY__/__LOG_VIEWER_TLS_PORT__），模板与脚本版本不一致；请把 deploy/nginx-gipfel.conf 与 scripts/ 同步到同一 commit 后重跑"
+        fi
+        if [[ -n "$LOGVIEWER_TLS_PORT" ]] \
+           && ! grep -qE "^[[:space:]]*listen[[:space:]]+${LOGVIEWER_TLS_PORT}[[:space:]]+ssl;" "$VHOST_OUT"; then
+            err "已请求 --logviewer-tls-port ${LOGVIEWER_TLS_PORT}，但产物里没有 'listen ${LOGVIEWER_TLS_PORT} ssl;' —— 模板的 LOGVIEWER_TLS_PORT 标记可能被改动，请检查 deploy/nginx-gipfel.conf"
         fi
         if ! grep -q 'listen 443 ssl' "$VHOST_OUT"; then
             err "已在 --origin-cert 模式下渲染，但产物里没有 listen 443 ssl —— 模板的 SSL 标记可能被改动，请检查 deploy/nginx-gipfel.conf"

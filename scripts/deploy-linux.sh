@@ -666,14 +666,14 @@ if [[ $WITH_NGINX -eq 1 ]]; then
         #     而 log.<域名> 又可能加不了记录 —— 于是用同一主机名的 CF 受支持端口（8443）。
         if [[ -n "$LOGVIEWER_TLS_PORT" ]]; then
             sed -i -E "/^# === LOGVIEWER_TLS_PORT_START ===$/,/^# === LOGVIEWER_TLS_PORT_END ===$/ { /^# === LOGVIEWER_TLS/! { s/^# //; s/^#$// } }" "$VHOST_FILE"
-            if ! grep -q "listen ${LOGVIEWER_TLS_PORT} ssl" "$VHOST_FILE"; then
-                err "已请求 --logviewer-tls-port ${LOGVIEWER_TLS_PORT}，但产物里没有 'listen ${LOGVIEWER_TLS_PORT} ssl' —— 模板的 LOGVIEWER_TLS_PORT 标记可能被改动，请检查 deploy/nginx-gipfel.conf"
-            fi
         else
             # 未启用：整段删除，避免留下 __LOG_VIEWER_TLS_PORT__ 占位符导致 nginx -t 失败
             sed -i '/^# === LOGVIEWER_TLS_PORT_START ===$/,/^# === LOGVIEWER_TLS_PORT_END ===$/d' "$VHOST_FILE"
         fi
         # ③ 填入证书路径与端口
+        #   ★ 这一步必须**先于下面所有检查**：检查的是「替换完成后的最终产物」。
+        #     曾把 `grep 'listen <端口> ssl'` 放在端口替换之前 → 那一刻产物里还是
+        #     `listen __LOG_VIEWER_TLS_PORT__ ssl;`，grep 必然失败并误报「模板被改动」。
         sed -i -e "s|__SSL_CERT__|${SSL_CERT}|g" -e "s|__SSL_KEY__|${SSL_KEY}|g" "$VHOST_FILE"
         if [[ -n "$LOGVIEWER_TLS_PORT" ]]; then
             sed -i "s|__LOG_VIEWER_TLS_PORT__|${LOGVIEWER_TLS_PORT}|g" "$VHOST_FILE"
@@ -682,9 +682,13 @@ if [[ $WITH_NGINX -eq 1 ]]; then
         if grep -q '__SSL_CERT__\|__SSL_KEY__\|__LOG_VIEWER_TLS_PORT__' "$VHOST_FILE"; then
             err "vhost 仍残留占位符（__SSL_CERT__/__SSL_KEY__/__LOG_VIEWER_TLS_PORT__），模板与脚本版本不一致；请把 deploy/nginx-gipfel.conf 与 scripts/ 同步到同一 commit 后重跑"
         fi
-        # ⑤ 自检：确认 443 块与证书路径真的进了产物（避免「以为启用了」）
+        # ⑤ 自检：确认各 443/TLS 块真的进了产物（在占位符全部替换之后判断）
         if ! grep -q 'listen 443 ssl' "$VHOST_FILE"; then
             err "已在 --origin-cert 模式下渲染，但产物里没有 listen 443 ssl —— 模板的 SSL 标记可能被改动，请检查 deploy/nginx-gipfel.conf"
+        fi
+        if [[ -n "$LOGVIEWER_TLS_PORT" ]] \
+           && ! grep -qE "^[[:space:]]*listen[[:space:]]+${LOGVIEWER_TLS_PORT}[[:space:]]+ssl;" "$VHOST_FILE"; then
+            err "已请求 --logviewer-tls-port ${LOGVIEWER_TLS_PORT}，但产物里没有 'listen ${LOGVIEWER_TLS_PORT} ssl;' —— 模板的 LOGVIEWER_TLS_PORT 标记可能被改动，请检查 deploy/nginx-gipfel.conf"
         fi
         # ⑥ 自检：区域内若混入「散文注释」，取消一层注释后会变成非法指令。
         #   曾真实发生：unknown directive "日志查看器子域的" —— nginx 的报错不会说明
