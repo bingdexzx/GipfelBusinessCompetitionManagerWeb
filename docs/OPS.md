@@ -202,24 +202,45 @@ npm run typecheck    # 类型检查（CI 必跑）
 
 ### Q12. 域名部署后主站正常，但日志查看器打不开
 
-- **现象**：`https://<域名>/` 一切正常，点「系统设置 → 日志查看器」却打不开（400 / 403 / 连接被拒 / 显示成主站）。
-- **根因**：这是**三个各自独立**的问题，症状不同、修法也不同。日志查看器是**独立 Django 服务**（`backend/logviewer/`），它有**自己**的 `ALLOWED_HOSTS` 与 `CSRF_TRUSTED_ORIGINS`——主站正常不代表它也正常。
+> ## ⚠️ 若你用的是 `http://<域名>:8120/...` —— 这个地址**永远打不开**，不是配置问题
+>
+> **Cloudflare 只代理固定端口**（[官方 Network ports 文档](https://developers.cloudflare.com/fundamentals/reference/network-ports/)）：HTTP `80/8080/8880/2052/2082/2086/2095`，HTTPS `443/2053/2083/2087/2096/`**`8443`**。**8120 不在其中。**
+> 橙云时 DNS 返回 Cloudflare 的 IP，而 CF 边缘不服务 8120 → 请求到不了源站。`:8120` 形态**只适用于「无域名、直连 IP」的部署**。
+>
+> **正确入口取决于能否给域名加 `log.` 三级记录**：能加 → `https://log.<域名>/`；**不能加**（例如域名是别人给的子域）→ `https://<域名>:8443/`（形态 B，见下）。
+
+- **现象**：`https://<域名>/` 一切正常，点「系统设置 → 日志查看器」却打不开（连接被拒 / 400 / 403 / 显示成主站）。
+- **根因**：这是**几个各自独立**的问题，症状不同、修法也不同。日志查看器是**独立 Django 服务**（`backend/logviewer/`），它有**自己**的 `ALLOWED_HOSTS` 与 `CSRF_TRUSTED_ORIGINS`——主站正常不代表它也正常。
 
 | 现象 | 成因 | 修法 |
 | --- | --- | --- |
-| **400** `Invalid HTTP_HOST header: 'log.<域名>'` | `log.<域名>` 不在日志查看器的 `ALLOWED_HOSTS` 里。它由 `DJANGO_ALLOWED_HOSTS` 兜底纳入，而 deploy 脚本过去**只**写主域、从不写 `log.<域名>` | ★ 已修（脚本现在同时追加 `<域名>` 与 `log.<域名>`）。手工：`DJANGO_ALLOWED_HOSTS=<域名>,log.<域名>,localhost,127.0.0.1` → `sudo systemctl restart gipfel gipfel-logviewer` |
-| **403**（登录 POST 失败） | `CSRF_TRUSTED_ORIGINS` 里没有 `log.<域名>`。nginx 以 `Host $host:$server_port` 透传，**默认端口**下 `get_host()` = `log.<域名>:80`，而浏览器 `Origin` 会**省略默认端口**；Django 的 `_origin_verified` 是**字符串相等**比较 → 对不上。该项过去只从 `LOG_VIEWER_PUBLIC_URL` 推导，而域名模式下脚本不写这一项 | ★ 已修（settings 现按 `ALLOWED_HOSTS` 统一补 `http://` 与 `https://` 两种来源） |
-| **连接被拒 / 证书错误 / 显示成主站** | 按钮地址派生为 `https://log.<域名>/`（`backend/apps/auth/views.py`），但 **nginx 模板里日志查看器子域只有 80 块，没有 443 块** | `sudo certbot --nginx -d <域名> -d log.<域名> --non-interactive --redirect`；手工补块见 [deploy/README.md](../deploy/README.md) |
+| **连接被拒/超时**，且地址带 `:8120` | CF 不代理 8120（见上框） | 改用子域形态，或形态 B（`--logviewer-tls-port 8443`） |
+| **400** `Invalid HTTP_HOST header` | 主机名不在日志查看器 `ALLOWED_HOSTS` 里。它由 `DJANGO_ALLOWED_HOSTS` 兜底纳入，而 deploy 脚本过去**只**写主域、从不写 `log.<域名>` | ★ 已修（脚本现在同时追加 `<域名>` 与 `log.<域名>`）。手工：`DJANGO_ALLOWED_HOSTS=<域名>,log.<域名>,localhost,127.0.0.1` → `sudo systemctl restart gipfel gipfel-logviewer` |
+| **403**（登录 POST 失败） | `CSRF_TRUSTED_ORIGINS` 里没有该来源。nginx 以 `Host $host:$server_port` 透传，**默认端口**下 `get_host()` = `<域名>:80`，而浏览器 `Origin` 会**省略默认端口**；Django 的 `_origin_verified` 是**字符串相等**比较 → 对不上。该项过去只从 `LOG_VIEWER_PUBLIC_URL` 推导，而域名模式下脚本不写这一项 | ★ 已修（settings 现按 `ALLOWED_HOSTS` 统一补 `http://` 与 `https://` 两种来源） |
+| **证书错误 / 显示成主站** | 按钮地址派生为 `https://log.<域名>/`（`backend/apps/auth/views.py`），但 nginx 没有该子域的 443 块 | 用子域形态（certbot 带 `-d log.<域名>`），或改走形态 B |
+
+#### ★ 形态 B：域名走 CF 但加不了 `log.` 记录 → 用 8443 端口
+
+```bash
+sudo bash scripts/update-from-github.sh --source-dir <clone 目录> \
+     --install-dir /opt/gipfel --with-nginx --domain <域名> \
+     --origin-cert --logviewer-tls-port 8443
+```
+
+- 脚本渲染 `listen 8443 ssl` 的日志查看器块（**复用主站 Origin Certificate，不需要 `log.` 域名**），并把 `LOG_VIEWER_PUBLIC_URL` 写成 `https://<域名>:8443/`——前端按钮即指向它
+- ★ **必须在云控制台安全组入方向放行 TCP 8443**（脚本只能放行本机 ufw）
+- Origin Certificate 的 Hostnames 需含 `<域名>`（形态 B 不需要 `log.` 前缀）
+- 认证不变：仍走主系统「系统设置 → 日志查看器」按钮签发的一次性令牌，进入后仍需超管登录
 
 - **分层定位（一条命令看断在哪层）**：
   ```bash
   systemctl is-active gipfel-logviewer && ss -lntp | grep 8121        # 服务在跑吗
-  curl -sS -o /dev/null -w '%{http_code}\n' -H 'Host: log.<域名>' http://127.0.0.1/
+  ss -lntp | grep -E ':(443|8443)\b'                                  # 公网监听起来了吗
+  curl -sS -o /dev/null -w '%{http_code}\n' -H 'Host: <域名>' http://127.0.0.1:8121/
   #   400 → 白名单；403 → CSRF；200/302 → nginx 与 Host 链路正常
-  sudo nginx -T | grep -A2 'server_name log\.'                        # 443 上有该子域吗
-  sudo certbot certificates | grep -A3 Domains                        # 证书覆盖它吗
+  sudo nginx -T | grep -E 'server_name|listen 443|listen 8443' | head
   ```
-- **注意**：① 单独改 `DJANGO_ALLOWED_HOSTS` 后必须重启 **`gipfel-logviewer`**（它读自己的 settings），只重启 `gipfel` 无效；② 不要**同时**用 certbot `-d log.<域名>` 和手工 443 块——同一 `server_name` 两个 443 块会让 nginx 报 `conflicting server name` 并只用一个。
+- **注意**：① 单独改 `DJANGO_ALLOWED_HOSTS` 后必须重启 **`gipfel-logviewer`**（它读自己的 settings），只重启 `gipfel` 无效；② 不要**同时**用 certbot `-d log.<域名>` 和手工 443 块——同一 `server_name` 两个 443 块会让 nginx 报 `conflicting server name` 并只用一个；③ 令牌默认 **120 秒**有效，过期表现为**被 302 弹回前端首页**（不是报错页），所以请从系统里点按钮、别手拼 URL。
 
 ### Q9. 直接输入网址打开 /admin 被跳回前端首页
 

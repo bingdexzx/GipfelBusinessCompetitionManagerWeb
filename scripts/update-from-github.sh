@@ -73,6 +73,8 @@ ORIGIN_CERT=0
 ORIGIN_CERT_DIR="/etc/ssl/cloudflare"
 SSL_CERT=""
 SSL_KEY=""
+# 日志查看器：域名 + 非标准 TLS 端口（Cloudflare 代理自定义端口形态）
+LOGVIEWER_TLS_PORT=""
 
 usage() {
     cat <<EOF
@@ -95,6 +97,11 @@ Usage: $0 [options]
   --origin-cert-dir PATH   证书目录，默认 /etc/ssl/cloudflare
   --ssl-cert PATH          显式指定证书文件（覆盖按域名推导）
   --ssl-key PATH           显式指定私钥文件（覆盖按域名推导）
+  --logviewer-tls-port PORT ★ 域名 + Cloudflare 代理时，把日志查看器挂到该 HTTPS 端口
+                           （建议 8443）。CF 只代理固定端口，**默认的 8120 不在其中**，
+                           故 http://<域名>:8120/ 永远连不上。需与 --origin-cert 同用；
+                           脚本会把 LOG_VIEWER_PUBLIC_URL 写成 https://<域名>:PORT/
+                           另需在云安全组入方向放行该 TCP 端口。
   -h, --help               显示本帮助
 EOF
 }
@@ -111,6 +118,7 @@ while [[ $# -gt 0 ]]; do
         --origin-cert-dir)  ORIGIN_CERT_DIR="$2"; ORIGIN_CERT=1; shift 2 ;;
         --ssl-cert)         SSL_CERT="$2"; ORIGIN_CERT=1; shift 2 ;;
         --ssl-key)          SSL_KEY="$2"; ORIGIN_CERT=1; shift 2 ;;
+        --logviewer-tls-port) LOGVIEWER_TLS_PORT="$2"; shift 2 ;;
         -h|--help)          usage; exit 0 ;;
         *) echo "未知参数 $1"; usage; exit 2 ;;
     esac
@@ -411,6 +419,33 @@ if [[ -f "$INSTALL_DIR/backend/.env" ]]; then
     else
         warn "未能确定公网入口（域名/公网 IP 均为空），DJANGO_ALLOWED_HOSTS 未修改；若经公网访问出现 400，请手动在 backend/.env 加入 DJANGO_ALLOWED_HOSTS=<公网IP>,localhost"
     fi
+
+    # 日志查看器公网地址：域名 + 非标准 TLS 端口形态（--logviewer-tls-port）。
+    #   ★ 必须在这里写（在本步骤之后的第 5 节才重启服务），否则日志查看器进程读到的
+    #     仍是旧值，前端按钮会一直指向不可用地址。
+    #   为什么需要换端口：CF 只代理固定端口（HTTP 80/8080/8880/2052/2082/2086/2095，
+    #   HTTPS 443/2053/2083/2087/2096/8443），默认 8120 不在其中 ——
+    #   http://<域名>:8120/ 永远连不上（CF 边缘不服务该端口）。
+    if [[ -n "$LOGVIEWER_TLS_PORT" ]]; then
+        if [[ ! "$LOGVIEWER_TLS_PORT" =~ ^[0-9]+$ ]] \
+           || (( LOGVIEWER_TLS_PORT < 1 || LOGVIEWER_TLS_PORT > 65535 )); then
+            err "--logviewer-tls-port 需为 1-65535 的整数，收到：${LOGVIEWER_TLS_PORT}"
+        fi
+        if [[ -z "$DOMAIN" ]]; then
+            err "--logviewer-tls-port 需要同时传 --domain（用它拼 https://<域名>:<端口>/）"
+        fi
+        if [[ "$ORIGIN_CERT" != 1 ]]; then
+            err "--logviewer-tls-port 需要与 --origin-cert 一起使用（该端口块本身要 TLS 证书，否则按钮会指向一个没人监听的端口）"
+        fi
+        _lv_url="https://${DOMAIN}:${LOGVIEWER_TLS_PORT}/"
+        if grep -q '^LOG_VIEWER_PUBLIC_URL=' "$INSTALL_DIR/backend/.env"; then
+            sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=${_lv_url}|" "$INSTALL_DIR/backend/.env"
+        else
+            echo "LOG_VIEWER_PUBLIC_URL=${_lv_url}" >> "$INSTALL_DIR/backend/.env"
+        fi
+        ok "LOG_VIEWER_PUBLIC_URL 已设为 ${_lv_url}（前端「日志查看器」按钮将指向它）"
+        warn "别忘了在**云安全组**入方向放行 TCP ${LOGVIEWER_TLS_PORT}（脚本只能放行本机 ufw，管不到云侧）。"
+    fi
     # sed -i 会以 root 重建 .env（属主变为 root），恢复运行用户归属与 600 权限，
     # 否则 systemd 以 gipfel 启动时读不到 .env（LOG_VIEWER_PUBLIC_URL 自愈块同理）。
     chown gipfel:gipfel "$INSTALL_DIR/backend/.env" 2>/dev/null || true
@@ -552,6 +587,17 @@ if [[ $WITH_NGINX -eq 1 ]]; then
          或先把 443 块移到 /etc/nginx/snippets/ 下再用 include 引入。
     旧 vhost 已备份为 ${VHOST_OUT}.bak-<时间戳>，可随时还原。"
         fi
+        # 同类防护（日志查看器非标准 TLS 端口）：若现有 vhost 已在 8443 之类的端口上提供
+        # TLS，而本次未传 --logviewer-tls-port，覆盖后该块会消失 —— 前端按钮随即指向空气。
+        # 注意必须带 || true：管道里首个 grep 无匹配会退出 1，pipefail 下会让赋值失败并终止脚本。
+        _stale_tls_ports="$(grep -oE '^[[:space:]]*listen[[:space:]]+[0-9]+[[:space:]]+ssl' "$VHOST_OUT" 2>/dev/null \
+                            | grep -oE '[0-9]+' | grep -v '^443$' | sort -u | tr '\n' ' ' || true)"
+        if [[ -z "$LOGVIEWER_TLS_PORT" && -n "$_stale_tls_ports" ]]; then
+            err "现有 vhost 已在非标准端口上提供 TLS（端口：${_stale_tls_ports}），而本次未传 --logviewer-tls-port——
+    覆盖后这些端口块会消失，日志查看器可能因此打不开（且不报错）。
+    若确实在用，请带上 --logviewer-tls-port <端口> 重跑；
+    若有意移除，请手动确认后再执行（旧 vhost 已备份）。"
+        fi
     fi
     # 解析 .env 的 LOG_VIEWER_PORT（默认 8120；缺失/非法/越界一律兜底），与 deploy-linux.sh 的
     # _log_viewer_port 同语义。nginx 模板里 listen 端口是 __LOG_VIEWER_PORT__ 占位符，daphne
@@ -616,9 +662,24 @@ if [[ $WITH_NGINX -eq 1 ]]; then
         done
         sed -i -E "/^# === NGINX_SSL_443_START ===$/,/^# === NGINX_SSL_443_END ===$/ { /^# === NGINX_SSL/! { s/^# //; s/^#$// } }" "$VHOST_OUT"
         sed -i -E "/^# === NGINX_SSL_443_LOGVIEWER_START ===$/,/^# === NGINX_SSL_443_LOGVIEWER_END ===$/ { /^# === NGINX_SSL/! { s/^# //; s/^#$// } }" "$VHOST_OUT"
+        # 日志查看器「域名 + 非标准 TLS 端口」块（--logviewer-tls-port）：
+        #   域名走 Cloudflare 时 CF 只代理固定端口，默认 8120 不在其中，而 log.<域名>
+        #   又可能加不了记录 —— 于是用同一主机名的 CF 受支持端口（建议 8443）。
+        if [[ -n "$LOGVIEWER_TLS_PORT" ]]; then
+            sed -i -E "/^# === LOGVIEWER_TLS_PORT_START ===$/,/^# === LOGVIEWER_TLS_PORT_END ===$/ { /^# === LOGVIEWER_TLS/! { s/^# //; s/^#$// } }" "$VHOST_OUT"
+            if ! grep -q "listen ${LOGVIEWER_TLS_PORT} ssl" "$VHOST_OUT"; then
+                err "已请求 --logviewer-tls-port ${LOGVIEWER_TLS_PORT}，但产物里没有 'listen ${LOGVIEWER_TLS_PORT} ssl' —— 模板的 LOGVIEWER_TLS_PORT 标记可能被改动，请检查 deploy/nginx-gipfel.conf"
+            fi
+        else
+            # 未启用：整段删除，避免残留 __LOG_VIEWER_TLS_PORT__ 占位符让 nginx -t 失败
+            sed -i '/^# === LOGVIEWER_TLS_PORT_START ===$/,/^# === LOGVIEWER_TLS_PORT_END ===$/d' "$VHOST_OUT"
+        fi
         sed -i -e "s|__SSL_CERT__|${SSL_CERT}|g" -e "s|__SSL_KEY__|${SSL_KEY}|g" "$VHOST_OUT"
-        if grep -q '__SSL_CERT__\|__SSL_KEY__' "$VHOST_OUT"; then
-            err "vhost 仍残留 __SSL_CERT__/__SSL_KEY__ 占位符（模板与脚本版本不一致）；请把 deploy/nginx-gipfel.conf 与 scripts/ 同步到同一 commit 后重跑"
+        if [[ -n "$LOGVIEWER_TLS_PORT" ]]; then
+            sed -i "s|__LOG_VIEWER_TLS_PORT__|${LOGVIEWER_TLS_PORT}|g" "$VHOST_OUT"
+        fi
+        if grep -q '__SSL_CERT__\|__SSL_KEY__\|__LOG_VIEWER_TLS_PORT__' "$VHOST_OUT"; then
+            err "vhost 仍残留占位符（__SSL_CERT__/__SSL_KEY__/__LOG_VIEWER_TLS_PORT__），模板与脚本版本不一致；请把 deploy/nginx-gipfel.conf 与 scripts/ 同步到同一 commit 后重跑"
         fi
         if ! grep -q 'listen 443 ssl' "$VHOST_OUT"; then
             err "已在 --origin-cert 模式下渲染，但产物里没有 listen 443 ssl —— 模板的 SSL 标记可能被改动，请检查 deploy/nginx-gipfel.conf"
@@ -689,9 +750,18 @@ ${_bad_prose}
     if command -v ufw >/dev/null 2>&1; then
         ufw allow 80/tcp  >/dev/null 2>&1 || true
         ufw allow 443/tcp >/dev/null 2>&1 || true
-        ok "已放行防火墙 80/443 端口（若 ufw 未启用则该规则暂未生效）"
+        if [[ -n "$LOGVIEWER_TLS_PORT" ]]; then
+            ufw allow "${LOGVIEWER_TLS_PORT}/tcp" >/dev/null 2>&1 || true
+            ok "已放行防火墙 80/443/${LOGVIEWER_TLS_PORT} 端口（若 ufw 未启用则该规则暂未生效）"
+        else
+            ok "已放行防火墙 80/443 端口（若 ufw 未启用则该规则暂未生效）"
+        fi
     else
-        warn "请确认云/系统防火墙放行 TCP 80 与 443，否则 HTTPS 不可达（经 CDN 回源时报 521）。"
+        if [[ -n "$LOGVIEWER_TLS_PORT" ]]; then
+            warn "请确认云/系统防火墙放行 TCP 80、443 与 ${LOGVIEWER_TLS_PORT}，否则 HTTPS / 日志查看器不可达。"
+        else
+            warn "请确认云/系统防火墙放行 TCP 80 与 443，否则 HTTPS 不可达（经 CDN 回源时报 521）。"
+        fi
     fi
     # 无域名：日志查看器经 8120 端口暴露公网，需放行防火墙（与 deploy-linux.sh 一致）
     if [[ -z "$DOMAIN" ]]; then

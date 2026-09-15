@@ -110,10 +110,46 @@ curl -sS -I http://127.0.0.1/         # 200（nginx 托管 index.html）
 
 ### 日志查看器公网访问（防直连）
 
-日志查看器作为独立 Django 站点，经 nginx **整站代理**到 `127.0.0.1:8121`（日志查看器 daphne 仅绑内网 8121，公网 8120 由 nginx 监听并反代；若 daphne 也用 8120 会与 nginx 抢端口导致 nginx 起不来）。代理形态分两种：
+> ## ⚠️ 先看这条：域名挂了 Cloudflare 时，`:8120` 永远打不开
+>
+> **Cloudflare 只代理固定端口**（[官方 Network ports 文档](https://developers.cloudflare.com/fundamentals/reference/network-ports/)）：
+>
+> | | 端口 |
+> | --- | --- |
+> | HTTP | `80` `8080` `8880` `2052` `2082` `2086` `2095` |
+> | HTTPS | `443` `2053` `2083` `2087` `2096` **`8443`** |
+>
+> **`8120` 不在其中。** 橙云时 DNS 返回的是 Cloudflare 的 IP，而 CF 边缘不服务 8120 → 请求到不了源站。所以
+> **`http://<域名>:8120/` 这个形态只在「无域名、直连 IP」的部署下成立**，一旦有了走 CF 的域名就必然失败（现象：连接被拒/超时，而源站其实一切正常）。
+>
+> 而且 `LOG_VIEWER_PUBLIC_URL` 若还是早期无域名部署留下的 `http://<IP>:8120/`，前端按钮会一直生成那个不可用的地址——请删掉该行或按下面的方式重设。
 
-- **有域名**：nginx 子域 `log.<DOMAIN>`（端口 80，建议 certbot 覆盖）→ `127.0.0.1:8121`。
-- **无域名（纯 IP）**：nginx `:8120` 端口（`server_name _`）→ `127.0.0.1:8121`，访问 `http://<IP>:8120/`。无需 DNS 子域，适合还没买域名的阶段。deploy 脚本**未传 `--domain` 时**会自动：① 把 vhost 里的日志查看器块改为 8120 端口版、② 在 `.env` 写入 `LOG_VIEWER_PUBLIC_URL=http://<本机IP>:8120/`、③ `ufw allow 8120/tcp` 放行防火墙（无 ufw 则提示手动放行）。
+日志查看器作为独立 Django 站点，经 nginx **整站代理**到 `127.0.0.1:8121`（日志查看器 daphne 仅绑内网 8121，公网端口由 nginx 监听并反代；若 daphne 也用同一端口会与 nginx 抢端口导致 nginx 起不来）。可选形态有三种：
+
+| 形态 | 地址 | 适用 |
+| --- | --- | --- |
+| **A. 子域** | `https://log.<域名>/` | 域名**能加 `log.` 三级记录**时（最干净） |
+| **B. 非标准 TLS 端口** ★ | `https://<域名>:8443/` | 域名走 CF 但**加不了 `log.` 记录**时（如域名是别人给的子域） |
+| **C. 纯 IP + 端口** | `http://<IP>:8120/` | **没有域名**、直连源站时 |
+
+**形态 B 的启用方式**（无需任何代码改动，只需证书 + 脚本参数）：
+
+```bash
+# 首次部署
+sudo bash scripts/deploy-linux.sh --domain <域名> --install-dir /opt/gipfel \
+     --with-nginx --origin-cert --logviewer-tls-port 8443
+
+# 日常升级（★ 每次都带这三个参数，否则 vhost 重渲染后端口块会消失）
+sudo bash scripts/update-from-github.sh --source-dir <clone 目录> \
+     --install-dir /opt/gipfel --with-nginx --domain <域名> \
+     --origin-cert --logviewer-tls-port 8443
+```
+
+脚本会：渲染 `listen 8443 ssl` 的日志查看器 server 块（复用主站证书，**不需要 `log.` 域名**）→ 把 `.env` 的 `LOG_VIEWER_PUBLIC_URL` 写成 `https://<域名>:8443/`（前端按钮即指向它）→ `ufw allow 8443/tcp` → `nginx -t` → reload。
+
+> ⚠️ **还要在云控制台安全组入方向放行 TCP 8443**——脚本只能放行本机 ufw，管不到云侧。
+> ⚠️ **Origin Certificate 的 Hostnames 必须含 `<域名>`**（形态 B 不需要 `log.` 前缀）。若用了 `*.域名` 通配则都覆盖。
+
 
 不论哪种形态，均为**仅按钮跳转**：前端「系统设置 → 日志查看器」按钮在点击时向后端 `POST /api/auth/logviewer-token` 获取一次性（默认 120s）签名令牌（仅 `SUPER_ADMIN` 可获取），拼入跳转地址打开（有域名 `https://log.<DOMAIN>/?token=...`，无域名 `http://<IP>:8120/?token=...`，地址由 `/api/version` 下发的 `log_viewer_url` 决定，可用 `.env` 的 `LOG_VIEWER_PUBLIC_URL` 显式覆盖）。日志查看器 `index` 视图校验令牌，缺失/无效/过期均 **403 拒绝**——因此直接输入网址、书签、复制链接都无法进入。
 
