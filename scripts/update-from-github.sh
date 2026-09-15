@@ -559,6 +559,15 @@ if [[ $WITH_NGINX -eq 1 ]]; then
             ok "80 端口验证通过：gipfel 站点已生效（非默认欢迎页）"
         fi
     fi
+    # 80/443 放行（与 deploy-linux.sh 一致）：HTTPS 启用后 443 必需；
+    #   经 CDN（Cloudflare 等）回源时同样要能连上 443，否则 CDN 报 521。
+    if command -v ufw >/dev/null 2>&1; then
+        ufw allow 80/tcp  >/dev/null 2>&1 || true
+        ufw allow 443/tcp >/dev/null 2>&1 || true
+        ok "已放行防火墙 80/443 端口（若 ufw 未启用则该规则暂未生效）"
+    else
+        warn "请确认云/系统防火墙放行 TCP 80 与 443，否则 HTTPS 不可达（经 CDN 回源时报 521）。"
+    fi
     # 无域名：日志查看器经 8120 端口暴露公网，需放行防火墙（与 deploy-linux.sh 一致）
     if [[ -z "$DOMAIN" ]]; then
         if command -v ufw >/dev/null 2>&1; then

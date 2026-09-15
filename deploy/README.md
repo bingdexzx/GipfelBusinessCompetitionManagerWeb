@@ -200,6 +200,144 @@ certbot 会自动写入 443 块、跳转并加载证书。若手动启用，取�
 
 **Socket.IO CORS（L2）**：`backend/apps/realtime/gateway.py` 的 `cors_allowed_origins` 不再硬编码 `*`，改为复用主后端同一份 `CORS_ORIGIN` 白名单（未配置时退化为 `*`，仅限开发/私网反射），避免任意站点跨域连 WebSocket（CSWSH）。
 
+### Cloudflare / CDN 前置（H4）
+
+域名前面挂了 Cloudflare（或其它 CDN / 反代）时，**TLS 是两段**：
+
+```
+访客 ──TLS(CDN 的证书)──► Cloudflare ──TLS(你的证书 + nginx 443)──► nginx ──http──► daphne:8000
+```
+
+所以 HTTPS 不通时，**第一步是判断断在哪一段**。CDN 的错误码已经告诉你了——这时候去翻 nginx 日志通常什么都没有，因为请求根本没到源站。
+
+#### 错误码对照（先看这个）
+
+| 错误码 | 归属 | 含义 | 头号嫌疑 |
+| --- | --- | --- | --- |
+| **521** | Cloudflare | Web server is down —— **源站拒绝连接** | ★ **源站 443 没有监听**（最常见）；其次防火墙 / fail2ban / 安全软件**挡掉了 Cloudflare 的 IP 段** |
+| 522 | Cloudflare | 连接超时 | 防火墙把包**丢掉**（DROP）；源站过载 |
+| 523 | Cloudflare | 源站不可达 | 源站 IP 配错 |
+| 524 | Cloudflare | 连上了但响应超时 | 后端慢或挂了（看 `systemctl status gipfel`） |
+| 525 | Cloudflare | SSL 握手失败 | 源站 443 说的是**明文 HTTP**：`listen 443;` 少了 `ssl` |
+| 526 | Cloudflare | 源站证书无效（仅 Full-strict） | 证书过期 / 域名不匹配 / 只装了叶子证书没带链 |
+
+> Cloudflare 官方把 521 定义为「**源站拒绝来自 Cloudflare 的连接**」，并明确给出两条主因：
+> ① **源站 Web 应用离线**；② **源站防火墙挡掉了 Cloudflare**。官方同时点名了与 TLS 模式对应的端口要求：
+> **Flexible 用 80，Full / Full (strict) 用 443**——源站必须真的在这个端口上监听
+> （[Error 521 官方文档](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-521/)）。
+>
+> ★ **一个经验性判据（非官方规范，但很好用）**：521 是「**拒绝**」，522 是「**丢包**」。
+> ufw 默认策略是 DROP → 多表现为 522；而端口上没有任何进程监听时，内核回 RST/REJECT → 多表现为 521。
+> 所以看到 **521，第一嫌疑就是「nginx 根本没在 443 上监听」**——这与官方「源站应用离线」的表述一致。
+
+#### 一条命令定性
+
+```bash
+ss -lntp | grep -E ':(80|443)\b'
+grep -n 'listen' /etc/nginx/sites-available/gipfel.conf
+sudo certbot certificates
+curl -vk https://127.0.0.1/ -H 'Host: <DOMAIN>' | head -5
+```
+
+**443 无输出 = 就是它。** 陷阱在于：`deploy/nginx-gipfel.conf` 里的 443 块**默认是注释态模板**，而 `deploy-linux.sh` **不申请证书**。所以「证书已签发」≠「nginx 已用上证书」——`certbot certonly`、或 `certbot --nginx` 中途失败，都会留下「证书在、443 没监听」这个状态。
+
+#### 修复路线 A：让 certbot 自己写 443 块（推荐）
+
+```bash
+# 只签主域（最稳，不依赖任何子域 DNS）
+sudo certbot --nginx -d <DOMAIN> --non-interactive --redirect
+
+# 需要日志查看器子域时再加一个 -d，但该子域必须有 DNS 记录：
+#   log.<DOMAIN> 解析不到会让【整条命令中止】、443 块写不进去
+#   ——这正是「证书申请了但 HTTPS 起不来」最常见的原因
+sudo certbot --nginx -d <DOMAIN> -d log.<DOMAIN> --non-interactive --redirect
+```
+
+**签发前置（经 Cloudflare 时最容易踩）**：
+
+- 源站 **80 端口公网可达**（HTTP-01 校验走 80）；
+- ★ **临时关闭 Cloudflare 的 Always Use HTTPS / 边缘跳转规则**——否则校验请求会跟着跳到尚不可用的 443，签发失败。注意这与源站自己的 `--redirect` 无关（那是签发**之后**才该生效的）。
+
+自检（签发前跑一次）：
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' http://<DOMAIN>/.well-known/acme-challenge/probe
+# 期望 404（说明请求确实到达了 nginx），而不是 301 / 522
+```
+
+#### 修复路线 B：手工启用模板
+
+在**渲染后的** vhost 上改，不是仓库模板：
+
+```bash
+sudo vim /etc/nginx/sites-available/gipfel.conf
+#   取消 # === NGINX_SSL_443_START/END === 整段注释
+#   ssl_certificate / ssl_certificate_key 按 `certbot certificates` 的实际路径填
+#   需要 HSTS 再取消 Strict-Transport-Security 那行
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+> ⚠️ 改 `deploy/nginx-gipfel.conf` 再 reload 是**无效**的：它不参与 nginx 加载，且里面仍是 `__DOMAIN__` / `__INSTALL_DIR__` 占位符，直接使用会让 `nginx -t` 报证书文件不存在。
+
+#### Cloudflare 的 SSL/TLS 模式必须与源站匹配
+
+| SSL/TLS 模式 | CDN→源站 | 要求 | 结论 |
+| --- | --- | --- | --- |
+| **Full (strict)** | 443 + TLS，**校验**源站证书 | 源站 443 有有效证书 | ✅ **推荐**（Let's Encrypt 正好满足） |
+| Full | 443 + TLS，不校验 | 源站 443 提供 TLS | ⚠️ 可用，但会掩盖源站证书错误 |
+| **Flexible** | **80 + 明文** | 源站 80 提供明文 HTTP | ❌ **不要用**：与 `--redirect` 叠加 → CDN 回源 80、源站 301 到 443、CDN 再回 80 → **重定向循环** |
+| Off | 仅 HTTP | — | 访客侧根本没有 HTTPS |
+
+**更省事的替代**：不想维护 Let's Encrypt 的 90 天续期，就改用 **Cloudflare Origin Certificate**（有效期最长 15 年、只被 Cloudflare 信任），配 Full (strict)。本仓库 nginx 配置**无需改动**，只换证书路径即可。
+
+#### 防火墙：回源 443 必须放行
+
+`deploy-linux.sh` 与 `update-from-github.sh` 现已自动执行 `ufw allow 80/tcp` 与 `ufw allow 443/tcp`（此前脚本**只**处理日志查看器端口，从没放行过 80/443）。但**云控制台的安全组**脚本管不到，仍需手动确认入方向放行 TCP 80/443：
+
+```bash
+sudo ufw status verbose
+sudo iptables -L INPUT -n --line-numbers | head -20
+```
+
+可选加固：只允许 Cloudflare 回源（防火墙白名单 Cloudflare IP 段，或启用 Authenticated Origin Pulls）。**本仓库脚本刻意不硬编码 Cloudflare IP 段**——那份列表会变，硬编码迟早过期。
+
+> ⚠️ **反过来说**：如果源站装了 fail2ban、云 WAF 或其它安全软件，**它可能把 Cloudflare 的回源 IP 当成攻击者封掉**——
+> 这是官方点名的 521 第二大成因。排查时确认没有把 [Cloudflare 的 IP 段](https://www.cloudflare.com/ips/) 拉黑：
+
+```bash
+# 若装了 fail2ban，看是否有 Cloudflare 网段被封
+sudo fail2ban-client status 2>/dev/null || echo "fail2ban 未安装"
+sudo iptables -S | grep -i drop | head
+```
+
+#### ★ 经 CDN 后的客户端 IP（会污染审计日志）
+
+`deploy/nginx-gipfel.conf` 目前是 `proxy_set_header X-Real-IP $remote_addr;`。**经 Cloudflare 后 `$remote_addr` 是 Cloudflare 的 IP**，于是 `audit_log` / `http_requests` 里记录的「客户端 IP」全是 CDN 节点地址，排障与审计都会失真。
+
+需要真实访客 IP 时，在 nginx `http` 或 `server` 块加（Cloudflare 会覆盖 `CF-Connecting-IP`，故该头可信）：
+
+```nginx
+# 只信任 Cloudflare 回源；IP 段见 https://www.cloudflare.com/ips/（会变，需定期同步）
+set_real_ip_from 173.245.48.0/20;
+set_real_ip_from 103.21.244.0/22;
+# … 其余段按官方列表补全 …
+real_ip_header CF-Connecting-IP;
+real_ip_recursive on;
+```
+
+配好后 `$remote_addr` 即为真实访客 IP，现有 `proxy_set_header X-Real-IP $remote_addr;` 无需改动。**若将来撤掉 Cloudflare，这段必须一并删除**，否则任何人都能伪造 `CF-Connecting-IP` 冒充他人 IP。
+
+#### 本仓库在这条链路上的其他注意点
+
+| 项 | 说明 |
+| --- | --- |
+| `DJANGO_ALLOWED_HOSTS` | 传 `--domain` 时脚本已幂等追加域名。缺它 Django 会对公网 Host 直接返回 400（表现是「页面打不开」，但**不是** 521） |
+| `X-Forwarded-Proto` | nginx 各 `proxy_set_header` 用 `$scheme` **覆盖** CDN 传来的同名头；Django 侧由 `SECURE_PROXY_SSL_HEADER` 消费（主后端与日志查看器现已一致） |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | 传 `--domain` 时自动写为 `https://<DOMAIN>,http://<DOMAIN>` |
+| Socket.IO / WebSocket | Cloudflare 默认支持 WebSocket 升级，无需额外开关；`location /socket.io/` 已透传 `Upgrade` / `Connection` |
+| 日志查看器 `log.<DOMAIN>` | 同样需要 DNS 记录（可代理）。启用 HTTPS 后建议 `.env` 设 `LOGVIEWER_SECURE_COOKIES=true` |
+| 上传体上限 | nginx 侧是 `client_max_body_size 128m`；**Cloudflare 侧另有一道更低的限制**（官方 413 文档：Free **100 MB** / Pro **100 MB** / Business 200 MB / Enterprise 最高 5 GB，且可在 zone 的 **Network → Maximum Upload Size** 调整）。所以 100–128 MB 之间的包会被 CDN 先拒（报 **413**），与 nginx 无关 |
+
 ### 更新部署（升级版本，保留数据）
 
 **推荐：使用专用升级脚本 [`update-from-github.sh`](../scripts/update-from-github.sh)**（自动「拉取最新 + 备份 + 迁移 + 收集静态 + 前端构建 + 重启」，保留数据，语义最贴合升级）：
@@ -220,7 +358,7 @@ sudo bash scripts/update-from-github.sh \
 ```
 
 脚本自动：
-1) 拉取最新代码 2) 备份 `db.sqlite3`+`uploads`+`.env` 到 `/opt/gipfel/_backup/$(date +%F_%H%M%S)` 3) 更新代码（排除数据文件）4) `pip install -r requirements.txt`（如有新依赖）5) `migrate`（种子幂等）+ `collectstatic`（主后端 + 日志查看器静态资源）6) `npm ci && npm run build` → `frontend-dist/` 7) 纯 IP 自愈（`LOG_VIEWER_PUBLIC_URL` + `DJANGO_ALLOWED_HOSTS`，改写后恢复 `.env` 属主 gipfel 与 600 权限）8) 刷新 systemd 单元（最新 `deploy/*.service` 重新落地）+ `systemctl restart gipfel`（+ `gipfel-logviewer`）9) [--with-nginx] 刷新 vhost 并 reload（含默认站点清理、80 端口校验、8120 防火墙放行）。
+1) 拉取最新代码 2) 备份 `db.sqlite3`+`uploads`+`.env` 到 `/opt/gipfel/_backup/$(date +%F_%H%M%S)` 3) 更新代码（排除数据文件）4) `pip install -r requirements.txt`（如有新依赖）5) `migrate`（种子幂等）+ `collectstatic`（主后端 + 日志查看器静态资源）6) `npm ci && npm run build` → `frontend-dist/` 7) 纯 IP 自愈（`LOG_VIEWER_PUBLIC_URL` + `DJANGO_ALLOWED_HOSTS`，改写后恢复 `.env` 属主 gipfel 与 600 权限）8) 刷新 systemd 单元（最新 `deploy/*.service` 重新落地）+ `systemctl restart gipfel`（+ `gipfel-logviewer`）9) [--with-nginx] 刷新 vhost 并 reload（含默认站点清理、80 端口校验、**80/443 与 8120 防火墙放行**）。
 
 > **等价做法（仍可用）**：重跑部署脚本（需先从 clone 目录 pull 代码）：
 > ```bash

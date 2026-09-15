@@ -580,6 +580,21 @@ if [[ $WITH_NGINX -eq 1 ]]; then
         fi
     fi
 
+    # 80/443 放行：nginx 接管 80 是必然的；443 在启用 HTTPS 后必需。
+    #   本脚本**不自动申请证书**（未确认 DNS / 安全组就中途跑 certbot，失败时会把
+    #   nginx 留在半配置状态），所以这里先把 443 一并放行，让后续
+    #   `certbot --nginx ...` 一步到位即生效、无需再回来改防火墙。
+    #   ⚠️ 放行的是「源站」。若域名前面挂了 Cloudflare 等 CDN，CDN 回源同样要能连上
+    #      443，否则 CDN 侧报 521（Web server is down，含义是连不上源站）。
+    #      详见 deploy/README.md 的「Cloudflare / CDN 前置」一节。
+    if command -v ufw >/dev/null 2>&1; then
+        ufw allow 80/tcp  >/dev/null 2>&1 || true
+        ufw allow 443/tcp >/dev/null 2>&1 || true
+        ok "已放行防火墙 80/443 端口（若 ufw 未启用则该规则暂未生效）"
+    else
+        warn "请确认云/系统防火墙放行 TCP 80 与 443，否则 HTTPS 不可达（经 CDN 回源时报 521）。"
+    fi
+
     if [[ -n "$DOMAIN" ]]; then
         if command -v certbot >/dev/null 2>&1; then
             warn "已安装 certbot，可手动执行：certbot --nginx -d $DOMAIN -d log.$DOMAIN --non-interactive --redirect"
@@ -587,6 +602,8 @@ if [[ $WITH_NGINX -eq 1 ]]; then
             warn "如需 HTTPS：apt-get install -y certbot python3-certbot-nginx && certbot --nginx -d $DOMAIN -d log.$DOMAIN --redirect"
         fi
         warn "另需：将 log.$DOMAIN 的 DNS A 记录指向本服务器（日志查看器子域代理前置条件）。"
+        warn "若只想要主域证书，去掉 -d log.$DOMAIN —— 该子域无 DNS 记录会让整条 certbot 命令中止、443 块写不进去。"
+        warn "Cloudflare 代理场景：SSL/TLS 模式须为 Full (strict)，切勿用 Flexible（与 --redirect 叠加会变成重定向循环）。见 deploy/README.md。"
     else
         # 无域名：日志查看器经 ${LV_PORT} 端口暴露公网（取自 .env LOG_VIEWER_PORT），
         # 需放行防火墙

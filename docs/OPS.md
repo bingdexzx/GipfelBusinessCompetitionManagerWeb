@@ -218,6 +218,27 @@ npm run typecheck    # 类型检查（CI 必跑）
 - **仍显示欢迎页**：`cat /etc/nginx/nginx.conf` 看是否内联了 `server { ... }` 默认块（去掉或注释它），或 `ls /etc/nginx/sites-enabled/` 是否还有其它非 gipfel 配置冲突。
 - **变为 502 Bad Gateway**：nginx 已正确接管，但后端 `gipfel` 服务没跑：`sudo systemctl restart gipfel`。
 
+### Q11. 配了域名和证书，HTTPS 打不开（CDN 报 521）
+
+- **现象**：`http://<域名>/` 正常，但 `https://<域名>/` 打不开；前面挂了 Cloudflare 时页面显示 **521 Web server is down**。
+- **根因**：**521 是 CDN 的错误码**（不是 nginx 也不是浏览器的），官方定义是「**源站拒绝来自 Cloudflare 的连接**」，所以此时翻 nginx 日志通常什么都没有——请求根本没到源站。两条主因：① **源站没有在 TLS 模式要求的端口上监听**（Flexible 要求 80，Full / Full (strict) 要求 443）；② **源站防火墙 / fail2ban / 安全软件挡掉了 Cloudflare 的 IP 段**。绝大多数是第 ① 条，且具体形态是：`deploy/nginx-gipfel.conf` 里的 443 块**默认是注释态模板**，而 `deploy-linux.sh` **不申请证书**。于是「证书已签发」和「nginx 用上证书」是**两件独立的事**——`certbot certonly`、或 `certbot --nginx` 中途失败，都会留下「证书在、443 没监听」这个状态。
+- **一条命令定性**：
+  ```bash
+  ss -lntp | grep -E ':(80|443)\b'                       # 443 无输出 → 就是它
+  grep -n 'listen' /etc/nginx/sites-available/gipfel.conf  # 只有 listen 80 → 模板未启用
+  sudo certbot certificates                              # 证书是否存在、路径为何
+  ```
+  > **521 与 522 的区别**：521 = 「拒绝」（端口上没有任何进程监听，内核回 REJECT）；522 = 「丢包」（ufw 默认 DROP 策略把包丢了）。所以看到 521，第一嫌疑是「nginx 没在 443 上监听」。
+- **修复（推荐）**：让 certbot 自己写入 443 块。
+  ```bash
+  sudo certbot --nginx -d <DOMAIN> --non-interactive --redirect   # 只签主域，最稳
+  ```
+  ⚠️ 若加上 `-d log.<DOMAIN>`，**该子域必须有 DNS 记录**——解析不到会让**整条命令中止**、443 块写不进去。这正是「证书申请了但 HTTPS 起不来」最常见的原因。
+- **签发前置**：源站 80 端口公网可达；**经 Cloudflare 时须临时关闭 Always Use HTTPS / 边缘跳转**，否则 HTTP-01 校验会跟着跳到尚不可用的 443。自检：`curl -sS -o /dev/null -w '%{http_code}\n' http://<DOMAIN>/.well-known/acme-challenge/probe` 期望 **404**（请求到达了 nginx），而不是 301/522。
+- **防火墙**：`deploy-linux.sh` / `update-from-github.sh` 现已自动 `ufw allow 80/tcp`、`443/tcp`（此前脚本**只**处理日志查看器端口，从未放行 80/443）；**云控制台的安全组**脚本管不到，需手动放行 TCP 80/443。另需确认源站没有把 [Cloudflare 的 IP 段](https://www.cloudflare.com/ips/) 拉黑（fail2ban / 云 WAF 误封是官方点名的 521 第二大成因）：`sudo fail2ban-client status`、`sudo iptables -S | grep -i drop`。
+- **CDN 的 SSL/TLS 模式**：必须 **Full (strict)**。**Flexible 与 certbot `--redirect` 叠加会变成重定向循环**（CDN 回源 80 → 源站 301 到 443 → CDN 再回 80）。
+- **仍有问题**：完整错误码对照（521/522/523/524/525/526）与源站加固（Origin Certificate、只允许 Cloudflare 回源、经 CDN 后的真实客户端 IP）见 [deploy/README.md 的「Cloudflare / CDN 前置（H4）」](../deploy/README.md)。
+
 ## 10. 安全与合规速览
 
 - **JWT**：HS256，`JWT_SECRET` 必填（未配置进程 fail-fast 拒绝启动），默认 24h，`tokenVersion` 顶号立即失效。Django 自身 `SECRET_KEY` 支持经 `DJANGO_SECRET_KEY` 独立配置（未配置回退 `JWT_SECRET`；更换会使 session/CSRF cookie 失效，择机轮换）。
