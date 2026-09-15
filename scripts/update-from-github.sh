@@ -432,44 +432,41 @@ if [[ -f "$INSTALL_DIR/backend/.env" ]]; then
         warn "未能确定公网入口（域名/公网 IP 均为空），DJANGO_ALLOWED_HOSTS 未修改；若经公网访问出现 400，请手动在 backend/.env 加入 DJANGO_ALLOWED_HOSTS=<公网IP>,localhost"
     fi
 
-    # 日志查看器公网地址：域名 + 非标准 TLS 端口形态（--logviewer-tls-port）。
-    #   ★ 必须在这里写（在本步骤之后的第 5 节才重启服务），否则日志查看器进程读到的
-    #     仍是旧值，前端按钮会一直指向不可用地址。
-    #   为什么需要换端口：CF 只代理固定端口（HTTP 80/8080/8880/2052/2082/2086/2095，
-    #   HTTPS 443/2053/2083/2087/2096/8443），默认 8120 不在其中 ——
-    #   http://<域名>:8120/ 永远连不上（CF 边缘不服务该端口）。
-    if [[ -n "$LOGVIEWER_TLS_PORT" ]]; then
-        if [[ ! "$LOGVIEWER_TLS_PORT" =~ ^[0-9]+$ ]] \
-           || (( LOGVIEWER_TLS_PORT < 1 || LOGVIEWER_TLS_PORT > 65535 )); then
-            err "--logviewer-tls-port 需为 1-65535 的整数，收到：${LOGVIEWER_TLS_PORT}"
-        fi
-        if [[ -z "$DOMAIN" ]]; then
-            err "--logviewer-tls-port 需要同时传 --domain（用它拼 https://<域名>:<端口>/）"
-        fi
-        if [[ "$ORIGIN_CERT" != 1 ]]; then
-            err "--logviewer-tls-port 需要与 --origin-cert 一起使用（该端口块本身要 TLS 证书，否则按钮会指向一个没人监听的端口）"
-        fi
-        _lv_url="https://${DOMAIN}:${LOGVIEWER_TLS_PORT}/"
-        if grep -q '^LOG_VIEWER_PUBLIC_URL=' "$INSTALL_DIR/backend/.env"; then
-            sed -i -E "s|^LOG_VIEWER_PUBLIC_URL=.*|LOG_VIEWER_PUBLIC_URL=${_lv_url}|" "$INSTALL_DIR/backend/.env"
+    # ---- 域名形态：脚本统一决定日志查看器公网地址（自动，无需人工改 .env）----
+    #   · 有 --logviewer-tls-port（--origin-cert 时默认 8443）→ https://<域名>:<端口>/
+    #   · 否则（log.<域名> 子域形态）                        → https://log.<域名>/
+    #
+    # 为什么由脚本写死，而不是留给后端按请求 Host 推导：
+    #   /api/version 的逻辑是「优先用 LOG_VIEWER_PUBLIC_URL，没有才按 Host 推导」。两处都可能错：
+    #     · .env 里残留早期无域名部署写入的 http://<公网IP>:8120/ → 按钮永远指向它（真实故障）
+    #     · Host 若为 IP → 推导出 http://<IP>:8120/，在 CF 代理下必然打不开
+    #   显式写死之后只有一个权威值，且脚本收尾能自检（见文件末尾「部署自检」）。
+    #
+    # 换端口的原因：CF 只代理固定端口（HTTP 80/8080/8880/2052/2082/2086/2095，
+    #   HTTPS 443/2053/2083/2087/2096/8443），默认 8120 不在其中。
+    if [[ -n "$DOMAIN" ]]; then
+        if [[ -n "$LOGVIEWER_TLS_PORT" ]]; then
+            if [[ ! "$LOGVIEWER_TLS_PORT" =~ ^[0-9]+$ ]] \
+               || (( LOGVIEWER_TLS_PORT < 1 || LOGVIEWER_TLS_PORT > 65535 )); then
+                err "--logviewer-tls-port 需为 1-65535 的整数，收到：${LOGVIEWER_TLS_PORT}"
+            fi
+            if [[ "$ORIGIN_CERT" != 1 ]]; then
+                err "--logviewer-tls-port 需要与 --origin-cert 一起使用（该端口块本身要 TLS 证书，否则按钮会指向一个没人监听的端口）"
+            fi
+            _lv_url="https://${DOMAIN}:${LOGVIEWER_TLS_PORT}/"
         else
-            echo "LOG_VIEWER_PUBLIC_URL=${_lv_url}" >> "$INSTALL_DIR/backend/.env"
+            _lv_url="https://log.${DOMAIN}/"
         fi
-        ok "LOG_VIEWER_PUBLIC_URL 已设为 ${_lv_url}（前端「日志查看器」按钮将指向它）"
-        warn "别忘了在**云安全组**入方向放行 TCP ${LOGVIEWER_TLS_PORT}（脚本只能放行本机 ufw，管不到云侧）。"
-    fi
+        # 先删后加：幂等，且不受「行不存在时 sed 空操作」影响（曾因此静默无效）
+        sed -i -E '/^LOG_VIEWER_PUBLIC_URL=/d' "$INSTALL_DIR/backend/.env"
+        echo "LOG_VIEWER_PUBLIC_URL=${_lv_url}" >> "$INSTALL_DIR/backend/.env"
+        ok "LOG_VIEWER_PUBLIC_URL=${_lv_url}（前端「日志查看器」按钮将指向它）"
 
-    # 域名形态下清理「无域名遗留」的 LOG_VIEWER_PUBLIC_URL。
-    #   背景（真实故障）：早期无域名部署写入 LOG_VIEWER_PUBLIC_URL=http://<公网IP>:<端口>/，
-    #   切到域名后本脚本的域名分支过去**从不清理它**；而后端 /api/version 优先用该值，
-    #   于是前端按钮一直指向 http://<IP>:8120/ —— 在 Cloudflare 代理下必然打不开，
-    #   且从 nginx/证书都看不出原因。
-    #   现在：没有 --logviewer-tls-port 时（=走 log.<域名> 子域形态）删掉这种纯 IP 遗留值。
-    if [[ -n "$DOMAIN" && -z "$LOGVIEWER_TLS_PORT" ]]; then
-        _lv_stale="$(grep -E '^LOG_VIEWER_PUBLIC_URL=' "$INSTALL_DIR/backend/.env" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
-        if printf '%s' "$_lv_stale" | grep -qE '^https?://([0-9]{1,3}\.){3}[0-9]{1,3}(:[0-9]+)?/?$'; then
-            sed -i -E '/^LOG_VIEWER_PUBLIC_URL=/d' "$INSTALL_DIR/backend/.env"
-            warn "已移除无域名遗留的 LOG_VIEWER_PUBLIC_URL（${_lv_stale}）：域名形态下按钮改由后端按请求 Host 推导 https://log.${DOMAIN}/"
+        if [[ -n "$LOGVIEWER_TLS_PORT" ]]; then
+            warn "别忘了在**云安全组**入方向放行 TCP ${LOGVIEWER_TLS_PORT}（脚本只能放行本机 ufw，管不到云侧）。"
+        elif ! getent hosts "log.${DOMAIN}" >/dev/null 2>&1; then
+            warn "log.${DOMAIN} 解析不到（无 DNS 记录）——日志查看器按钮将打不开。"
+            warn "  若无法添加该三级记录，请改用 --origin-cert（TLS 端口默认 8443，不需要该子域）。"
         fi
     fi
     # sed -i 会以 root 重建 .env（属主变为 root），恢复运行用户归属与 600 权限，
@@ -825,6 +822,75 @@ else
     fi
 fi
 echo "  日志：        journalctl -u gipfel -f   /   tail -F $INSTALL_DIR/backend/logs/app.log"
+
+# ============================================================
+# 部署自检：把「线上实际生效的状态」直接打出来。
+# 目的——**不需要人工去查 .env / 进程环境 / 监听端口**。任何一项不对，这里就说清是什么、怎么修。
+# 起因：多次出现「改了配置但没生效」的排查拉锯（.env 遗留值、改完没重启、端口没监听……
+#       每一样都得人工逐个去猜）。脚本既然知道期望值，就该自己核对并报告。
+# 注意：本段只读不写；任何一项失败都**不中止**（升级主体已完成，自检只做告知）。
+# ============================================================
+echo
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  部署自检（只读，不影响上面已完成的升级）"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+_SELFCHECK_WARN=0
+
+# 1) 后端进程**实际读到**的日志查看器地址（唯一算数的答案；进程环境来自 systemd EnvironmentFile）
+if command -v systemctl >/dev/null 2>&1; then
+    _pid="$(systemctl show -p MainPID gipfel 2>/dev/null | cut -d= -f2)"
+    if [[ -n "$_pid" && "$_pid" != "0" && -r "/proc/$_pid/environ" ]]; then
+        _eff="$(tr '\0' '\n' < "/proc/$_pid/environ" 2>/dev/null | grep -E '^LOG_VIEWER_PUBLIC_URL=' | tail -1 | cut -d= -f2- || true)"
+        if [[ -n "$_eff" ]]; then
+            echo "  [OK]   后端生效的日志查看器地址：${_eff}"
+            echo "         → 前端「系统设置 → 日志查看器」按钮应跳转到该地址"
+        else
+            echo "  [WARN] 后端进程环境里没有 LOG_VIEWER_PUBLIC_URL"
+            echo "         → 将按请求 Host 推导；若 Host 是 IP 会得到 http://<IP>:8120/（CF 代理下打不开）"
+            echo "         修：重跑本脚本（会自动写该变量），或检查 .env 是否被手工改回"
+            _SELFCHECK_WARN=1
+        fi
+    else
+        echo "  [WARN] 读不到 gipfel 进程环境（未运行或无权读取）→ systemctl status gipfel"
+        _SELFCHECK_WARN=1
+    fi
+fi
+
+# 2) 监听端口：80/443 必有；8443 视形态；8121 是日志查看器内部端口
+if command -v ss >/dev/null 2>&1; then
+    echo "  监听端口："
+    ss -lntp 2>/dev/null | grep -E ':(80|443|8121|8443)\b' | sed 's/^/    /' || echo "    （未匹配到 80/443/8121/8443）"
+    if [[ -n "$LOGVIEWER_TLS_PORT" ]] && ! ss -lnt 2>/dev/null | grep -qE ":${LOGVIEWER_TLS_PORT}\b"; then
+        echo "  [WARN] 已要求日志查看器监听 ${LOGVIEWER_TLS_PORT}，但它没有在监听"
+        echo "         → 多半是 nginx 未 reload 或缺少该 server 块：sudo nginx -t && sudo systemctl reload nginx"
+        _SELFCHECK_WARN=1
+    fi
+fi
+
+# 3) 日志查看器自身健康（绕开 nginx，直连内部端口）
+if curl -sS --max-time 5 http://127.0.0.1:8121/api/health >/dev/null 2>&1; then
+    echo "  [OK]   日志查看器（127.0.0.1:8121）健康检查通过"
+else
+    echo "  [WARN] 日志查看器 127.0.0.1:8121 健康检查失败 → systemctl status gipfel-logviewer"
+    _SELFCHECK_WARN=1
+fi
+
+# 4) 主机名白名单兜底核对（日志查看器 400 的经典成因）
+if [[ -n "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
+    if grep -E '^DJANGO_ALLOWED_HOSTS=' "$INSTALL_DIR/backend/.env" | grep -qE "(^|,)${DOMAIN}(,|$)"; then
+        echo "  [OK]   DJANGO_ALLOWED_HOSTS 含 ${DOMAIN}"
+    else
+        echo "  [WARN] DJANGO_ALLOWED_HOSTS 不含 ${DOMAIN} → 经域名访问会 400"
+        _SELFCHECK_WARN=1
+    fi
+fi
+
+if [[ $_SELFCHECK_WARN -eq 0 ]]; then
+    echo "  自检结论：未发现问题。"
+else
+    echo "  自检结论：有 WARN 项，按上面每条的「修：」处理，然后重跑本脚本复核。"
+fi
+echo
 
 # 明确退出，避免依赖上一条命令的偶然退出码
 exit 0
