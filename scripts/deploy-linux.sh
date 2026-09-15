@@ -482,6 +482,21 @@ if [[ -f "$INSTALL_DIR/backend/.env" ]]; then
         ok "LOG_VIEWER_PUBLIC_URL 已设为 ${_lv_url}（前端「日志查看器」按钮将指向它）"
         warn "别忘了在**云安全组**入方向放行 TCP ${LOGVIEWER_TLS_PORT}（脚本只能放行本机 ufw，管不到云侧）。"
     fi
+
+    # 域名形态下清理「无域名遗留」的 LOG_VIEWER_PUBLIC_URL。
+    #   背景（真实故障）：早期无域名部署会写入 LOG_VIEWER_PUBLIC_URL=http://<公网IP>:<端口>/。
+    #   之后切到域名（--domain）时，本脚本的域名分支过去**从不清理它**，而后端 /api/version
+    #   是「优先用 LOG_VIEWER_PUBLIC_URL」，于是前端按钮一直指向 http://<IP>:8120/ ——
+    #   在 Cloudflare 代理下必然打不开（CF 不代理 8120），且看不出是谁在作祟。
+    #   现在：没有 --logviewer-tls-port 时（=走 log.<域名> 子域形态）删掉这种纯 IP 遗留值，
+    #   让后端按请求 Host 推导 https://log.<域名>/；有该端口时上面已改写为 https://<域名>:<端口>/。
+    if [[ -n "$DOMAIN" && -z "$LOGVIEWER_TLS_PORT" ]]; then
+        _lv_stale="$(grep -E '^LOG_VIEWER_PUBLIC_URL=' "$INSTALL_DIR/backend/.env" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+        if printf '%s' "$_lv_stale" | grep -qE '^https?://([0-9]{1,3}\.){3}[0-9]{1,3}(:[0-9]+)?/?$'; then
+            sed -i -E '/^LOG_VIEWER_PUBLIC_URL=/d' "$INSTALL_DIR/backend/.env"
+            warn "已移除无域名遗留的 LOG_VIEWER_PUBLIC_URL（${_lv_stale}）：域名形态下按钮改由后端按请求 Host 推导 https://log.${DOMAIN}/"
+        fi
+    fi
 fi
 
 mkdir -p "$INSTALL_DIR/backend/uploads" "$INSTALL_DIR/backend/logs"
