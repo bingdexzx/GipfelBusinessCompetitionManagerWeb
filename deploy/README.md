@@ -425,6 +425,25 @@ sudo bash scripts/update-from-github.sh \
 脚本自动：
 1) 拉取最新代码 2) 备份 `db.sqlite3`+`uploads`+`.env` 到 `/opt/gipfel/_backup/$(date +%F_%H%M%S)` 3) 更新代码（排除数据文件）4) `pip install -r requirements.txt`（如有新依赖）5) `migrate`（种子幂等）+ `collectstatic`（主后端 + 日志查看器静态资源）6) `npm ci && npm run build` → `frontend-dist/` 7) 纯 IP 自愈（`LOG_VIEWER_PUBLIC_URL` + `DJANGO_ALLOWED_HOSTS`，改写后恢复 `.env` 属主 gipfel 与 600 权限）8) 刷新 systemd 单元（最新 `deploy/*.service` 重新落地）+ `systemctl restart gipfel`（+ `gipfel-logviewer`）9) [--with-nginx] 刷新 vhost 并 reload（含默认站点清理、80 端口校验、**80/443 与 8120 防火墙放行**）。
 
+> ## ⚠️ 域名部署升级时**必须**带上 `--domain`
+>
+> 上面「情况一/二」的示例**没有** `--domain`，那是**纯 IP 部署**的写法。域名部署照抄会在两处出错：
+>
+> | 漏传 `--domain` 的后果 | 说明 |
+> | --- | --- |
+> | ★ **脚本中途静默终止** | 脚本会走进「无域名」分支去读 `.env` 的 `LOG_VIEWER_PUBLIC_URL`；而域名部署（`deploy-linux.sh --domain`）**从不写这一项** → `grep` 无匹配 → `set -o pipefail` 下整条管道失败 → 该行是变量赋值 → `set -e` 直接终止，**且不打印任何东西**。现象是「脚本跑到『文件归属已切换』那一步就没了」。已在脚本内修掉（容忍无匹配）并加装 ERR trap 报出终止行号 |
+> | ★★ **把域名 vhost 改写回纯 IP 形态** | 若同时传了 `--with-nginx`：脚本按「无域名」重新渲染 vhost —— `server_name` 变 `_`、**日志查看器子域块被删除**、改回 8120 端口块。域名与 `log.<域名>` 随即失效，且**没有报错**。这比崩溃更危险 |
+>
+> 正确写法（**每次升级都带**）：
+>
+> ```bash
+> sudo bash scripts/update-from-github.sh \
+>   --source-dir /opt/GipfelBusinessCompetitionManagerWeb \
+>   --install-dir /opt/gipfel --with-nginx --domain <你的域名>
+> ```
+>
+> `--domain` 不只影响 nginx：它还决定 ① `.env` 里 `DJANGO_ALLOWED_HOSTS` 追加 `<域名>` 与 `log.<域名>`（日志查看器能通过 Host 白名单的前提）；② 日志查看器走 `log.<域名>` 子域而不是 `<IP>:8120`。详见 `--help`。
+
 > **等价做法（仍可用）**：重跑部署脚本（需先从 clone 目录 pull 代码）：
 > ```bash
 > cd /opt/GipfelBusinessCompetitionManagerWeb

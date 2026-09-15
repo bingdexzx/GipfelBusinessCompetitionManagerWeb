@@ -36,6 +36,31 @@
 # ============================================================
 set -euo pipefail
 
+# ---------------- 失败时必须说清「停在哪一行」 ----------------
+# 背景（真实事故）：脚本在打印完「文件归属已切换为 gipfel」之后**无任何提示地结束**，
+# 运维既不知道停在哪一步，也不知道该手工补哪一步。根因是 `set -e` 本身**不输出任何东西**——
+# 任何非零返回都只是安静地 exit。故在此装 ERR trap，把「哪一行、哪条命令」打出来。
+#
+# 触发条件与 set -e 一致：if / while 条件、&& / || 列表、! 取反**不会**触发。
+# 注意本 trap 不继承进函数体（未开 set -E，避免改变控制流的风险），
+# 因此它覆盖的是顶层命令——正是本次事故（顶层 grep 无匹配）所在的位置。
+__on_err() {
+    local rc="$1" line="$2" cmd="$3"
+    {
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "[FAIL] 脚本在第 ${line} 行终止（退出码 ${rc}）"
+        echo "       命令：${cmd}"
+        echo ""
+        echo "       已完成步骤的成果保留生效（本脚本设计为可重复执行）。"
+        echo "       若是 grep「无匹配」导致：属脚本缺陷（该处应容忍无匹配），请把上面两行反馈。"
+        echo "       定位后可直接重跑本脚本补齐剩余步骤。"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    } >&2
+    exit "$rc"
+}
+trap '__on_err $? "$LINENO" "$BASH_COMMAND"' ERR
+
 # ---------------- 参数解析 ----------------
 DOMAIN=""
 INSTALL_DIR=""
@@ -50,7 +75,12 @@ Usage: $0 [options]
   --install-dir PATH       git clone 所在目录，默认取脚本上级目录（即 clone 根 /opt/gipfel）
   --source-dir PATH        本地源码 checkout；git pull 后 rsync 同步到 INSTALL_DIR（兼容 deploy-linux.sh 模型）
   --repo URL               仓库地址；当 INSTALL_DIR 非 git 仓库且目录为空时用于克隆
-  --domain DOMAIN          公网域名（仅在 --with-nginx 时用于重写 nginx server_name）
+  --domain DOMAIN          ★ 公网域名。**域名部署请每次都传**，它不只影响 nginx：
+                           ① --with-nginx 时重写 nginx server_name；
+                           ② 自愈 .env 的 DJANGO_ALLOWED_HOSTS（追加 <域名> 与 log.<域名>，
+                              后者是日志查看器能通过 Host 白名单的前提）；
+                           ③ 决定日志查看器走 log.<域名> 子域形态而非 <IP>:8120。
+                           漏传且 --with-nginx 时仍会按「无域名」重写 vhost，属错误配置。
   --public-ip IP           公网 IP（无 --domain 部署时日志查看器使用 http://<IP>:8120/）；
                           显式传入可跳过自动探测，确保受限网络下也能纠正内网 IP 或补全缺失行
   --with-nginx             更新后重新生成 nginx 虚拟主机并 reload
@@ -268,7 +298,12 @@ ok "文件归属已切换为 gipfel，.env 权限收紧为 600"
 # 公网 IP 探测失败则移除该行，改由后端按请求 Host 推导（nginx 透传 $host=公网 IP）。
 LV_PUBLIC_IP=""   # 预初始化：set -u 下后续 ALLOWED_HOSTS 自愈块可能在其未赋值时引用
 if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
-    LV_CUR="$(grep -E '^LOG_VIEWER_PUBLIC_URL=' "$INSTALL_DIR/backend/.env" | tail -n1 | sed -E 's#^LOG_VIEWER_PUBLIC_URL=https?://##; s#[/:].*##')"
+    # ★ 整条管道必须容忍「无匹配」：.env 里没有 LOG_VIEWER_PUBLIC_URL 时 grep 退出 1，
+    #   在 set -o pipefail 下整条管道即为失败；而这是**变量赋值**，赋值的退出码就是命令替换的
+    #   退出码 → set -e 直接终止脚本，且不打印任何东西。
+    #   真实事故：域名部署（脚本不写 LOG_VIEWER_PUBLIC_URL）+ 升级时未传 --domain
+    #   → 走进本分支 → 本行终止 → 现象是「脚本跑到文件归属那步就没了」。
+    LV_CUR="$(grep -E '^LOG_VIEWER_PUBLIC_URL=' "$INSTALL_DIR/backend/.env" | tail -n1 | sed -E 's#^LOG_VIEWER_PUBLIC_URL=https?://##; s#[/:].*##' || true)"
     LV_NEED_FIX=0
     if [[ -n "$PUBLIC_IP" ]]; then
         LV_NEED_FIX=1   # 显式指定：强制以 --public-ip 为准（覆盖内网 IP 或缺失行）
@@ -341,7 +376,9 @@ if [[ -f "$INSTALL_DIR/backend/.env" ]]; then
             LV_PUBLIC_IP="$(_probe_public_ip)" || true
             [[ -n "$LV_PUBLIC_IP" ]] && LV_PUBLIC_IP="$(normalize_ip "$LV_PUBLIC_IP")"
         fi
-        [[ -n "$LV_PUBLIC_IP" ]] && AH_ENTRIES+=("$LV_PUBLIC_IP")
+        if [[ -n "$LV_PUBLIC_IP" ]]; then
+            AH_ENTRIES+=("$LV_PUBLIC_IP")
+        fi
     fi
     if [[ ${#AH_ENTRIES[@]} -gt 0 ]]; then
         if grep -q '^DJANGO_ALLOWED_HOSTS=' "$INSTALL_DIR/backend/.env"; then

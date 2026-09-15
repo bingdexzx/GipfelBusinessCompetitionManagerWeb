@@ -20,6 +20,27 @@ set -euo pipefail
 # 需要交互的场景（手动填写公网 IP）已在脚本内用显式 read < /dev/stdin 处理。
 exec 0</dev/null
 
+# ---------------- 失败时必须说清「停在哪一行」 ----------------
+# 背景：`set -e` 失败时**不输出任何东西**，表现为脚本「跑一半就没了」，运维无法判断
+# 停在哪一步、该手工补哪一步（升级脚本上已真实发生一次）。故装 ERR trap 打出定位信息。
+# 触发条件与 set -e 一致（if/while 条件、&&/|| 列表、! 取反不触发）。
+# 本 trap 不继承进函数体（未开 set -E，避免改变控制流的风险），覆盖顶层命令。
+__on_err() {
+    local rc="$1" line="$2" cmd="$3"
+    {
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "[FAIL] 脚本在第 ${line} 行终止（退出码 ${rc}）"
+        echo "       命令：${cmd}"
+        echo ""
+        echo "       已完成步骤的成果保留生效；修好后可直接重跑本脚本（幂等）。"
+        echo "       若是 grep「无匹配」导致：属脚本缺陷（该处应容忍无匹配），请反馈上面两行。"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    } >&2
+    exit "$rc"
+}
+trap '__on_err $? "$LINENO" "$BASH_COMMAND"' ERR
+
 # 输出助手必须先于参数清洗定义：非法 DOMAIN 检查会调用 warn，
 # set -e 下未定义命令返回 127 会直接终止脚本。
 log()   { printf "\033[36m[INFO]\033[0m %s\n" "$*"; }
@@ -307,7 +328,9 @@ log "日志查看器公网监听端口：${LV_PORT}（daphne 内部仍绑 8121�
 # 公网 IP 探测失败则移除该行，改由后端按请求 Host 推导（nginx 透传 $host=公网 IP），
 # 避免内网 IP 持续生效。
 if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/backend/.env" ]]; then
-    LV_CUR="$(grep -E '^LOG_VIEWER_PUBLIC_URL=' "$INSTALL_DIR/backend/.env" | tail -n1 | sed -E 's#^LOG_VIEWER_PUBLIC_URL=https?://##; s#[/:].*##')"
+    # ★ 整条管道必须容忍「无匹配」：.env 里没有该行时 grep 退出 1，set -o pipefail 下
+    #   整条管道失败；而这行是**变量赋值**，退出码即命令替换的退出码 → set -e 静默终止脚本。
+    LV_CUR="$(grep -E '^LOG_VIEWER_PUBLIC_URL=' "$INSTALL_DIR/backend/.env" | tail -n1 | sed -E 's#^LOG_VIEWER_PUBLIC_URL=https?://##; s#[/:].*##' || true)"
     LV_NEED_FIX=0
     if [[ -n "$PUBLIC_IP" ]]; then
         LV_NEED_FIX=1   # 显式指定：强制以 --public-ip 为准（覆盖内网 IP 或缺失行）
@@ -377,7 +400,9 @@ if [[ -f "$INSTALL_DIR/backend/.env" ]]; then
             LV_PUBLIC_IP="$(_probe_public_ip)" || true
             [[ -n "$LV_PUBLIC_IP" ]] && LV_PUBLIC_IP="$(normalize_ip "$LV_PUBLIC_IP")"
         fi
-        [[ -n "$LV_PUBLIC_IP" ]] && AH_ENTRIES+=("$LV_PUBLIC_IP")
+        if [[ -n "$LV_PUBLIC_IP" ]]; then
+            AH_ENTRIES+=("$LV_PUBLIC_IP")
+        fi
     fi
     if [[ ${#AH_ENTRIES[@]} -gt 0 ]]; then
         if grep -q '^DJANGO_ALLOWED_HOSTS=' "$INSTALL_DIR/backend/.env"; then
@@ -631,8 +656,9 @@ echo
 ok "部署完成！"
 echo
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-# 读取管理员密码并醒目输出
-_SEED_PW="$(grep -E '^SEED_ADMIN_PASSWORD=' "$INSTALL_DIR/backend/.env" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]$//")"
+# 读取管理员密码并醒目输出（★ 必须容忍无匹配：首次部署 .env 尚未写入该行时 grep 退出 1，
+#   pipefail 下会让这行赋值失败 → set -e 在脚本最后一步静默终止，看不到任何凭据输出）
+_SEED_PW="$(grep -E '^SEED_ADMIN_PASSWORD=' "$INSTALL_DIR/backend/.env" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]$//" || true)"
 if [[ -n "$_SEED_PW" ]]; then
     echo "  👤 管理员账号：admin"
     echo "  🔑 管理员密码：${_SEED_PW}"
@@ -661,7 +687,7 @@ fi
 echo "  目录：        $INSTALL_DIR"
 echo "  后端状态：    systemctl status gipfel"
 if [[ $WITH_NGINX -eq 1 ]]; then
-    SERVER_IP="$(hostname -I | awk '{print $1}')"
+    SERVER_IP="$(hostname -I | awk '{print $1}' || true)"
     if [[ -n "$DOMAIN" ]]; then
         echo "  网站(公网)：   http://${DOMAIN}/"
         echo "  网站(内网)：   http://${SERVER_IP}/"

@@ -314,6 +314,14 @@ sudo bash scripts/update-from-github.sh \
 
 > 脚本自动：① 拉取最新代码 ② 备份 `db.sqlite3`+`uploads`+`.env` 到 `_backup/<时间戳>` ③ 更新代码（排除数据文件）④ `pip install`+`migrate`+`collectstatic` ⑤ `npm ci`+`npm run build`→`frontend-dist/` ⑥ chown 归属 gipfel、`.env` 权限 600 ⑦ 纯 IP 自愈（`LOG_VIEWER_PUBLIC_URL` + `DJANGO_ALLOWED_HOSTS`）⑧ 刷新 systemd 单元并 restart `gipfel`(+`gipfel-logviewer`) ⑨ [--with-nginx] 刷新 vhost 并 reload。完整细节见 [`deploy/README.md`](deploy/README.md) 的「更新部署」一节。
 
+> ## ⚠️ 域名部署升级时**必须**带 `--domain`（上面示例默认是纯 IP 写法）
+>
+> 漏传会在两处出错，且都不显眼：
+> 1. ★ **脚本中途静默终止**：走进「无域名」分支去读 `.env` 的 `LOG_VIEWER_PUBLIC_URL`，而域名部署从不写该项 → `grep` 无匹配 → `pipefail` 下管道失败 → 变量赋值失败 → `set -e` 终止且**无任何输出**。现象是「跑到『文件归属已切换』就没了」（已在脚本中修复并加装 ERR trap 报出终止行号）。
+> 2. ★★ **`--with-nginx` 会把域名 vhost 改写回纯 IP 形态**：`server_name` 变 `_`、日志查看器子域块被删除、改回 8120 端口块 —— 域名与 `log.<域名>` 随即失效且**没有报错**。
+>
+> 正确写法：`sudo bash scripts/update-from-github.sh --source-dir <clone 目录> --install-dir /opt/gipfel --with-nginx --domain <你的域名>`
+
 <details>
 <summary>手动升级步骤（不依赖脚本时，需自行处理备份 / 静态 / 权限，否则易踩坑）</summary>
 
