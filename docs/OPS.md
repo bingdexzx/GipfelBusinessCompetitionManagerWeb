@@ -214,7 +214,7 @@ npm run typecheck    # 类型检查（CI 必跑）
 
 | 现象 | 成因 | 修法 |
 | --- | --- | --- |
-| **连接被拒/超时**，且地址带 `:8120` | CF 不代理 8120（见上框） | 改用子域形态，或形态 B（`--logviewer-tls-port 8443`） |
+| **连接被拒/超时**，且地址带 `:8120` | CF 不代理 8120（见上框） | 改用子域形态，或形态 B（`--origin-cert`，端口默认 8443） |
 | **400** `Invalid HTTP_HOST header` | 主机名不在日志查看器 `ALLOWED_HOSTS` 里。它由 `DJANGO_ALLOWED_HOSTS` 兜底纳入，而 deploy 脚本过去**只**写主域、从不写 `log.<域名>` | ★ 已修（脚本现在同时追加 `<域名>` 与 `log.<域名>`）。手工：`DJANGO_ALLOWED_HOSTS=<域名>,log.<域名>,localhost,127.0.0.1` → `sudo systemctl restart gipfel gipfel-logviewer` |
 | **403**（登录 POST 失败） | `CSRF_TRUSTED_ORIGINS` 里没有该来源。nginx 以 `Host $host:$server_port` 透传，**默认端口**下 `get_host()` = `<域名>:80`，而浏览器 `Origin` 会**省略默认端口**；Django 的 `_origin_verified` 是**字符串相等**比较 → 对不上。该项过去只从 `LOG_VIEWER_PUBLIC_URL` 推导，而域名模式下脚本不写这一项 | ★ 已修（settings 现按 `ALLOWED_HOSTS` 统一补 `http://` 与 `https://` 两种来源） |
 | **证书错误 / 显示成主站** | 按钮地址派生为 `https://log.<域名>/`（`backend/apps/auth/views.py`），但 nginx 没有该子域的 443 块 | 用子域形态（certbot 带 `-d log.<域名>`），或改走形态 B |
@@ -224,11 +224,13 @@ npm run typecheck    # 类型检查（CI 必跑）
 ```bash
 sudo bash scripts/update-from-github.sh --source-dir <clone 目录> \
      --install-dir /opt/gipfel --with-nginx --domain <域名> \
-     --origin-cert --logviewer-tls-port 8443
+     --origin-cert
 ```
 
+- ★ **`--origin-cert` 时日志查看器 TLS 端口默认就是 `8443`**，不必手传（要换用 `--logviewer-tls-port <端口>`；走 `log.<域名>` 子域形态则用 `--no-logviewer-tls` 关闭）
 - 脚本渲染 `listen 8443 ssl` 的日志查看器块（**复用主站 Origin Certificate，不需要 `log.` 域名**），并把 `LOG_VIEWER_PUBLIC_URL` 写成 `https://<域名>:8443/`——前端按钮即指向它
 - ★ **必须在云控制台安全组入方向放行 TCP 8443**（脚本只能放行本机 ufw）
+- ℹ️ **`LOG_VIEWER_PORT`（默认 8120）是另一回事**：它是**纯 IP 明文形态**的端口，与这里的 TLS 端口互不影响
 - Origin Certificate 的 Hostnames 需含 `<域名>`（形态 B 不需要 `log.` 前缀）
 - 认证不变：仍走主系统「系统设置 → 日志查看器」按钮签发的一次性令牌，进入后仍需超管登录
 

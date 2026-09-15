@@ -132,23 +132,25 @@ curl -sS -I http://127.0.0.1/         # 200（nginx 托管 index.html）
 | **B. 非标准 TLS 端口** ★ | `https://<域名>:8443/` | 域名走 CF 但**加不了 `log.` 记录**时（如域名是别人给的子域） |
 | **C. 纯 IP + 端口** | `http://<IP>:8120/` | **没有域名**、直连源站时 |
 
-**形态 B 的启用方式**（无需任何代码改动，只需证书 + 脚本参数）：
+**形态 B 的启用方式**（无需任何代码改动；★ **8443 是默认值，不必手传端口**）：
 
 ```bash
 # 首次部署
 sudo bash scripts/deploy-linux.sh --domain <域名> --install-dir /opt/gipfel \
-     --with-nginx --origin-cert --logviewer-tls-port 8443
+     --with-nginx --origin-cert
 
-# 日常升级（★ 每次都带这三个参数，否则 vhost 重渲染后端口块会消失）
+# 日常升级（★ 每次都带 --domain --origin-cert，否则 vhost 重渲染后端口块会消失）
 sudo bash scripts/update-from-github.sh --source-dir <clone 目录> \
      --install-dir /opt/gipfel --with-nginx --domain <域名> \
-     --origin-cert --logviewer-tls-port 8443
+     --origin-cert
 ```
 
-脚本会：渲染 `listen 8443 ssl` 的日志查看器 server 块（复用主站证书，**不需要 `log.` 域名**）→ 把 `.env` 的 `LOG_VIEWER_PUBLIC_URL` 写成 `https://<域名>:8443/`（前端按钮即指向它）→ `ufw allow 8443/tcp` → `nginx -t` → reload。
+- **`--origin-cert` 时日志查看器 TLS 端口默认就是 `8443`**（因为 Origin Certificate 意味着域名走 Cloudflare，而 CF 只代理固定端口）。要换端口用 `--logviewer-tls-port <端口>`；若你走的是 `log.<域名>` 子域形态，用 `--no-logviewer-tls` 关掉它。
+- 脚本会：渲染 `listen 8443 ssl` 的日志查看器 server 块（复用主站证书，**不需要 `log.` 域名**）→ 把 `.env` 的 `LOG_VIEWER_PUBLIC_URL` 写成 `https://<域名>:8443/`（前端按钮即指向它）→ `ufw allow 8443/tcp` → `nginx -t` → reload。
 
 > ⚠️ **还要在云控制台安全组入方向放行 TCP 8443**——脚本只能放行本机 ufw，管不到云侧。
 > ⚠️ **Origin Certificate 的 Hostnames 必须含 `<域名>`**（形态 B 不需要 `log.` 前缀）。若用了 `*.域名` 通配则都覆盖。
+> ℹ️ **`LOG_VIEWER_PORT`（默认 8120）是另一个东西**：它是**纯 IP 明文形态（C）** 的端口，与形态 B 的 TLS 端口互不影响，保持 8120 不变。
 
 
 不论哪种形态，均为**仅按钮跳转**：前端「系统设置 → 日志查看器」按钮在点击时向后端 `POST /api/auth/logviewer-token` 获取一次性（默认 120s）签名令牌（仅 `SUPER_ADMIN` 可获取），拼入跳转地址打开（有域名 `https://log.<DOMAIN>/?token=...`，无域名 `http://<IP>:8120/?token=...`，地址由 `/api/version` 下发的 `log_viewer_url` 决定，可用 `.env` 的 `LOG_VIEWER_PUBLIC_URL` 显式覆盖）。日志查看器 `index` 视图校验令牌，缺失/无效/过期均 **403 拒绝**——因此直接输入网址、书签、复制链接都无法进入。

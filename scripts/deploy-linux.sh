@@ -64,6 +64,7 @@ SSL_CERT=""                            # 显式覆盖证书路径（--ssl-cert�
 SSL_KEY=""                             # 显式覆盖私钥路径（--ssl-key）
 # 日志查看器：域名 + 非标准 TLS 端口（Cloudflare 代理自定义端口形态，--logviewer-tls-port）
 LOGVIEWER_TLS_PORT=""                  # 例："8443"；非空则渲染该端口块并写 LOG_VIEWER_PUBLIC_URL
+LOGVIEWER_TLS_PORT_SET=0               # 用户是否显式指定过（--logviewer-tls-port / --no-logviewer-tls）
 
 usage() {
     cat <<EOF
@@ -79,11 +80,12 @@ Usage: $0 [options]
   --origin-cert-dir PATH       证书目录，默认 /etc/ssl/cloudflare
   --ssl-cert PATH              显式指定证书文件（覆盖按域名推导）
   --ssl-key PATH               显式指定私钥文件（覆盖按域名推导）
-  --logviewer-tls-port PORT    ★ 域名 + Cloudflare 代理时，把日志查看器挂到该 HTTPS 端口
-                               （默认建议 8443）。CF 只代理固定端口，**默认的 8120 不在其中**，
-                               所以 http://<域名>:8120/ 永远连不上。需与 --origin-cert 同用；
+  --logviewer-tls-port PORT    日志查看器的 HTTPS 端口。**--origin-cert 时默认 8443**，通常无需手传。
+                               CF 只代理固定端口（HTTPS 443/2053/2083/2087/2096/8443），
+                               而默认的 8120 不在其中，故 http://<域名>:8120/ 永远连不上。
                                脚本会把 LOG_VIEWER_PUBLIC_URL 写成 https://<域名>:PORT/
                                另需在云安全组入方向放行该 TCP 端口。
+  --no-logviewer-tls           关闭上述端口块（用于改用 log.<域名> 子域形态的部署）
   --skip-install-deps          跳过 apt install（已知环境已装好）
   --force-overwrite            即使 INSTALL_DIR 存在也覆盖（保留 backup）
   -h, --help                   显示本帮助
@@ -100,13 +102,23 @@ while [[ $# -gt 0 ]]; do
         --origin-cert-dir)    ORIGIN_CERT_DIR="$2"; ORIGIN_CERT=1; shift 2 ;;
         --ssl-cert)           SSL_CERT="$2"; ORIGIN_CERT=1; shift 2 ;;
         --ssl-key)            SSL_KEY="$2"; ORIGIN_CERT=1; shift 2 ;;
-        --logviewer-tls-port) LOGVIEWER_TLS_PORT="$2"; shift 2 ;;
+        --logviewer-tls-port) LOGVIEWER_TLS_PORT="$2"; LOGVIEWER_TLS_PORT_SET=1; shift 2 ;;
+        --no-logviewer-tls)   LOGVIEWER_TLS_PORT="";   LOGVIEWER_TLS_PORT_SET=1; shift ;;
         --skip-install-deps)  SKIP_INSTALL_DEPS=1; shift ;;
         --force-overwrite)    FORCE_OVERWRITE=1; shift ;;
         -h|--help)            usage; exit 0 ;;
         *) echo "未知参数 $1"; usage; exit 2 ;;
     esac
 done
+
+# ★ 日志查看器 TLS 端口的默认值：**默认 8443**。
+#   只在 --origin-cert（=域名走 Cloudflare）时生效——因为该默认值的前提是「前置 CDN 只代理
+#   固定端口」，而 8443 恰在 CF 的 HTTPS 端口白名单里（8120 不在）。非 CF 的部署（certbot
+#   路线）不该被自动开一个额外端口，故此时保持关闭。
+#   显式传 --logviewer-tls-port <端口> 或 --no-logviewer-tls 均会覆盖此默认。
+if [[ "$LOGVIEWER_TLS_PORT_SET" != 1 && "$ORIGIN_CERT" == 1 ]]; then
+    LOGVIEWER_TLS_PORT="8443"
+fi
 
 # 输入清洗：移除会破坏 sed 替换 / 正则 / nginx 配置注入的元字符（& \ /）。
 # DOMAIN 仅允许主机名合法字符，PUBLIC_IP 仅允许 IP 合法字符，二者均不含上述元字符。
