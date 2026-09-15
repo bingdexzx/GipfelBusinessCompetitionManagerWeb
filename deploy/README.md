@@ -255,13 +255,111 @@ sudo bash scripts/deploy-linux.sh \
 
 **上传文件加固（L5）**：`location /uploads/` 已限制 MIME（仅放行图片与 PDF，其余一律 `application/octet-stream`），并 `~* \.(php|pl|py|...)$` 拒绝执行任何脚本类文件，防上传文件 RCE。
 
-**启用 HTTPS / HSTS（H3）**：模板末尾 `# === NGINX_SSL_443_START/END ===` 内已附就绪的 443 server 块与 HTTP→HTTPS 跳转，**默认注释态**（不影响 `nginx -t`）。推荐用 certbot 自动接管：
+**启用 HTTPS / HSTS（H3）**：模板中 `# === NGINX_SSL_443_START/END ===`（主站）与 `# === NGINX_SSL_443_LOGVIEWER_START/END ===`（日志查看器子域）两段 443 server 块，**默认注释态**（不影响 `nginx -t`）。三条启用路线**只能选一条**：
+
+| 路线 | 适用 | 做法 |
+| --- | --- | --- |
+| **A. Cloudflare Origin Certificate** ★ | 域名挂在 Cloudflare 后面 | 见下方独立小节，由脚本自动完成 |
+| **B. Let's Encrypt** | 无 CDN 或不想用 CF 证书 | `certbot --nginx -d <DOMAIN> --non-interactive --redirect`（**先只签主域**，理由见下） |
+| **C. 手工** | 已有其它来源的证书 | 自己取消注释、改证书路径，`nginx -t && systemctl reload nginx` |
+
+> ⚠️ **路线 B 的坑（真实 521 事故根因）**：`-d log.<DOMAIN>` 要求该子域做 HTTP-01 校验。**只要 `log.<DOMAIN>` 没有 DNS 记录，整条 certbot 命令就会中止，主域证书也拿不到、443 块一个字节都写不进去**，而报错夹在长输出里很容易被忽略。所以：**先只签主域**；确实需要两个名字时，改用路线 A（Origin Certificate 不校验 DNS）。
+
+> ⚠️ **不要混用 A 与 B**：certbot 会自行写入它自己的 443 块，与模板渲染出的块会让同一 `server_name` 出现两个 443，nginx 报 `conflicting server name` 并只取一个。
+
+---
+
+### ★ 路线 A：Cloudflare Origin Certificate（完整步骤）
+
+**为什么推荐**：① **不依赖任何 DNS 校验**（避开上面那个坑）；② 有效期最长 **15 年**，无需续期；③ 证书只被 Cloudflare 信任，即使源站 IP 泄露也无法被第三方利用。
+
+#### 1. 在 Cloudflare 面板签发
+
+`SSL/TLS` → `源服务器`（Origin Server）→ `创建证书`（Create Certificate）
+
+| 项 | 填什么 |
+| --- | --- |
+| 私钥类型 | `RSA`（兼容性最好） |
+| Hostnames | **`<域名>`、`log.<域名>` 各占一行**；或直接 `*.de5.net` 之类的通配（**一份证书覆盖主站与日志查看器，两者共用**） |
+| 证书有效期 | 15 年（默认最长） |
+
+点「创建」后**只显示一次**私钥——立刻把 `cert.pem`（源证书）与 `key.pem`（私钥）两个文件保存下来。中途关掉页面就得重新签发。
+
+#### 2. 把证书放到服务器
 
 ```bash
-certbot --nginx -d <DOMAIN> -d log.<DOMAIN> --non-interactive --redirect
+# 目录名与脚本默认值一致（也可用 --origin-cert-dir 指定别的目录）
+sudo install -d -m 755 /etc/ssl/cloudflare
+sudo install -m 644 cert.pem /etc/ssl/cloudflare/<域名>.pem
+sudo install -m 600 key.pem  /etc/ssl/cloudflare/<域名>.key
 ```
 
-certbot 会自动写入 443 块、跳转并加载证书。若手动启用，取消注释后改好证书路径，并取消 `Strict-Transport-Security` 行的注释（HSTS 仅在 HTTPS 下生效，启用前请确认证书已就绪）。
+> 文件名必须是 `<域名>.pem` / `<域名>.key`（脚本按 `--domain` 推导）；用别的名字就配 `--ssl-cert` / `--ssl-key` 显式指定。
+> 私钥 `600` 即可——nginx 由 master（root）进程读取证书，worker 不需要直接读。
+
+#### 3. 启用（首次部署 / 升级，各一条命令）
+
+```bash
+# 首次部署
+sudo bash scripts/deploy-linux.sh \
+  --domain <域名> --install-dir /opt/gipfel --with-nginx --origin-cert
+
+# 日常升级（★ 记得每次都带 --domain 与 --origin-cert）
+sudo bash scripts/update-from-github.sh \
+  --source-dir /opt/GipfelBusinessCompetitionManagerWeb \
+  --install-dir /opt/gipfel --with-nginx --domain <域名> --origin-cert
+```
+
+脚本会：取消两段 443 块的注释 → 把 `__SSL_CERT__` / `__SSL_KEY__` 替换成实际路径 → 自检产物里确实有 `listen 443 ssl` → `nginx -t` → reload。任一环失败都会**显式报错并非零退出**，不会留下半配置状态。
+
+> **为什么升级也必须带 `--origin-cert`**：升级会用模板产物**整体覆盖** vhost，而模板里的 443 块是注释态。不带这个开关重跑，等于把 443 块抹掉——HTTPS 静默消失。脚本已为此加了防护：若检测到现有 vhost 里**已有生效的 443** 而本次又没传 `--origin-cert`，会**直接中止并备份旧文件**，绝不静默摧毁。
+
+#### 4. Cloudflare 面板确认 SSL/TLS 模式
+
+`SSL/TLS` → `概述` → 加密模式选 **Full (strict)**。
+
+| 模式 | CDN→源站 | 用 Origin Certificate 时 |
+| --- | --- | --- |
+| **Full (strict)** | 443 + TLS，**校验**源站证书 | ✅ **必须选这个**（Origin Certificate 正是为它设计） |
+| Full | 443 + TLS，不校验 | ⚠️ 能用但浪费了证书的校验意义 |
+| **Flexible** | **80 + 明文** | ❌ **绝对不要**：源站 443 白配，且与任何 80→443 跳转叠加成**重定向循环** |
+
+#### 5. 验证
+
+```bash
+# 源站自身（绕开 CDN）
+ss -lntp | grep 443
+curl -skI --resolve '<域名>:443:127.0.0.1' https://<域名>/ | head -3
+
+# 经 Cloudflare（应 200/302，不再是 521）
+curl -sSI https://<域名>/ | head -3
+
+# 日志查看器子域（应 403「拒绝直接访问」= 已到达；521/无法解析 = 未到达）
+curl -sSI https://log.<域名>/ | head -3
+```
+
+用 `openssl` 看证书主体与有效期，确认是 Origin Certificate：
+
+```bash
+echo | openssl s_client -connect 127.0.0.1:443 -servername <域名> 2>/dev/null \
+  | openssl x509 -noout -subject -issuer -dates
+# issuer 应含 "CloudFlare Origin SSL Certificate Authority"
+```
+
+#### 6. 续期 / 轮换
+
+Origin Certificate 最长 15 年，但**若源站 IP 变更、或怀疑私钥泄露**就要换：在 CF 面板重新签发 → 覆盖两个文件 → 重跑上面第 3 步的命令（脚本会重新渲染并 reload）。**不需要 certbot，也不要 `systemctl reload` 之外的额外操作。**
+
+#### 7. 常见问题
+
+| 现象 | 原因 | 处理 |
+| --- | --- | --- |
+| 仍 521 | CF 模式是 Full/Full(strict) 但源站 443 没监听 | 确认第 3 步命令跑成功；`ss -lntp \| grep 443` 应有输出 |
+| **525** SSL handshake failed | 源站 443 在说**明文 HTTP**（`listen 443;` 少了 `ssl`） | 检查渲染产物：`grep 'listen 443' /etc/nginx/sites-available/gipfel.conf` |
+| **526** Invalid SSL certificate | CF 校验证书失败：过期 / Hostnames 不含该域名 / 只放了叶子证书 | 用第 5 步的 `openssl` 命令核对 issuer 与 dates |
+| 主站正常但 `log.<域名>` 打不开 | ① 该子域**没有 DNS 记录**（Origin Certificate 不校验 DNS，所以证书装得上、但访客解析不到）；② `log.<域名>` 不在 `DJANGO_ALLOWED_HOSTS` | 补 DNS 记录；升级命令**带上 `--domain`** 让脚本自动追加（详见下文「域名形态：日志查看器打不开的三个独立原因」） |
+| `nginx -t` 报证书文件不存在 | 路径/文件名与推导不符 | 配 `--ssl-cert` / `--ssl-key`，或按第 2 步的命名放好 |
+| 想换回 Let's Encrypt | — | 先把两个 443 块连同证书路径改回 LE 的（模板注释态里给的就是 LE 路径写法），或删掉 vhost 里手工加的块后跑 certbot |
 
 **Socket.IO CORS（L2）**：`backend/apps/realtime/gateway.py` 的 `cors_allowed_origins` 不再硬编码 `*`，改为复用主后端同一份 `CORS_ORIGIN` 白名单（未配置时退化为 `*`，仅限开发/私网反射），避免任意站点跨域连 WebSocket（CSWSH）。
 
@@ -306,15 +404,26 @@ curl -vk https://127.0.0.1/ -H 'Host: <DOMAIN>' | head -5
 
 **443 无输出 = 就是它。** 陷阱在于：`deploy/nginx-gipfel.conf` 里的 443 块**默认是注释态模板**，而 `deploy-linux.sh` **不申请证书**。所以「证书已签发」≠「nginx 已用上证书」——`certbot certonly`、或 `certbot --nginx` 中途失败，都会留下「证书在、443 没监听」这个状态。
 
-#### 修复路线 A：让 certbot 自己写 443 块（推荐）
+#### 修复路线 A：让脚本启用 443（★ 挂在 Cloudflare 后面时首选）
+
+**用 Cloudflare Origin Certificate，脚本一条命令搞定**——不依赖 DNS 校验，因此不会出现「因为 `log.<域名>` 没有记录而整条签发失败」：
 
 ```bash
-# 只签主域（最稳，不依赖任何子域 DNS）
+sudo bash scripts/deploy-linux.sh \
+  --domain <域名> --install-dir /opt/gipfel --with-nginx --origin-cert
+```
+
+完整步骤（签发、放置文件、验证、轮换）见上文 **「路线 A：Cloudflare Origin Certificate（完整步骤）」**。
+
+#### 修复路线 A′：用 Let's Encrypt / certbot
+
+```bash
+# ★ 只签主域（最稳，不依赖任何子域 DNS）
 sudo certbot --nginx -d <DOMAIN> --non-interactive --redirect
 
-# 需要日志查看器子域时再加一个 -d，但该子域必须有 DNS 记录：
-#   log.<DOMAIN> 解析不到会让【整条命令中止】、443 块写不进去
-#   ——这正是「证书申请了但 HTTPS 起不来」最常见的原因
+# ⚠️ 需要日志查看器子域时再加一个 -d，但该子域必须有 DNS 记录：
+#    log.<DOMAIN> 解析不到会让【整条命令中止】、主域证书也拿不到、443 块写不进去
+#    ——这正是「证书申请了但 HTTPS 起不来」最常见的原因
 sudo certbot --nginx -d <DOMAIN> -d log.<DOMAIN> --non-interactive --redirect
 ```
 
@@ -336,11 +445,16 @@ curl -sS -o /dev/null -w '%{http_code}\n' http://<DOMAIN>/.well-known/acme-chall
 
 ```bash
 sudo vim /etc/nginx/sites-available/gipfel.conf
-#   取消 # === NGINX_SSL_443_START/END === 整段注释
-#   ssl_certificate / ssl_certificate_key 按 `certbot certificates` 的实际路径填
+#   取消 # === NGINX_SSL_443_START/END === 整段注释（主站）
+#   取消 # === NGINX_SSL_443_LOGVIEWER_START/END === 整段注释（日志查看器子域）
+#   把 __SSL_CERT__ / __SSL_KEY__ 换成实际证书路径
+#     · Origin Certificate：/etc/ssl/cloudflare/<域名>.pem 与 .key
+#     · Let's Encrypt：/etc/letsencrypt/live/<域名>/fullchain.pem 与 privkey.pem
 #   需要 HSTS 再取消 Strict-Transport-Security 那行
 sudo nginx -t && sudo systemctl reload nginx
 ```
+
+> ★ 手工改过之后，**再跑 `--with-nginx` 的部署/升级脚本会覆盖掉这些改动**。脚本已加防护：检测到此时会**中止并备份**，不会静默抹掉。想长期稳定，建议改用 `--origin-cert` 交给脚本管理（见上文「路线 A」）。
 
 > ⚠️ 改 `deploy/nginx-gipfel.conf` 再 reload 是**无效**的：它不参与 nginx 加载，且里面仍是 `__DOMAIN__` / `__INSTALL_DIR__` 占位符，直接使用会让 `nginx -t` 报证书文件不存在。
 

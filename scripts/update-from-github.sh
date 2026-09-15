@@ -68,6 +68,11 @@ SOURCE_DIR=""
 REPO=""
 WITH_NGINX=0
 PUBLIC_IP=""   # 显式指定公网 IP（无域名纯 IP 部署日志查看器用）；非空则跳过自动探测
+# HTTPS via Cloudflare Origin Certificate（--origin-cert；与 deploy-linux.sh 同一套语义）
+ORIGIN_CERT=0
+ORIGIN_CERT_DIR="/etc/ssl/cloudflare"
+SSL_CERT=""
+SSL_KEY=""
 
 usage() {
     cat <<EOF
@@ -84,6 +89,12 @@ Usage: $0 [options]
   --public-ip IP           公网 IP（无 --domain 部署时日志查看器使用 http://<IP>:8120/）；
                           显式传入可跳过自动探测，确保受限网络下也能纠正内网 IP 或补全缺失行
   --with-nginx             更新后重新生成 nginx 虚拟主机并 reload
+  --origin-cert            启用 HTTPS（Cloudflare Origin Certificate；需 --with-nginx 与 --domain）。
+                           脚本取消 vhost 里 443 模板注释并填入证书路径，然后 nginx -t + reload。
+                           证书默认取 <--origin-cert-dir>/<域名>.pem 与 .key
+  --origin-cert-dir PATH   证书目录，默认 /etc/ssl/cloudflare
+  --ssl-cert PATH          显式指定证书文件（覆盖按域名推导）
+  --ssl-key PATH           显式指定私钥文件（覆盖按域名推导）
   -h, --help               显示本帮助
 EOF
 }
@@ -96,6 +107,10 @@ while [[ $# -gt 0 ]]; do
         --domain)           DOMAIN="$2"; shift 2 ;;
         --public-ip)        PUBLIC_IP="$2"; shift 2 ;;
         --with-nginx)       WITH_NGINX=1; shift ;;
+        --origin-cert)      ORIGIN_CERT=1; shift ;;
+        --origin-cert-dir)  ORIGIN_CERT_DIR="$2"; ORIGIN_CERT=1; shift 2 ;;
+        --ssl-cert)         SSL_CERT="$2"; ORIGIN_CERT=1; shift 2 ;;
+        --ssl-key)          SSL_KEY="$2"; ORIGIN_CERT=1; shift 2 ;;
         -h|--help)          usage; exit 0 ;;
         *) echo "未知参数 $1"; usage; exit 2 ;;
     esac
@@ -522,6 +537,22 @@ if [[ $WITH_NGINX -eq 1 ]]; then
     fi
     VHOST_OUT="/etc/nginx/sites-available/gipfel.conf"
     log "重新生成 nginx 虚拟主机"
+    # ★ 防「静默摧毁 HTTPS」+ 留可回滚副本。
+    #   下面把模板渲染结果用 `> "$VHOST_OUT"` 写入时是**整体覆盖**；而 certbot 的 nginx
+    #   插件是把 443 块**直接写进同一个文件**的。若现有 vhost 已含生效的 443，而本次没有
+    #   --origin-cert 去重新生成它，覆盖后 443 就消失、HTTPS 静默失效（全程无任何报错）。
+    #   宁可中止，也不静默摧毁——这正是「昨天还好好的，今天 HTTPS 就没了」的成因。
+    if [[ -f "$VHOST_OUT" ]]; then
+        cp -f "$VHOST_OUT" "${VHOST_OUT}.bak-$(date +%F_%H%M%S)" 2>/dev/null || true
+        if [[ "$ORIGIN_CERT" != 1 ]] && grep -qE '^[[:space:]]*listen[[:space:]]+443' "$VHOST_OUT"; then
+            err "现有 vhost 已配置 443，而本次未传 --origin-cert——覆盖会让 HTTPS 配置消失（且不报错）。
+    请二选一：
+      A) 改由脚本管理 HTTPS：把证书放到 ${ORIGIN_CERT_DIR}/<域名>.pem|.key，加 --origin-cert 重跑；
+      B) 继续由 certbot 管理：本次**不要加 --with-nginx**（只升级代码与服务），
+         或先把 443 块移到 /etc/nginx/snippets/ 下再用 include 引入。
+    旧 vhost 已备份为 ${VHOST_OUT}.bak-<时间戳>，可随时还原。"
+        fi
+    fi
     # 解析 .env 的 LOG_VIEWER_PORT（默认 8120；缺失/非法/越界一律兜底），与 deploy-linux.sh 的
     # _log_viewer_port 同语义。nginx 模板里 listen 端口是 __LOG_VIEWER_PORT__ 占位符，daphne
     # 内部 8121 不受其影响（避免同机抢端口）。
@@ -555,6 +586,44 @@ if [[ $WITH_NGINX -eq 1 ]]; then
         sed -i '/# === LOGVIEWER_PORT8120_START ===/,/# === LOGVIEWER_PORT8120_END ===/d' "$VHOST_OUT"
     else
         sed -i '/# === LOGVIEWER_SUBDOMAIN_START ===/,/# === LOGVIEWER_SUBDOMAIN_END ===/d' "$VHOST_OUT"
+    fi
+
+    # ---------------- HTTPS：启用 443（Cloudflare Origin Certificate）----------------
+    # 与 deploy-linux.sh 同一套语义与同一份模板标记。443 块在模板里默认是**注释态**；
+    # 本段按 --origin-cert 取消注释并填入证书路径。
+    # ★ 升级场景的意义：证书已经装过一次，这里只负责「每次重渲染 vhost 后把 443 重新启用」，
+    #   否则重跑升级脚本会用**未启用 HTTPS 的模板产物**覆盖现有 vhost —— 443 静默消失。
+    # ⚠️ 走 certbot 的用户不要加 --origin-cert（certbot 自己写 443 块，两者会重复 server_name）。
+    if [[ "$ORIGIN_CERT" == 1 ]]; then
+        if [[ "$WITH_NGINX" != 1 ]]; then
+            err "--origin-cert 需要与 --with-nginx 一起使用（否则没有可改写的 vhost）"
+        fi
+        if [[ -z "$DOMAIN" ]]; then
+            err "--origin-cert 需要同时传 --domain（默认用它推导证书文件名 <目录>/<域名>.pem|.key；
+     如需自定义路径请用 --ssl-cert / --ssl-key）"
+        fi
+        [[ -n "$SSL_CERT" ]] || SSL_CERT="${ORIGIN_CERT_DIR}/${DOMAIN}.pem"
+        [[ -n "$SSL_KEY"  ]] || SSL_KEY="${ORIGIN_CERT_DIR}/${DOMAIN}.key"
+        for _f in "$SSL_CERT" "$SSL_KEY"; do
+            if [[ ! -s "$_f" ]]; then
+                err "证书文件不存在或为空：$_f
+  请先在 Cloudflare 面板「SSL/TLS → 源服务器 → 创建证书」签发（Hostnames 填
+  ${DOMAIN} 与 log.${DOMAIN}，或 *.${DOMAIN}），再放好两个文件：
+    sudo install -d -m 755 ${ORIGIN_CERT_DIR}
+    sudo install -m 644 <下载的 cert.pem> ${ORIGIN_CERT_DIR}/${DOMAIN}.pem
+    sudo install -m 600 <下载的 key.pem>  ${ORIGIN_CERT_DIR}/${DOMAIN}.key"
+            fi
+        done
+        sed -i -E "/^# === NGINX_SSL_443_START ===$/,/^# === NGINX_SSL_443_END ===$/ { /^# === NGINX_SSL/! { s/^# //; s/^#$// } }" "$VHOST_OUT"
+        sed -i -E "/^# === NGINX_SSL_443_LOGVIEWER_START ===$/,/^# === NGINX_SSL_443_LOGVIEWER_END ===$/ { /^# === NGINX_SSL/! { s/^# //; s/^#$// } }" "$VHOST_OUT"
+        sed -i -e "s|__SSL_CERT__|${SSL_CERT}|g" -e "s|__SSL_KEY__|${SSL_KEY}|g" "$VHOST_OUT"
+        if grep -q '__SSL_CERT__\|__SSL_KEY__' "$VHOST_OUT"; then
+            err "vhost 仍残留 __SSL_CERT__/__SSL_KEY__ 占位符（模板与脚本版本不一致）；请把 deploy/nginx-gipfel.conf 与 scripts/ 同步到同一 commit 后重跑"
+        fi
+        if ! grep -q 'listen 443 ssl' "$VHOST_OUT"; then
+            err "已在 --origin-cert 模式下渲染，但产物里没有 listen 443 ssl —— 模板的 SSL 标记可能被改动，请检查 deploy/nginx-gipfel.conf"
+        fi
+        ok "已启用 HTTPS：证书 ${SSL_CERT}；服务 ${DOMAIN} 与 log.${DOMAIN}（443）"
     fi
     # 按 nginx.conf 实际 include 风格放置 gipfel 配置（兼容 sites-enabled 与仅 include conf.d 的精简镜像）
     if grep -q 'sites-enabled' /etc/nginx/nginx.conf 2>/dev/null; then

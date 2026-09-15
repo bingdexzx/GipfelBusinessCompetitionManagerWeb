@@ -253,12 +253,26 @@ npm run typecheck    # 类型检查（CI 必跑）
   sudo certbot certificates                              # 证书是否存在、路径为何
   ```
   > **521 与 522 的区别**：521 = 「拒绝」（端口上没有任何进程监听，内核回 REJECT）；522 = 「丢包」（ufw 默认 DROP 策略把包丢了）。所以看到 521，第一嫌疑是「nginx 没在 443 上监听」。
-- **修复（推荐）**：让 certbot 自己写入 443 块。
+- **修复（推荐，挂 Cloudflare 时首选）**：用 **Cloudflare Origin Certificate** + 脚本一条命令——**不依赖 DNS 校验**，因此不会出现「因为 `log.<域名>` 没有记录而整条签发失败」：
+  ```bash
+  # 1) CF 面板：SSL/TLS → 源服务器 → 创建证书（Hostnames 填 <域名> 与 log.<域名>，有效期可选 15 年）
+  # 2) 放好两个文件（文件名必须是 <域名>.pem / <域名>.key）
+  sudo install -d -m 755 /etc/ssl/cloudflare
+  sudo install -m 644 cert.pem /etc/ssl/cloudflare/<域名>.pem
+  sudo install -m 600 key.pem  /etc/ssl/cloudflare/<域名>.key
+  # 3) 由脚本渲染 443 块并 reload（首次部署用 deploy-linux.sh，升级用 update-from-github.sh）
+  sudo bash scripts/update-from-github.sh --source-dir <clone 目录> \
+       --install-dir /opt/gipfel --with-nginx --domain <域名> --origin-cert
+  # 4) CF 面板 SSL/TLS 模式设为 Full (strict)
+  ```
+  ★ **升级时也必须带 `--origin-cert`**：升级会用模板产物整体覆盖 vhost，而模板里 443 块是注释态，不带这个开关重跑等于把 443 抹掉。脚本已加防护——检测到现有 vhost 已有生效的 443 而本次未传该开关时**会中止并备份**，不会静默摧毁。完整步骤见 [deploy/README.md](../deploy/README.md) 的「路线 A：Cloudflare Origin Certificate（完整步骤）」。
+- **修复（备选）**：让 certbot 写入 443 块。
   ```bash
   sudo certbot --nginx -d <DOMAIN> --non-interactive --redirect   # 只签主域，最稳
   ```
-  ⚠️ 若加上 `-d log.<DOMAIN>`，**该子域必须有 DNS 记录**——解析不到会让**整条命令中止**、443 块写不进去。这正是「证书申请了但 HTTPS 起不来」最常见的原因。
-- **签发前置**：源站 80 端口公网可达；**经 Cloudflare 时须临时关闭 Always Use HTTPS / 边缘跳转**，否则 HTTP-01 校验会跟着跳到尚不可用的 443。自检：`curl -sS -o /dev/null -w '%{http_code}\n' http://<DOMAIN>/.well-known/acme-challenge/probe` 期望 **404**（请求到达了 nginx），而不是 301/522。
+  ⚠️ 若加上 `-d log.<DOMAIN>`，**该子域必须有 DNS 记录**——解析不到会让**整条命令中止**、主域证书也拿不到、443 块写不进去。这正是「证书申请了但 HTTPS 起不来」最常见的原因。
+  ⚠️ **不要**与 `--origin-cert` 混用：certbot 会自行写入 443 块，两者会让同一 `server_name` 出现两个 443，nginx 只取一个。
+- **签发前置（仅 certbot 路线需要）**：源站 80 端口公网可达；**经 Cloudflare 时须临时关闭 Always Use HTTPS / 边缘跳转**，否则 HTTP-01 校验会跟着跳到尚不可用的 443。自检：`curl -sS -o /dev/null -w '%{http_code}\n' http://<DOMAIN>/.well-known/acme-challenge/probe` 期望 **404**（请求到达了 nginx），而不是 301/522。
 - **防火墙**：`deploy-linux.sh` / `update-from-github.sh` 现已自动 `ufw allow 80/tcp`、`443/tcp`（此前脚本**只**处理日志查看器端口，从未放行 80/443）；**云控制台的安全组**脚本管不到，需手动放行 TCP 80/443。另需确认源站没有把 [Cloudflare 的 IP 段](https://www.cloudflare.com/ips/) 拉黑（fail2ban / 云 WAF 误封是官方点名的 521 第二大成因）：`sudo fail2ban-client status`、`sudo iptables -S | grep -i drop`。
 - **CDN 的 SSL/TLS 模式**：必须 **Full (strict)**。**Flexible 与 certbot `--redirect` 叠加会变成重定向循环**（CDN 回源 80 → 源站 301 到 443 → CDN 再回 80）。
 - **仍有问题**：完整错误码对照（521/522/523/524/525/526）与源站加固（Origin Certificate、只允许 Cloudflare 回源、经 CDN 后的真实客户端 IP）见 [deploy/README.md 的「Cloudflare / CDN 前置（H4）」](../deploy/README.md)。

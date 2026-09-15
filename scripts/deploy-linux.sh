@@ -57,6 +57,11 @@ FORCE_OVERWRITE=0
 PUBLIC_IP=""   # 显式指定公网 IP（无域名纯 IP 部署日志查看器用）；非空则跳过自动探测与交互填写
 PUBLIC_IP_SET=0  # 标记 --public-ip 是否由用户显式传入（用于结尾提示区分「用户指定」与「自动探测」）
 LV_PUBLIC_IP=""  # 预初始化：set -u 下 DJANGO_ALLOWED_HOSTS 自愈块可能在其未赋值时引用（如 .env 已存在且无需纠正）
+# HTTPS via Cloudflare Origin Certificate（--origin-cert）
+ORIGIN_CERT=0                          # 1 = 在 vhost 中启用 443 块并填入证书路径
+ORIGIN_CERT_DIR="/etc/ssl/cloudflare"  # 证书目录；文件名按 <DIR>/<域名>.pem|.key 推导
+SSL_CERT=""                            # 显式覆盖证书路径（--ssl-cert），空则按域名推导
+SSL_KEY=""                             # 显式覆盖私钥路径（--ssl-key）
 
 usage() {
     cat <<EOF
@@ -66,6 +71,12 @@ Usage: $0 [options]
   --public-ip IP               公网 IP（无 --domain 部署时日志查看器使用 http://<IP>:${LV_PORT:-8120}/）；
                               显式传入可跳过自动探测与交互填写，避免受限网络/非交互环境卡住
   --with-nginx                 配置 nginx 虚拟主机
+  --origin-cert                启用 HTTPS，用 Cloudflare Origin Certificate（需同时给 --domain）。
+                              脚本会取消 vhost 里 443 模板的注释并填入证书路径，然后 nginx -t + reload。
+                              证书默认取 <--origin-cert-dir>/<域名>.pem 与 .key
+  --origin-cert-dir PATH       证书目录，默认 /etc/ssl/cloudflare
+  --ssl-cert PATH              显式指定证书文件（覆盖按域名推导）
+  --ssl-key PATH               显式指定私钥文件（覆盖按域名推导）
   --skip-install-deps          跳过 apt install（已知环境已装好）
   --force-overwrite            即使 INSTALL_DIR 存在也覆盖（保留 backup）
   -h, --help                   显示本帮助
@@ -78,6 +89,10 @@ while [[ $# -gt 0 ]]; do
         --install-dir)        INSTALL_DIR="$2"; shift 2 ;;
         --public-ip)          PUBLIC_IP="$2"; PUBLIC_IP_SET=1; shift 2 ;;
         --with-nginx)         WITH_NGINX=1; shift ;;
+        --origin-cert)        ORIGIN_CERT=1; shift ;;
+        --origin-cert-dir)    ORIGIN_CERT_DIR="$2"; ORIGIN_CERT=1; shift 2 ;;
+        --ssl-cert)           SSL_CERT="$2"; ORIGIN_CERT=1; shift 2 ;;
+        --ssl-key)            SSL_KEY="$2"; ORIGIN_CERT=1; shift 2 ;;
         --skip-install-deps)  SKIP_INSTALL_DEPS=1; shift ;;
         --force-overwrite)    FORCE_OVERWRITE=1; shift ;;
         -h|--help)            usage; exit 0 ;;
@@ -554,6 +569,70 @@ if [[ $WITH_NGINX -eq 1 ]]; then
         sed -i '/# === LOGVIEWER_SUBDOMAIN_START ===/,/# === LOGVIEWER_SUBDOMAIN_END ===/d' "$VHOST_FILE"
     fi
 
+    # ---------------- HTTPS：启用 443（Cloudflare Origin Certificate）----------------
+    # 模板中的 443 块默认是**注释态**（保证未启用时 nginx -t 恒通过）。本段按 --origin-cert
+    # 取消注释并填入证书路径。为什么提供这条路：Let's Encrypt 的 HTTP-01 要为每个 -d 名字
+    # 做校验，log.<DOMAIN> 没有 DNS 记录时 certbot 会**整体中止**、443 块一个字节都写不进去
+    # （真实的 521 事故根因）；Origin Certificate 由 Cloudflare 直接签发，不依赖 DNS 校验。
+    # ⚠️ 走 certbot 的用户**不要**加 --origin-cert：certbot 会自己写 443 块，两者会让同一
+    #    server_name 出现两个 443 块（nginx 报 conflicting server name 并只用一个）。
+    if [[ "$ORIGIN_CERT" == 1 ]]; then
+        if [[ "$WITH_NGINX" != 1 ]]; then
+            err "--origin-cert 需要与 --with-nginx 一起使用（否则没有可改写的 vhost）"
+        fi
+        if [[ -z "$DOMAIN" ]]; then
+            err "--origin-cert 需要同时传 --domain（默认用它推导证书文件名 <目录>/<域名>.pem|.key；
+     如需自定义路径请用 --ssl-cert / --ssl-key）"
+        fi
+        # 路径：显式 --ssl-cert/--ssl-key 优先，否则按 <DIR>/<域名>.pem|.key 推导
+        [[ -n "$SSL_CERT" ]] || SSL_CERT="${ORIGIN_CERT_DIR}/${DOMAIN}.pem"
+        [[ -n "$SSL_KEY"  ]] || SSL_KEY="${ORIGIN_CERT_DIR}/${DOMAIN}.key"
+        for _f in "$SSL_CERT" "$SSL_KEY"; do
+            if [[ ! -s "$_f" ]]; then
+                err "证书文件不存在或为空：$_f
+  请先在 Cloudflare 面板「SSL/TLS → 源服务器 → 创建证书」签发，
+  Hostnames 填 ${DOMAIN} 与 log.${DOMAIN}（或 *.${DOMAIN}），然后把两个文件放好：
+    sudo install -d -m 755 ${ORIGIN_CERT_DIR}
+    sudo install -m 644 <下载的 cert.pem> ${ORIGIN_CERT_DIR}/${DOMAIN}.pem
+    sudo install -m 600 <下载的 key.pem>  ${ORIGIN_CERT_DIR}/${DOMAIN}.key
+  私钥只需 root 可读（nginx master 以 root 读取），故 600 即可。"
+            fi
+        done
+        # ① 主站 443 块：取消整段注释（标记行本身保持注释，便于重复运行）
+        sed -i -E "/^# === NGINX_SSL_443_START ===$/,/^# === NGINX_SSL_443_END ===$/ { /^# === NGINX_SSL/! { s/^# //; s/^#$// } }" "$VHOST_FILE"
+        # ② 日志查看器子域 443 块：同理。少了它，前端按钮指向的 https://log.<域名>/ 无人应答
+        sed -i -E "/^# === NGINX_SSL_443_LOGVIEWER_START ===$/,/^# === NGINX_SSL_443_LOGVIEWER_END ===$/ { /^# === NGINX_SSL/! { s/^# //; s/^#$// } }" "$VHOST_FILE"
+        # ③ 填入证书路径
+        sed -i -e "s|__SSL_CERT__|${SSL_CERT}|g" -e "s|__SSL_KEY__|${SSL_KEY}|g" "$VHOST_FILE"
+        # ④ 防御：残留占位符说明模板与脚本版本撕裂，此时 nginx -t 必然失败，提前给可读错误
+        if grep -q '__SSL_CERT__\|__SSL_KEY__' "$VHOST_FILE"; then
+            err "vhost 仍残留 __SSL_CERT__/__SSL_KEY__ 占位符（模板与脚本版本不一致）；请把 deploy/nginx-gipfel.conf 与 scripts/ 同步到同一 commit 后重跑"
+        fi
+        # ⑤ 自检：确认 443 块与证书路径真的进了产物（避免「以为启用了」）
+        if ! grep -q 'listen 443 ssl' "$VHOST_FILE"; then
+            err "已在 --origin-cert 模式下渲染，但产物里没有 listen 443 ssl —— 模板的 SSL 标记可能被改动，请检查 deploy/nginx-gipfel.conf"
+        fi
+        ok "已启用 HTTPS：证书 ${SSL_CERT}；服务 ${DOMAIN} 与 log.${DOMAIN}（443）"
+    fi
+
+    # ★ 防「静默摧毁 HTTPS」+ 留可回滚副本。
+    #   下一行会用模板产物**整体覆盖** vhost；而 certbot 的 nginx 插件是把 443 块
+    #   **直接写进同一个文件**的。若现有 vhost 已含生效的 443，而本次没有 --origin-cert
+    #   去重新生成它，覆盖后 443 就消失、HTTPS 静默失效（全程无任何报错）。
+    if [[ -f /etc/nginx/sites-available/gipfel.conf ]]; then
+        cp -f /etc/nginx/sites-available/gipfel.conf \
+              "/etc/nginx/sites-available/gipfel.conf.bak-$(date +%F_%H%M%S)" 2>/dev/null || true
+        if [[ "$ORIGIN_CERT" != 1 ]] \
+           && grep -qE '^[[:space:]]*listen[[:space:]]+443' /etc/nginx/sites-available/gipfel.conf; then
+            err "现有 vhost 已配置 443，而本次未传 --origin-cert——覆盖会让 HTTPS 配置消失（且不报错）。
+    请二选一：
+      A) 改由脚本管理 HTTPS：把证书放到 ${ORIGIN_CERT_DIR}/<域名>.pem|.key，加 --origin-cert 重跑；
+      B) 继续由 certbot 管理：本次**不要加 --with-nginx**（只升级代码与服务），
+         或先把 443 块移到 /etc/nginx/snippets/ 下再用 include 引入。
+    旧 vhost 已备份为 /etc/nginx/sites-available/gipfel.conf.bak-<时间戳>，可随时还原。"
+        fi
+    fi
+
     cp -f "$VHOST_FILE" /etc/nginx/sites-available/gipfel.conf
     rm -f "$_tmp_vhost"
 
@@ -629,14 +708,23 @@ if [[ $WITH_NGINX -eq 1 ]]; then
     fi
 
     if [[ -n "$DOMAIN" ]]; then
-        if command -v certbot >/dev/null 2>&1; then
-            warn "已安装 certbot，可手动执行：certbot --nginx -d $DOMAIN -d log.$DOMAIN --non-interactive --redirect"
+        if [[ "$ORIGIN_CERT" == 1 ]]; then
+            # 已用 Origin Certificate 启用 443：不要再引导去跑 certbot（会重复 443 块）
+            ok "HTTPS 已按 Cloudflare Origin Certificate 启用（无需 certbot，也请勿再对其执行 --nginx 签发）"
+            warn "仍需确认：① Cloudflare SSL/TLS 模式为 Full (strict)；② log.$DOMAIN 的 DNS 记录已存在"
+            warn "  （Origin Certificate 不校验 DNS，所以证书能装上，但访客解析不到 log.$DOMAIN 依然打不开日志查看器）。"
+            warn "  证书有效期最长 15 年，到期前在 CF 面板重新签发并替换两个文件后重跑本脚本即可。"
+        elif command -v certbot >/dev/null 2>&1; then
+            warn "已安装 certbot，可手动执行：certbot --nginx -d $DOMAIN --non-interactive --redirect"
         else
-            warn "如需 HTTPS：apt-get install -y certbot python3-certbot-nginx && certbot --nginx -d $DOMAIN -d log.$DOMAIN --redirect"
+            warn "如需 HTTPS：apt-get install -y certbot python3-certbot-nginx && certbot --nginx -d $DOMAIN --redirect"
         fi
-        warn "另需：将 log.$DOMAIN 的 DNS A 记录指向本服务器（日志查看器子域代理前置条件）。"
-        warn "若只想要主域证书，去掉 -d log.$DOMAIN —— 该子域无 DNS 记录会让整条 certbot 命令中止、443 块写不进去。"
-        warn "Cloudflare 代理场景：SSL/TLS 模式须为 Full (strict)，切勿用 Flexible（与 --redirect 叠加会变成重定向循环）。见 deploy/README.md。"
+        if [[ "$ORIGIN_CERT" != 1 ]]; then
+            warn "另需：将 log.$DOMAIN 的 DNS A 记录指向本服务器（日志查看器子域代理前置条件）。"
+            warn "★ 先只签主域。加 -d log.$DOMAIN 时若该子域无 DNS 记录，certbot 会整体中止、443 块写不进去。"
+            warn "  若必须一次覆盖两个名字，改用 Cloudflare Origin Certificate：--origin-cert（不依赖 DNS 校验）。"
+            warn "Cloudflare 代理场景：SSL/TLS 模式须为 Full (strict)，切勿用 Flexible（与 --redirect 叠加会变成重定向循环）。见 deploy/README.md。"
+        fi
     else
         # 无域名：日志查看器经 ${LV_PORT} 端口暴露公网（取自 .env LOG_VIEWER_PORT），
         # 需放行防火墙
