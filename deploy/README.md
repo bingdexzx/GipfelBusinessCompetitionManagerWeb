@@ -121,12 +121,77 @@ curl -sS -I http://127.0.0.1/         # 200（nginx 托管 index.html）
   1. DNS：`log.<DOMAIN>` 的 A 记录指向本服务器；
   2. 证书：`certbot --nginx -d <DOMAIN> -d log.<DOMAIN>`（deploy 脚本的 certbot 提示已纳入该子域）。未启用 HTTPS 时以 HTTP(80) 提供，功能正常（cookie 非 Secure）。
   3. 启用 HTTPS 后，建议在 `.env` 设 `LOGVIEWER_SECURE_COOKIES=true`，使网关会话/ CSRF cookie 标记 Secure。
+  4. ★ **`log.<DOMAIN>` 必须在 `DJANGO_ALLOWED_HOSTS` 里**（见下）。
 - **无域名防火墙**：8120 端口必须对外可达；云服务器还需在安全组/防火墙放行 TCP 8120（deploy 脚本已尽力 `ufw allow 8120/tcp`，但仍需确认云侧安全组）。
 - **共享密钥**：主后端与日志查看器共用 `.env` 的 `LOGVIEWER_SECRET_KEY` 签发/校验令牌。deploy 脚本首次部署自动生成随机值；已部署实例升级时 `.env` 保留不变，两端始终一致。
 - **双重认证**：令牌只放行「进入日志查看器站点的网关」，进入后仍需用 Django 后台超级管理员凭据登录才能真正读取日志。
-- **CSRF（登录 403 排查）**：日志查看器登录 `/api/auth/login` 受 `CsrfViewMiddleware` 保护（前端 `app.js` 读 `lv_csrftoken` cookie 写 `X-CSRFToken` 头，正确）。Django 4.0+ 对同源 POST 有「`Origin == scheme://get_host()` 即放行」逻辑，但前提是 `get_host()` 与浏览器 `Origin` **完全一致（含端口）**。
-  **曾现 403 的真因**：nginx 反代用的是 `proxy_set_header Host $host`，而 nginx 的 `$host` **不含端口**，导致 `get_host()`=`43.142.77.225`、`Origin=`http://43.142.77.225:8120` → 不一致 → 403。已修复：nginx 模板日志查看器块改为 `proxy_set_header Host $host:$server_port`（透传带端口的原始 Host），Django 同源判定即命中。
-  **双保险**：`logviewer/settings.py` 在加载时从 `.env` 的 `LOG_VIEWER_PUBLIC_URL` 推导并静态写入 `CSRF_TRUSTED_ORIGINS`（含回环 127.0.0.1:8121 / localhost:8121），settings 阶段即定好、不受 Django `cached_property` 运行时缓存影响。
+
+#### ★ 域名形态：日志查看器打不开的三个独立原因
+
+**「域名部署后主站正常、日志查看器打不开」有三种各自独立的成因，症状与修法都不同。** 按下面顺序查，一步一个：
+
+| # | 现象 | 成因 | 修法 |
+| --- | --- | --- | --- |
+| ① | **400 Bad Request**（`Invalid HTTP_HOST header: 'log.<域名>'`） | `log.<域名>` 不在日志查看器的 `ALLOWED_HOSTS` 里。日志查看器是**独立 Django 服务**，它自己的 `ALLOWED_HOSTS` 由 `DJANGO_ALLOWED_HOSTS` 兜底纳入（`logviewer/settings.py`）——而 deploy 脚本过去**只**往里写主域，从不写 `log.<域名>` | ★ 已修：脚本现在域名模式下会**同时**追加 `<DOMAIN>` 与 `log.<DOMAIN>`。手工补救：`DJANGO_ALLOWED_HOSTS=<域名>,log.<域名>,localhost,127.0.0.1` 后 `sudo systemctl restart gipfel gipfel-logviewer` |
+| ② | **403 Forbidden**（登录 POST 失败） | 日志查看器的 `CSRF_TRUSTED_ORIGINS` 里没有 `log.<域名>`。根因是端口写法：nginx 用 `proxy_set_header Host $host:$server_port` 透传，**默认端口**下 `get_host()` 得到 `log.<域名>:80`，而浏览器发出的 `Origin` 会**省略默认端口**（`http://log.<域名>`）；Django 的 `_origin_verified` 做的是**字符串相等**比较（`django/middleware/csrf.py`），于是对不上，只能落到 `CSRF_TRUSTED_ORIGINS`。而该项过去**只**从 `LOG_VIEWER_PUBLIC_URL` 推导——域名模式下脚本不写这一项，等于没有兜底 | ★ 已修：`logviewer/settings.py` 现在按 `ALLOWED_HOSTS` 里的每个主机统一补上 `http://` 与 `https://` 两种来源。（注意 `:8120` 那类**非默认端口**浏览器会带端口、两边恰好一致——为 8120 加的修复没问题，是默认端口引入了新差异） |
+| ③ | **连接被拒 / 证书错误 / 显示的是主站** | 按钮地址派生为 `https://log.<域名>/`（`backend/apps/auth/views.py` 按请求 Host 派生），但 **nginx 模板里日志查看器子域只有 80 块，没有 443 块**——SSL 模板只给了主站，注释里写的是「日志查看器子域同理，复制并改」 | 用 certbot 带上子域（推荐）：`sudo certbot --nginx -d <域名> -d log.<域名> --non-interactive --redirect`。**手工路线**见下方片段 |
+
+**手工补日志查看器 443 块**（仅在不用 certbot、自己管证书时需要；在主站 443 块之后追加）：
+
+```nginx
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name log.<DOMAIN>;
+
+    ssl_certificate     /etc/letsencrypt/live/<DOMAIN>/fullchain.pem;   # 证书需覆盖该子域
+    ssl_certificate_key /etc/letsencrypt/live/<DOMAIN>/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    location /static/ {
+        alias <INSTALL_DIR>/backend/logviewer/staticfiles/;
+        try_files $uri =404;
+    }
+    location / {
+        proxy_pass         http://127.0.0.1:8121;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host:$server_port;   # 必须带端口，见上表 ②
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout  120s;
+    }
+    location ~ /\. { deny all; access_log off; log_not_found off; }
+}
+```
+
+> ⚠️ **不要同时**启用这个手工块**和** certbot 的 `-d log.<域名>`——两者会为同一 `server_name` 生成两个 443 块，nginx 会报 `conflicting server name` 并只用一个，排查起来很费时间。二选一。
+
+**分层排查命令**（哪一层断了一眼可见）：
+
+```bash
+# 1) 日志查看器服务本身是否在跑（daphne 绑内网 8121）
+systemctl is-active gipfel-logviewer && ss -lntp | grep 8121
+
+# 2) 绕开 DNS/证书，直接让 nginx 用正确 Host 走一遍（80 端口）
+curl -sS -o /dev/null -w 'Host=log.<域名> → %{http_code}\n' \
+     -H 'Host: log.<域名>' http://127.0.0.1/
+#    400 → 上表 ①     403 → 上表 ②     200/302 → nginx 与 Host 链路正常
+
+# 3) 443 上是否真有该子域的 vhost
+sudo nginx -T | grep -A2 'server_name log\.'
+
+# 4) 证书是否覆盖该子域
+sudo certbot certificates | grep -A3 'Domains'
+```
+- **CSRF（登录 403 排查）**：日志查看器登录 `/api/auth/login` 受 `CsrfViewMiddleware` 保护（前端 `app.js` 读 `lv_csrftoken` cookie 写 `X-CSRFToken` 头，正确）。Django 4.0+ 对同源 POST 有「`Origin == scheme://get_host()` 即放行」逻辑，但前提是 `get_host()` 与浏览器 `Origin` **字符串完全相等**（`django/middleware/csrf.py` 的 `_origin_verified` 是直接 `==` 比较，不做端口归一化）。
+  **曾现 403 的真因（非默认端口）**：nginx 反代用的是 `proxy_set_header Host $host`，而 nginx 的 `$host` **不含端口**，导致 `get_host()`=`43.142.77.225`、`Origin=`http://43.142.77.225:8120` → 不一致 → 403。已修复：nginx 模板日志查看器块改为 `proxy_set_header Host $host:$server_port`（透传带端口的原始 Host），Django 同源判定即命中。
+  ★ **同一写法在默认端口（80/443）上会反向出问题**：浏览器对默认端口**省略不写**（`Origin: http://log.<域名>`），而 `$host:$server_port` 会得到 `log.<域名>:80`，字符串仍不相等。所以真正的兜底必须是 `CSRF_TRUSTED_ORIGINS`。
+  **双保险（已修正）**：`logviewer/settings.py` 在加载时写入 `CSRF_TRUSTED_ORIGINS`，来源有两处——① `.env` 的 `LOG_VIEWER_PUBLIC_URL`（精确指定 scheme://host:port）；② ★ **`ALLOWED_HOSTS` 里的每个主机各补 `http://` 与 `https://` 两种来源**。第 ② 条是必需的：域名模式下脚本**不写** `LOG_VIEWER_PUBLIC_URL`，只靠第 ① 条等于没有兜底——这正是「域名部署后日志查看器登录 403」的根因（详见上文「域名形态：日志查看器打不开的三个独立原因」）。
   若仍报 `403 Forbidden` 且非凭证错误：① 确认 nginx 已 reload（`sudo nginx -t && sudo systemctl reload nginx`）；② 重启 `gipfel-logviewer` 服务；③ 检查 `.env` 的 `LOG_VIEWER_PUBLIC_URL` 是否为 `http://<公网IP>:8120/` 形态。
 
 ### 无域名纯 IP 部署（适合还没买域名）

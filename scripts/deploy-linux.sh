@@ -360,10 +360,15 @@ fi
 #   缺失时 Django 对一切非回环 Host 的请求返回原生 400 Bad Request（登录/健康检查
 #   全部失败，前端表现为「请求参数错误」）。幂等：白名单里已有该条目则不重复追加。
 #   优先顺序：--domain > --public-ip > 自动探测公网 IP。
+#   ★ 域名模式下必须**同时**加入 log.<DOMAIN>：日志查看器是独立 Django 服务，它自己的
+#     ALLOWED_HOSTS 靠本项兜底纳入（见 backend/logviewer/logviewer/settings.py 读取
+#     DJANGO_ALLOWED_HOSTS 的那段）。少了这个子域，nginx 以 Host: log.<域名> 反代过去
+#     会被日志查看器以 400 拒绝——现象是「域名部署后主站正常、日志查看器打不开」，
+#     很难联想到是 Host 头白名单问题。
 if [[ -f "$INSTALL_DIR/backend/.env" ]]; then
-    AH_ENTRY=""
+    AH_ENTRIES=()
     if [[ -n "$DOMAIN" ]]; then
-        AH_ENTRY="$DOMAIN"
+        AH_ENTRIES+=("$DOMAIN" "log.$DOMAIN")
     else
         if [[ -z "$LV_PUBLIC_IP" && -n "$PUBLIC_IP" ]]; then
             LV_PUBLIC_IP="$(normalize_ip "$PUBLIC_IP")"
@@ -372,17 +377,20 @@ if [[ -f "$INSTALL_DIR/backend/.env" ]]; then
             LV_PUBLIC_IP="$(_probe_public_ip)" || true
             [[ -n "$LV_PUBLIC_IP" ]] && LV_PUBLIC_IP="$(normalize_ip "$LV_PUBLIC_IP")"
         fi
-        AH_ENTRY="$LV_PUBLIC_IP"
+        [[ -n "$LV_PUBLIC_IP" ]] && AH_ENTRIES+=("$LV_PUBLIC_IP")
     fi
-    if [[ -n "$AH_ENTRY" ]]; then
+    if [[ ${#AH_ENTRIES[@]} -gt 0 ]]; then
         if grep -q '^DJANGO_ALLOWED_HOSTS=' "$INSTALL_DIR/backend/.env"; then
-            if ! grep -E "^DJANGO_ALLOWED_HOSTS=" "$INSTALL_DIR/backend/.env" | grep -qE "(^|,)${AH_ENTRY}(,|$)"; then
-                sed -i "s|^DJANGO_ALLOWED_HOSTS=.*|&,${AH_ENTRY}|" "$INSTALL_DIR/backend/.env"
-                ok "DJANGO_ALLOWED_HOSTS 已追加公网入口：${AH_ENTRY}"
-            fi
+            for _ah in "${AH_ENTRIES[@]}"; do
+                if ! grep -E "^DJANGO_ALLOWED_HOSTS=" "$INSTALL_DIR/backend/.env" | grep -qE "(^|,)${_ah}(,|$)"; then
+                    sed -i "s|^DJANGO_ALLOWED_HOSTS=.*|&,${_ah}|" "$INSTALL_DIR/backend/.env"
+                    ok "DJANGO_ALLOWED_HOSTS 已追加公网入口：${_ah}"
+                fi
+            done
         else
-            echo "DJANGO_ALLOWED_HOSTS=${AH_ENTRY},localhost,127.0.0.1" >> "$INSTALL_DIR/backend/.env"
-            ok "DJANGO_ALLOWED_HOSTS 已写入：${AH_ENTRY},localhost,127.0.0.1"
+            _ah_new="$(IFS=,; echo "${AH_ENTRIES[*]}")"
+            echo "DJANGO_ALLOWED_HOSTS=${_ah_new},localhost,127.0.0.1" >> "$INSTALL_DIR/backend/.env"
+            ok "DJANGO_ALLOWED_HOSTS 已写入：${_ah_new},localhost,127.0.0.1"
         fi
     else
         warn "未能确定公网入口（域名/公网 IP 均为空），DJANGO_ALLOWED_HOSTS 未修改；若经公网访问出现 400，请手动在 backend/.env 加入 DJANGO_ALLOWED_HOSTS=<公网IP>,localhost"

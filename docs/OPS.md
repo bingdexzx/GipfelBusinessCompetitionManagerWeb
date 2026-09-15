@@ -200,6 +200,27 @@ npm run typecheck    # 类型检查（CI 必跑）
 - **仍打不开**：① 确认已用超级管理员账号登录；② 令牌 120s 内有效，超时重开按钮即可；③ 若 403 持续，检查主后端与日志查看器 `.env` 的 `LOGVIEWER_SECRET_KEY` 是否**一致**（不一致会导致验签失败）；④ 经 nginx 子域 `log.<DOMAIN>` 访问需 DNS A 记录 + certbot 覆盖该子域（见 deploy/README.md）；⑤ **无域名纯 IP 部署**经 `http://<IP>:8120/` 访问，需确认 `deploy/nginx-gipfel.conf` 的 8120 端口块已生效（deploy 脚本无 `--domain` 时自动保留），且云/系统防火墙放行 TCP 8120（deploy 脚本无域名时自动 `ufw allow 8120/tcp`，否则需手动放行）。
 - **底层**：`LOGVIEWER_GATE_MAX_AGE`（秒）/ `LOGVIEWER_GATE_SALT` 在 `backend/logviewer/logviewer/settings.py` 可调；`LOGVIEWER_SECRET_KEY` 在主后端 `settings.py` 读取，与日志查看器共用同一 `.env`。
 
+### Q12. 域名部署后主站正常，但日志查看器打不开
+
+- **现象**：`https://<域名>/` 一切正常，点「系统设置 → 日志查看器」却打不开（400 / 403 / 连接被拒 / 显示成主站）。
+- **根因**：这是**三个各自独立**的问题，症状不同、修法也不同。日志查看器是**独立 Django 服务**（`backend/logviewer/`），它有**自己**的 `ALLOWED_HOSTS` 与 `CSRF_TRUSTED_ORIGINS`——主站正常不代表它也正常。
+
+| 现象 | 成因 | 修法 |
+| --- | --- | --- |
+| **400** `Invalid HTTP_HOST header: 'log.<域名>'` | `log.<域名>` 不在日志查看器的 `ALLOWED_HOSTS` 里。它由 `DJANGO_ALLOWED_HOSTS` 兜底纳入，而 deploy 脚本过去**只**写主域、从不写 `log.<域名>` | ★ 已修（脚本现在同时追加 `<域名>` 与 `log.<域名>`）。手工：`DJANGO_ALLOWED_HOSTS=<域名>,log.<域名>,localhost,127.0.0.1` → `sudo systemctl restart gipfel gipfel-logviewer` |
+| **403**（登录 POST 失败） | `CSRF_TRUSTED_ORIGINS` 里没有 `log.<域名>`。nginx 以 `Host $host:$server_port` 透传，**默认端口**下 `get_host()` = `log.<域名>:80`，而浏览器 `Origin` 会**省略默认端口**；Django 的 `_origin_verified` 是**字符串相等**比较 → 对不上。该项过去只从 `LOG_VIEWER_PUBLIC_URL` 推导，而域名模式下脚本不写这一项 | ★ 已修（settings 现按 `ALLOWED_HOSTS` 统一补 `http://` 与 `https://` 两种来源） |
+| **连接被拒 / 证书错误 / 显示成主站** | 按钮地址派生为 `https://log.<域名>/`（`backend/apps/auth/views.py`），但 **nginx 模板里日志查看器子域只有 80 块，没有 443 块** | `sudo certbot --nginx -d <域名> -d log.<域名> --non-interactive --redirect`；手工补块见 [deploy/README.md](../deploy/README.md) |
+
+- **分层定位（一条命令看断在哪层）**：
+  ```bash
+  systemctl is-active gipfel-logviewer && ss -lntp | grep 8121        # 服务在跑吗
+  curl -sS -o /dev/null -w '%{http_code}\n' -H 'Host: log.<域名>' http://127.0.0.1/
+  #   400 → 白名单；403 → CSRF；200/302 → nginx 与 Host 链路正常
+  sudo nginx -T | grep -A2 'server_name log\.'                        # 443 上有该子域吗
+  sudo certbot certificates | grep -A3 Domains                        # 证书覆盖它吗
+  ```
+- **注意**：① 单独改 `DJANGO_ALLOWED_HOSTS` 后必须重启 **`gipfel-logviewer`**（它读自己的 settings），只重启 `gipfel` 无效；② 不要**同时**用 certbot `-d log.<域名>` 和手工 443 块——同一 `server_name` 两个 443 块会让 nginx 报 `conflicting server name` 并只用一个。
+
 ### Q9. 直接输入网址打开 /admin 被跳回前端首页
 
 - **这是预期的安全行为（防直连）**：后端 `/admin` 管理后台由 `BackendGateMiddleware` 网关保护，要求携带主后端签发的一次性令牌（`POST /api/auth/backend-token`，仅 `SUPER_ADMIN` 可获取，默认 120s 有效）。直接输入网址、书签、复制链接都无令牌 → 302 重定向回前端 SPA 根路径 `/`。
