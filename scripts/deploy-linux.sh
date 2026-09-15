@@ -612,6 +612,19 @@ if [[ $WITH_NGINX -eq 1 ]]; then
         if ! grep -q 'listen 443 ssl' "$VHOST_FILE"; then
             err "已在 --origin-cert 模式下渲染，但产物里没有 listen 443 ssl —— 模板的 SSL 标记可能被改动，请检查 deploy/nginx-gipfel.conf"
         fi
+        # ⑥ 自检：区域内若混入「散文注释」，取消一层注释后会变成非法指令。
+        #   曾真实发生：unknown directive "日志查看器子域的" —— nginx 的报错不会说明
+        #   是模板问题，运维很难定位，故提前用可读错误拦住。
+        #   注意必须先 `sed 's/#.*$//'` 剥掉**行内注释**再判断：模板里存在合法行内注释
+        #   （如 `proxy_read_timeout 86400s;   # 长连接`），只看行首会把它误判成散文。
+        _bad_prose="$(LC_ALL=C sed 's/#.*$//' "$VHOST_FILE" 2>/dev/null \
+                      | LC_ALL=C grep -n '[^ -~]' | head -3 || true)"
+        if [[ -n "$_bad_prose" ]]; then
+            err "渲染后的 vhost 出现「生效的非 ASCII 行」——SSL 标记区域内混入了散文注释（或行内注释前的指令含非 ASCII）：
+${_bad_prose}
+  NGINX_SSL_443* 区域内只允许放【注释形式的 nginx 配置】；说明文字必须写在标记行之外。
+  区域内确需写注释时用两层井号（\`#     # 说明\`），取消一层后仍是注释。"
+        fi
         ok "已启用 HTTPS：证书 ${SSL_CERT}；服务 ${DOMAIN} 与 log.${DOMAIN}（443）"
     fi
 
