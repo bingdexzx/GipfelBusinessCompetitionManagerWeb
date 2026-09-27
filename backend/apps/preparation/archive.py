@@ -909,7 +909,10 @@ def _exp_vehicles(cid: int) -> list[dict]:
             fuelId=v.fuel_id,
             fuelName=v.fuel.name if v.fuel else None,
             fuelConsumptionPerKm=v.fuel_consumption_per_km,
-            maxCargo=v.max_cargo,
+            # ★ 原 maxCargo 拆分为三类（D16）
+            maxMaterialCargo=v.max_material_cargo,
+            maxPartCargo=v.max_part_cargo,
+            maxProductCargo=v.max_product_cargo,
             price=v.price,
             carbonEmission=v.carbon_emission,
         )
@@ -2023,7 +2026,10 @@ def _imp_vehicles(rows: list[dict], ctx: ImportContext) -> None:
             defaults={
                 "fuel_id": fuel_id,
                 "fuel_consumption_per_km": row.get("fuelConsumptionPerKm") or 0,
-                "max_cargo": row.get("maxCargo") or 0,
+                # ★ 原 maxCargo 拆分为三类（D16）
+                "max_material_cargo": row.get("maxMaterialCargo") or 0,
+                "max_part_cargo": row.get("maxPartCargo") or 0,
+                "max_product_cargo": row.get("maxProductCargo") or 0,
                 "price": row.get("price") or 0,
                 "carbon_emission": row.get("carbonEmission") or 0,
             },
@@ -2036,7 +2042,10 @@ def _imp_vehicles(rows: list[dict], ctx: ImportContext) -> None:
         else:
             obj.fuel_id = fuel_id
             obj.fuel_consumption_per_km = row.get("fuelConsumptionPerKm") or 0
-            obj.max_cargo = row.get("maxCargo") or 0
+            # ★ 原 maxCargo 拆分为三类（D16）
+            obj.max_material_cargo = row.get("maxMaterialCargo") or 0
+            obj.max_part_cargo = row.get("maxPartCargo") or 0
+            obj.max_product_cargo = row.get("maxProductCargo") or 0
             obj.price = row.get("price") or 0
             obj.carbon_emission = row.get("carbonEmission") or 0
             obj.save()

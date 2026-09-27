@@ -1,8 +1,8 @@
 """载具序列化器：camelCase 对齐前端契约，含嵌套 include。
 
 输出嵌套结构：
-    { id, name, fuelId, fuelConsumptionPerKm, maxCargo, price, carbonEmission,
-      competitionId, createdAt, updatedAt,
+    { id, name, fuelId, fuelConsumptionPerKm, maxMaterialCargo, maxPartCargo, maxProductCargo,
+      price, carbonEmission, competitionId, createdAt, updatedAt,
       fuel: { id, name, pricePerLiter, ... },
       vehiclePathTypes: [{ vehicleId, pathTypeId, pathType: { ... } }] }
 
@@ -50,7 +50,10 @@ class VehicleSerializer(serializers.Serializer):
     fuelId = serializers.IntegerField()
     # 油耗/载货是系数/容量，Float 足够；价格必须 Decimal。
     fuelConsumptionPerKm = serializers.FloatField(min_value=0)
-    maxCargo = serializers.FloatField(min_value=0)
+    # ★ 原 maxCargo 拆分为三类载货量（D16）
+    maxMaterialCargo = serializers.FloatField(min_value=0)
+    maxPartCargo = serializers.FloatField(min_value=0)
+    maxProductCargo = serializers.FloatField(min_value=0)
     price = serializers.DecimalField(max_digits=60, decimal_places=4, min_value=Decimal("0"))
     carbonEmission = serializers.FloatField(min_value=0)
     competitionId = serializers.IntegerField()

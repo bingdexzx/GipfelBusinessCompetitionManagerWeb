@@ -236,7 +236,10 @@ export interface Vehicle {
   name: string;
   fuelId: number;
   fuelConsumptionPerKm: number;
-  maxCargo: number;
+  // ★ 原 maxCargo 拆分为三类载货量（D16）
+  maxMaterialCargo: number;
+  maxPartCargo: number;
+  maxProductCargo: number;
   price: number;
   carbonEmission: number;
   competitionId: number | null;

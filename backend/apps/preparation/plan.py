@@ -634,16 +634,19 @@ def _c_vehicles(cid: int) -> dict:
     no_fuel = [v.name for v in rows if v.fuel_id is None]
     if no_fuel:
         warnings.append(f"{len(no_fuel)} 种载具未绑定燃料：{_short_names(no_fuel)}")
-    bad_cargo = [v.name for v in rows if not v.max_cargo]
+    bad_cargo = [v.name for v in rows
+                 if not (v.max_material_cargo or v.max_part_cargo or v.max_product_cargo)]
     if bad_cargo:
-        warnings.append(f"{len(bad_cargo)} 种载具载货量为 0：{_short_names(bad_cargo)}")
+        warnings.append(f"{len(bad_cargo)} 种载具所有类型载货量为 0：{_short_names(bad_cargo)}")
     if not rows:
         warnings.append("尚未录入载具，运输与物流相关玩法不可用")
     return {
         "stats": [("载具", len(rows)), ("已配路径类型", len(rows) - len(no_pt))],
-        "details": _detail("载具", ["ID", "名称", "燃料", "载货量", "每公里油耗", "碳排放系数", "单价", "可通行路径类型"], [
+        "details": _detail("载具", ["ID", "名称", "燃料", "原料载货量", "零件载货量", "产品载货量",
+                                   "每公里油耗", "碳排放系数", "单价", "可通行路径类型"], [
                 [
-                    v.id, v.name, v.fuel.name if v.fuel else "", v.max_cargo,
+                    v.id, v.name, v.fuel.name if v.fuel else "",
+                    v.max_material_cargo, v.max_part_cargo, v.max_product_cargo,
                     v.fuel_consumption_per_km, v.carbon_emission, v.price,
                     _short_names(pt_map.get(v.id, [])),
                 ]

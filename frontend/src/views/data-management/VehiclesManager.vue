@@ -17,7 +17,9 @@
     <el-table v-if="!isPhone" v-loading="loading" :data="filteredData" border stripe style="width: 100%">
       <el-table-column prop="name" label="名称" />
       <el-table-column prop="fuelConsumptionPerKm" label="每公里油耗" />
-      <el-table-column prop="maxCargo" label="最大载货量" />
+      <el-table-column prop="maxMaterialCargo" label="最大原料载货量" />
+      <el-table-column prop="maxPartCargo" label="最大零件载货量" />
+      <el-table-column prop="maxProductCargo" label="最大产品载货量" />
       <el-table-column prop="price" label="价格" />
       <el-table-column prop="carbonEmission" label="碳排放系数" />
       <el-table-column
@@ -73,7 +75,9 @@
         <el-descriptions-item label="每公里油耗">{{
           detailData.fuelConsumptionPerKm
         }}</el-descriptions-item>
-        <el-descriptions-item label="最大载货量">{{ detailData.maxCargo }}</el-descriptions-item>
+        <el-descriptions-item label="最大原料载货量">{{ detailData.maxMaterialCargo }}</el-descriptions-item>
+        <el-descriptions-item label="最大零件载货量">{{ detailData.maxPartCargo }}</el-descriptions-item>
+        <el-descriptions-item label="最大产品载货量">{{ detailData.maxProductCargo }}</el-descriptions-item>
         <el-descriptions-item label="价格">{{ (detailData as any).price }}</el-descriptions-item>
         <el-descriptions-item label="碳排放系数">{{
           (detailData as any).carbonEmission
@@ -131,11 +135,29 @@
           />
         </el-form-item>
 
-        <el-form-item label="最大载货量" prop="maxCargo">
+        <el-form-item label="最大原料载货量" prop="maxMaterialCargo">
           <BigNumberInput
-            v-model="form.maxCargo"
+            v-model="form.maxMaterialCargo"
             :min="0"
-            placeholder="最大载货量"
+            placeholder="最大原料载货量"
+            style="width: 100%"
+          />
+        </el-form-item>
+
+        <el-form-item label="最大零件载货量" prop="maxPartCargo">
+          <BigNumberInput
+            v-model="form.maxPartCargo"
+            :min="0"
+            placeholder="最大零件载货量"
+            style="width: 100%"
+          />
+        </el-form-item>
+
+        <el-form-item label="最大产品载货量" prop="maxProductCargo">
+          <BigNumberInput
+            v-model="form.maxProductCargo"
+            :min="0"
+            placeholder="最大产品载货量"
             style="width: 100%"
           />
         </el-form-item>
@@ -202,7 +224,9 @@ interface VehicleItem {
   id: number;
   name: string;
   fuelConsumptionPerKm: number;
-  maxCargo?: number;
+  maxMaterialCargo?: number;
+  maxPartCargo?: number;
+  maxProductCargo?: number;
   fuelId?: number;
   pathTypeIds?: number[];
 }
@@ -217,7 +241,9 @@ const searchText = ref("");
 const vehicleColumns = [
   { prop: "name", label: "名称" },
   { prop: "fuelConsumptionPerKm", label: "每公里油耗" },
-  { prop: "maxCargo", label: "最大载货量" },
+  { prop: "maxMaterialCargo", label: "最大原料载货量" },
+  { prop: "maxPartCargo", label: "最大零件载货量" },
+  { prop: "maxProductCargo", label: "最大产品载货量" },
   { prop: "price", label: "价格" },
   { prop: "carbonEmission", label: "碳排放系数" },
 ];
@@ -236,7 +262,10 @@ const form = reactive({
   name: "",
   fuelId: null as number | null,
   fuelConsumptionPerKm: 0,
-  maxCargo: 0,
+  // ★ 原 maxCargo 拆分为三类载货量（D16）
+  maxMaterialCargo: 0,
+  maxPartCargo: 0,
+  maxProductCargo: 0,
   price: 0,
   carbonEmission: 0,
   pathTypeIds: [] as number[],
@@ -245,7 +274,9 @@ const form = reactive({
 const formRules = {
   name: [{ required: true, message: "请输入载具名称", trigger: "blur" }],
   fuelConsumptionPerKm: [{ required: true, message: "请输入每公里油耗", trigger: "blur" }],
-  maxCargo: [{ required: true, message: "请输入最大载货量", trigger: "blur" }],
+  maxMaterialCargo: [{ required: true, message: "请输入最大原料载货量", trigger: "blur" }],
+  maxPartCargo: [{ required: true, message: "请输入最大零件载货量", trigger: "blur" }],
+  maxProductCargo: [{ required: true, message: "请输入最大产品载货量", trigger: "blur" }],
   price: [{ required: true, message: "请输入价格", trigger: "blur" }],
   carbonEmission: [{ required: true, message: "请输入碳排放系数", trigger: "blur" }],
 };
@@ -352,7 +383,10 @@ function openCreate() {
   form.name = "";
   form.fuelId = null;
   form.fuelConsumptionPerKm = 0;
-  form.maxCargo = 0;
+  // ★ 原 maxCargo 拆分为三类载货量（D16）
+  form.maxMaterialCargo = 0;
+  form.maxPartCargo = 0;
+  form.maxProductCargo = 0;
   form.price = 0;
   form.carbonEmission = 0;
   form.pathTypeIds = [];
@@ -365,7 +399,10 @@ function openEdit(row: VehicleItem) {
   form.name = row.name || "";
   form.fuelId = row.fuelId ?? null;
   form.fuelConsumptionPerKm = row.fuelConsumptionPerKm ?? 0;
-  form.maxCargo = (row as any).maxCargo ?? 0;
+  // ★ 原 maxCargo 拆分为三类载货量（D16）——兼容旧数据：若无新字段则回读旧 maxCargo
+  form.maxMaterialCargo = (row as any).maxMaterialCargo ?? (row as any).maxCargo ?? 0;
+  form.maxPartCargo = (row as any).maxPartCargo ?? 0;
+  form.maxProductCargo = (row as any).maxProductCargo ?? 0;
   form.price = (row as any).price ?? 0;
   form.carbonEmission = (row as any).carbonEmission ?? 0;
   form.pathTypeIds = row.pathTypeIds ?? [];
@@ -401,7 +438,10 @@ async function handleSubmit() {
       name: form.name,
       fuelId: form.fuelId,
       fuelConsumptionPerKm: form.fuelConsumptionPerKm,
-      maxCargo: form.maxCargo,
+      // ★ 原 maxCargo 拆分为三类载货量（D16）
+      maxMaterialCargo: form.maxMaterialCargo,
+      maxPartCargo: form.maxPartCargo,
+      maxProductCargo: form.maxProductCargo,
       price: form.price,
       carbonEmission: form.carbonEmission,
       pathTypeIds: form.pathTypeIds,

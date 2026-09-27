@@ -1385,9 +1385,20 @@ def compute_vehicle_total_price(raw, competition_id):
     return _compute_named_field_aggregate(raw, competition_id, Vehicle, "price", "载具清单总价格")
 
 
-def compute_vehicle_total_cargo(raw, competition_id):
+# ★ 原 max_cargo 拆分为三类载货量（D16），对应三个独立聚合端点
+def compute_vehicle_total_material_cargo(raw, competition_id):
     from apps.vehicles.models import Vehicle
-    return _compute_named_field_aggregate(raw, competition_id, Vehicle, "max_cargo", "载具清单总载货量")
+    return _compute_named_field_aggregate(raw, competition_id, Vehicle, "max_material_cargo", "载具清单总原料载货量")
+
+
+def compute_vehicle_total_part_cargo(raw, competition_id):
+    from apps.vehicles.models import Vehicle
+    return _compute_named_field_aggregate(raw, competition_id, Vehicle, "max_part_cargo", "载具清单总零件载货量")
+
+
+def compute_vehicle_total_product_cargo(raw, competition_id):
+    from apps.vehicles.models import Vehicle
+    return _compute_named_field_aggregate(raw, competition_id, Vehicle, "max_product_cargo", "载具清单总产品载货量")
 
 
 def compute_vehicle_total_fuel_per_km(raw, competition_id):
@@ -1743,8 +1754,13 @@ def eval_value_spec(spec: Any, inputs: dict, scope: dict | None = None, ctx: Eva
             return compute_total_qty(raw)
         if aggregate == "VEHICLE_TOTAL_PRICE":
             return compute_vehicle_total_price(raw, ctx.competition_id if ctx else None)
-        if aggregate == "VEHICLE_CARGO":
-            return compute_vehicle_total_cargo(raw, ctx.competition_id if ctx else None)
+        # ★ 原 VEHICLE_CARGO 拆分为三类（D16）
+        if aggregate == "VEHICLE_MATERIAL_CARGO":
+            return compute_vehicle_total_material_cargo(raw, ctx.competition_id if ctx else None)
+        if aggregate == "VEHICLE_PART_CARGO":
+            return compute_vehicle_total_part_cargo(raw, ctx.competition_id if ctx else None)
+        if aggregate == "VEHICLE_PRODUCT_CARGO":
+            return compute_vehicle_total_product_cargo(raw, ctx.competition_id if ctx else None)
         if aggregate == "VEHICLE_FUEL_PER_KM":
             return compute_vehicle_total_fuel_per_km(raw, ctx.competition_id if ctx else None)
         if aggregate == "VEHICLE_CARBON":

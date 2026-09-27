@@ -19,7 +19,11 @@ class Vehicle(models.Model):
     )
     # 油耗/载货：均为比率/容量配置，可保留 Float
     fuel_consumption_per_km = models.FloatField()
-    max_cargo = models.FloatField()
+    # ★ 原 max_cargo 拆分为三类载货量（D16）：原料、零件、产品各限独立上限。
+    #   迁移时会把旧 max_cargo 复制到三个字段，用户随后按实际场景修正。
+    max_material_cargo = models.FloatField(default=0)
+    max_part_cargo = models.FloatField(default=0)
+    max_product_cargo = models.FloatField(default=0)
     # 价格：玩家购买场景，必须 Decimal
     price = models.DecimalField(max_digits=60, decimal_places=4)
     # 碳排：派生系数，Float 足够

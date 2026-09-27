@@ -402,13 +402,15 @@ export function nodeOutputs(node: GNode): string[] {
   //  - fuelPrice：按比赛查每种燃料 pricePerLiter × 数量 之和（需查库）。
   if (node.type === "input" && node.data.type === "fuelList")
     return ["out", "fuelQty", "fuelPrice"];
-  // 载具清单输入源额外暴露「载具总价格」及三个载具属性聚合端点：
+  // 载具清单输入源额外暴露「载具总价格」及四个载具属性聚合端点：
   //  - vehiclePrice：按比赛查每种载具 price × 数量 之和（需查库）。
-  //  - vehicleCargo：按比赛查每种载具 maxCargo × 数量 之和（需查库）。
+  //  - vehicleMaterialCargo：按比赛查每种载具 maxMaterialCargo × 数量 之和（需查库）。
+  //  - vehiclePartCargo：按比赛查每种载具 maxPartCargo × 数量 之和（需查库）。
+  //  - vehicleProductCargo：按比赛查每种载具 maxProductCargo × 数量 之和（需查库）。
   //  - vehicleFuelPerKm：按比赛查每种载具 fuelConsumptionPerKm × 数量 之和（需查库）。
   //  - vehicleCarbon：按比赛查每种载具 carbonEmission × 数量 之和（不乘每公里油耗，需查库）。
   if (node.type === "input" && node.data.type === "vehicleList")
-    return ["out", "vehiclePrice", "vehicleCargo", "vehicleFuelPerKm", "vehicleCarbon"];
+    return ["out", "vehiclePrice", "vehicleMaterialCargo", "vehiclePartCargo", "vehicleProductCargo", "vehicleFuelPerKm", "vehicleCarbon"];
   // 仓库清单输入源额外暴露「每种种类的仓库总存储量」「仓库总价格」端点。
   //  - warehouseStorage：按比赛查每个仓库的 type + capacity，将「capacity × 数量」按 type 累加，
   //    输出 {仓库种类(type): 总存储量} 字典（如 {"MATERIAL": 1200, "PRODUCT": 800}）。
@@ -444,7 +446,10 @@ export const PORT_LABEL_TO_HANDLE: Record<string, string> = {
   燃料总数量: "fuelQty",
   燃料总价格: "fuelPrice",
   载具总价格: "vehiclePrice",
-  载具总载货量: "vehicleCargo",
+  // ★ 原载具总载货量拆为三类（D16）
+  载具原料载货量: "vehicleMaterialCargo",
+  载具零件载货量: "vehiclePartCargo",
+  载具产品载货量: "vehicleProductCargo",
   总每公里油耗: "vehicleFuelPerKm",
   总碳排数: "vehicleCarbon",
   每种种类的仓库总存储量: "warehouseStorage",
@@ -515,8 +520,12 @@ export const PORT_DESC: Record<string, string> = {
     "燃料总价格：按比赛查询每种燃料的「每升价格(pricePerLiter) × 输入数量」之和，作为单个浮点数输出，可接入下游的数值端口（效果/检查计算）",
   vehiclePrice:
     "载具总价格：按比赛查询每种载具的「价格(price) × 输入数量」之和，作为单个浮点数输出，可接入下游的数值端口（效果/检查计算）",
-  vehicleCargo:
-    "载具总载货量：按比赛查询每种载具的「载货量(maxCargo) × 输入数量」之和，作为单个浮点数输出，可接入下游的数值端口（效果/检查计算）",
+  vehicleMaterialCargo:
+    "载具总原料载货量：按比赛查询每种载具的「最大原料载货量(maxMaterialCargo) × 输入数量」之和，作为单个浮点数输出，可接入下游的数值端口（效果/检查计算）",
+  vehiclePartCargo:
+    "载具总零件载货量：按比赛查询每种载具的「最大零件载货量(maxPartCargo) × 输入数量」之和，作为单个浮点数输出，可接入下游的数值端口（效果/检查计算）",
+  vehicleProductCargo:
+    "载具总产品载货量：按比赛查询每种载具的「最大产品载货量(maxProductCargo) × 输入数量」之和，作为单个浮点数输出，可接入下游的数值端口（效果/检查计算）",
   vehicleFuelPerKm:
     "总每公里油耗：按比赛查询每种载具的「每公里油耗(fuelConsumptionPerKm) × 输入数量」之和，作为单个浮点数输出，可接入下游的数值端口（效果/检查计算）",
   vehicleCarbon:
@@ -602,8 +611,12 @@ export const PORT_TYPE: Record<string, string> = {
     "价格：按比赛查询每种燃料的每升价格，将「每升价格 × 输入数量」求和，作为单个浮点数输出，可接入下游数值端口",
   vehiclePrice:
     "价格：按比赛查询每种载具的价格，将「价格 × 输入数量」求和，作为单个浮点数输出，可接入下游数值端口",
-  vehicleCargo:
-    "载货量：按比赛查询每种载具的载货量(maxCargo)，将「载货量 × 输入数量」求和，作为单个浮点数输出，可接入下游数值端口",
+  vehicleMaterialCargo:
+    "原料载货量：按比赛查询每种载具的最大原料载货量(maxMaterialCargo)，将「最大原料载货量 × 输入数量」求和，作为单个浮点数输出，可接入下游数值端口",
+  vehiclePartCargo:
+    "零件载货量：按比赛查询每种载具的最大零件载货量(maxPartCargo)，将「最大零件载货量 × 输入数量」求和，作为单个浮点数输出，可接入下游数值端口",
+  vehicleProductCargo:
+    "产品载货量：按比赛查询每种载具的最大产品载货量(maxProductCargo)，将「最大产品载货量 × 输入数量」求和，作为单个浮点数输出，可接入下游数值端口",
   vehicleFuelPerKm:
     "油耗：按比赛查询每种载具的每公里油耗(fuelConsumptionPerKm)，将「每公里油耗 × 输入数量」求和，作为单个浮点数输出，可接入下游数值端口",
   vehicleCarbon:
@@ -823,7 +836,10 @@ export function portDataType(node: GNode, kind: "in" | "out", idx: number): stri
       if (nodeOutputs(node)[idx] === "fuelQty") return "浮点数(燃料总数量)";
       if (nodeOutputs(node)[idx] === "fuelPrice") return "浮点数(燃料总价格)";
       if (nodeOutputs(node)[idx] === "vehiclePrice") return "浮点数(载具总价格)";
-      if (nodeOutputs(node)[idx] === "vehicleCargo") return "浮点数(载具总载货量)";
+      // ★ 原载具总载货量拆为三类（D16）
+      if (nodeOutputs(node)[idx] === "vehicleMaterialCargo") return "浮点数(载具总原料载货量)";
+      if (nodeOutputs(node)[idx] === "vehiclePartCargo") return "浮点数(载具总零件载货量)";
+      if (nodeOutputs(node)[idx] === "vehicleProductCargo") return "浮点数(载具总产品载货量)";
       if (nodeOutputs(node)[idx] === "vehicleFuelPerKm") return "浮点数(总每公里油耗)";
       if (nodeOutputs(node)[idx] === "vehicleCarbon") return "浮点数(总碳排数)";
       if (nodeOutputs(node)[idx] === "warehouseStorage") return "字典(种类→总存储量)";
@@ -1051,7 +1067,10 @@ export const ENTITY_FIELDS: Record<string, { key: string; label: string }[]> = {
   VEHICLE: [
     { key: "name", label: "名称" },
     { key: "fuelConsumptionPerKm", label: "每公里油耗" },
-    { key: "maxCargo", label: "最大载重" },
+    // ★ 原 maxCargo 拆分为三类载货量（D16）
+    { key: "maxMaterialCargo", label: "最大原料载货量" },
+    { key: "maxPartCargo", label: "最大零件载货量" },
+    { key: "maxProductCargo", label: "最大产品载货量" },
     { key: "price", label: "价格" },
     { key: "carbonEmission", label: "碳排放" },
   ],
@@ -1183,8 +1202,11 @@ function buildInputSpec(graph: GGraph, edge?: GEdge): any {
   // 燃料清单输入源连自「燃料总价格」端口时，标记为 FUEL_TOTAL_PRICE 聚合端点。
   else if (h === "fuelPrice") spec.aggregate = "FUEL_TOTAL_PRICE";
   // 载具清单输入源连自各聚合端口时，标记为对应 VEHICLE_* 聚合端点。
+  // ★ 原 VEHICLE_CARGO 拆为三类（D16）
   else if (h === "vehiclePrice") spec.aggregate = "VEHICLE_TOTAL_PRICE";
-  else if (h === "vehicleCargo") spec.aggregate = "VEHICLE_CARGO";
+  else if (h === "vehicleMaterialCargo") spec.aggregate = "VEHICLE_MATERIAL_CARGO";
+  else if (h === "vehiclePartCargo") spec.aggregate = "VEHICLE_PART_CARGO";
+  else if (h === "vehicleProductCargo") spec.aggregate = "VEHICLE_PRODUCT_CARGO";
   else if (h === "vehicleFuelPerKm") spec.aggregate = "VEHICLE_FUEL_PER_KM";
   else if (h === "vehicleCarbon") spec.aggregate = "VEHICLE_CARBON";
   // 仓库清单输入源连自「每种种类的仓库总存储量」/「仓库总价格」端口时，标记为对应聚合端点。
@@ -1699,7 +1721,10 @@ export function flatToGraph(flat: Partial<FlatContract>): GGraph {
     FUEL_TOTAL_QTY: "fuelQty",
     FUEL_TOTAL_PRICE: "fuelPrice",
     VEHICLE_TOTAL_PRICE: "vehiclePrice",
-    VEHICLE_CARGO: "vehicleCargo",
+    // ★ 原 VEHICLE_CARGO 拆为三类（D16）
+    VEHICLE_MATERIAL_CARGO: "vehicleMaterialCargo",
+    VEHICLE_PART_CARGO: "vehiclePartCargo",
+    VEHICLE_PRODUCT_CARGO: "vehicleProductCargo",
     VEHICLE_FUEL_PER_KM: "vehicleFuelPerKm",
     VEHICLE_CARBON: "vehicleCarbon",
     WAREHOUSE_STORAGE: "warehouseStorage",
