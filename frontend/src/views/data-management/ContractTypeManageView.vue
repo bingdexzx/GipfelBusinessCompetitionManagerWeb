@@ -248,10 +248,13 @@ function prettyJson(raw: any) {
   }
 }
 
-async function load() {
+async function load(force = false) {
   loading.value = true;
   try {
-    const res = await contractTypesApi.list(false);
+    // force=true 绕过本地缓存直接打服务端（删除后必须用，否则 _mutating 的
+    // invalidateResource 是异步的，可能在 fetchFullSync 存完新数据之后才清空缓存，
+    // 导致刚存的数据被抹掉 → 列表变空）。
+    const res = await contractTypesApi.list(false, force);
     types.value = Array.isArray(res) ? res : res.items || [];
   } catch (e) {
     console.error(e);
@@ -327,7 +330,7 @@ async function handleDelete(row: any) {
   try {
     await contractTypesApi.remove(row.id);
     ElMessage.success("已删除");
-    load();
+    load(true);  // 删除后必须绕过缓存，否则列表可能变空
   } catch (e) {
     console.error(e);
   }

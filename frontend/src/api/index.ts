@@ -236,7 +236,7 @@ export const companyFieldsApi = {
 };
 
 export const contractTypesApi = {
-  list: (enabledOnly = false) => api.get("/contract-types", { params: { enabledOnly } }),
+  list: (enabledOnly = false, force = false) => api.get("/contract-types", { params: { enabledOnly }, cache: !force }),
   get: (id: number) => api.get(`/contract-types/${id}`),
   create: (data: CreateContractTypeInput) => api.post("/contract-types", data),
   update: (id: number, data: UpdateContractTypeInput) => api.patch(`/contract-types/${id}`, data),
