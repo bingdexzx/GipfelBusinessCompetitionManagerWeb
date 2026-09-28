@@ -1666,15 +1666,37 @@ useResourceChanged("contracts", () => {
 }
 
 /* 新建合同弹窗表单左对齐 */
+:deep(.el-dialog .el-form) {
+  text-align: left !important;
+}
+:deep(.el-dialog .el-form-item) {
+  justify-content: flex-start !important;
+}
 :deep(.el-dialog .el-form-item__content) {
-  display: flex;
-  justify-content: flex-start;
+  display: flex !important;
+  justify-content: flex-start !important;
+  text-align: left !important;
 }
-:deep(.el-dialog .el-form-item__content .el-select) {
-  width: 100%;
+:deep(.el-dialog .el-select) {
+  text-align: left !important;
 }
-:deep(.el-dialog .el-form-item__content .el-select .el-input__inner) {
-  text-align: left;
+:deep(.el-dialog .el-select .el-input) {
+  text-align: left !important;
+}
+:deep(.el-dialog .el-select .el-input__wrapper) {
+  justify-content: flex-start !important;
+}
+:deep(.el-dialog .el-select .el-input__inner) {
+  text-align: left !important;
+}
+:deep(.el-dialog .el-input__inner) {
+  text-align: left !important;
+}
+:deep(.el-dialog .el-input-number) {
+  text-align: left !important;
+}
+:deep(.el-dialog .el-input-number .el-input__inner) {
+  text-align: left !important;
 }
 .party-row {
   display: flex;
