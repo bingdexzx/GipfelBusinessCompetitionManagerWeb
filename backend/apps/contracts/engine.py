@@ -1443,6 +1443,21 @@ def compute_warehouse_total_price(raw, competition_id):
     return _compute_named_field_aggregate(raw, competition_id, Warehouse, "price", "仓库清单总价格")
 
 
+def compute_production_line_total_price(raw, competition_id):
+    from apps.production_lines.models import ProductionLine
+    return _compute_named_field_aggregate(raw, competition_id, ProductionLine, "price", "生产线清单总价格")
+
+
+def compute_production_line_total_labor(raw, competition_id):
+    from apps.production_lines.models import ProductionLine
+    return _compute_named_field_aggregate(raw, competition_id, ProductionLine, "labor_count", "生产线清单总用工数")
+
+
+def compute_production_line_total_capacity(raw, competition_id):
+    from apps.production_lines.models import ProductionLine
+    return _compute_named_field_aggregate(raw, competition_id, ProductionLine, "max_per_year", "生产线清单总年最大产量")
+
+
 def compute_tech_prerequisites(raw, competition_id):
     name = raw if isinstance(raw, str) else ("" if raw is None else str(raw))
     if not name:
@@ -1771,6 +1786,12 @@ def eval_value_spec(spec: Any, inputs: dict, scope: dict | None = None, ctx: Eva
             return compute_warehouse_total_storage(raw, ctx.competition_id if ctx else None)
         if aggregate == "WAREHOUSE_TOTAL_PRICE":
             return compute_warehouse_total_price(raw, ctx.competition_id if ctx else None)
+        if aggregate == "PRODUCTION_LINE_PRICE":
+            return compute_production_line_total_price(raw, ctx.competition_id if ctx else None)
+        if aggregate == "PRODUCTION_LINE_LABOR":
+            return compute_production_line_total_labor(raw, ctx.competition_id if ctx else None)
+        if aggregate == "PRODUCTION_LINE_CAPACITY":
+            return compute_production_line_total_capacity(raw, ctx.competition_id if ctx else None)
         if aggregate and aggregate.startswith("INFRA_"):
             infra_field_map = {
                 "INFRA_PRICE": "price", "INFRA_FOOTPRINT": "footprint",
