@@ -867,6 +867,10 @@ export function portDataType(node: GNode, kind: "in" | "out", idx: number): stri
       if (nodeOutputs(node)[idx] === "vehicleCarbon") return "浮点数(总碳排数)";
       if (nodeOutputs(node)[idx] === "warehouseStorage") return "字典(种类→总存储量)";
       if (nodeOutputs(node)[idx] === "warehousePrice") return "浮点数(仓库总价格)";
+      // productionLineList 输入节点有 3 个聚合输出端口：各 Σ(数值字段 × 数量)
+      if (nodeOutputs(node)[idx] === "productionLinePrice") return "浮点数(生产线总价格)";
+      if (nodeOutputs(node)[idx] === "productionLineLabor") return "浮点数(总用工数)";
+      if (nodeOutputs(node)[idx] === "productionLineCapacity") return "浮点数(总年最大产量)";
       // nodeRoute 输入节点有第二个输出端口 distance：相邻节点最短路距离之和，浮点数
       if (nodeOutputs(node)[idx] === "distance") return "浮点数(路程)";
       // nodeRoute 输入节点有第三个输出端口 pathTypes：与任一路点相连的边所用路径类型名称列表
