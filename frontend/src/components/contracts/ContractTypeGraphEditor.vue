@@ -230,6 +230,7 @@
                   <el-option label="燃料清单" value="fuelList" />
                   <el-option label="载具清单" value="vehicleList" />
                   <el-option label="仓库清单" value="warehouseList" />
+                  <el-option label="生产线清单" value="productionLineList" />
                   <el-option label="科技树清单" value="techNode" />
                 </el-select>
               </el-form-item>
@@ -393,6 +394,18 @@
                 <code>{"MATERIAL": 1200, "PRODUCT": 800}</code>
                 ，连线到下游字典/公式端口即可直接拿到各类仓库的总存储）<b>与</b>
                 <b>仓库总价格</b>（按比赛查每种仓库「价格 × 数量」之和，连线到下游数值端口即可参与效果/检查计算，无需手动逐项乘加）。
+              </div>
+              <div v-else-if="selectedNode.data.type === 'productionLineList'" class="ge-tip">
+                生产线清单输入源：创建合同时由用户在「合同数据」处多选生产线并填写各自数量，保存为
+                <code>{"生产线名称": 数量}</code>
+                字典（键为生产线名字符串、值为整数数量）。选择该类型已自动关联实体=生产线(PRODUCTION_LINE)。
+                <br />
+                本输入源有四个输出端点：<b>输出</b>（原始字典
+                <code>{"生产线名称": 数量}</code
+                >，即生产线数量字典，可接入公式/字典端口）、
+                <b>生产线总价格</b>（按比赛查每条生产线「价格(price) × 数量」之和，连线到下游数值端口即可参与效果/检查计算）、
+                <b>总用工数</b>（按比赛查每条生产线「用工数(laborCount) × 数量」之和，连线到下游数值端口）<b>与</b>
+                <b>总年最大产量</b>（按比赛查每条生产线「年最大产量(maxPerYear) × 数量」之和，连线到下游数值端口）。
               </div>
               <div v-else-if="selectedNode.data.type === 'techNode'" class="ge-tip">
                 科技树清单输入源：创建合同时由用户在「合同数据」处<b>单选</b>一个科技树节点（无需填数量），保存为科技节点名称字符串。选择该类型已自动关联实体=科技节点(TECH_NODE)。

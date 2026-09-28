@@ -417,6 +417,12 @@ export function nodeOutputs(node: GNode): string[] {
   //  - warehousePrice：按比赛查每个仓库的 price × 数量 之和。
   if (node.type === "input" && node.data.type === "warehouseList")
     return ["out", "warehouseStorage", "warehousePrice"];
+  // 生产线清单输入源额外暴露「生产线总价格」「总用工数」「总年最大产量」端点。
+  //  - productionLinePrice：按比赛查每条生产线的 price × 数量 之和。
+  //  - productionLineLabor：按比赛查每条生产线的 laborCount × 数量 之和。
+  //  - productionLineCapacity：按比赛查每条生产线的 maxPerYear × 数量 之和。
+  if (node.type === "input" && node.data.type === "productionLineList")
+    return ["out", "productionLinePrice", "productionLineLabor", "productionLineCapacity"];
   return NODE_PORTS[node.type]?.outputs || [];
 }
 
@@ -454,6 +460,9 @@ export const PORT_LABEL_TO_HANDLE: Record<string, string> = {
   总碳排数: "vehicleCarbon",
   每种种类的仓库总存储量: "warehouseStorage",
   仓库总价格: "warehousePrice",
+  生产线总价格: "productionLinePrice",
+  总用工数: "productionLineLabor",
+  总年最大产量: "productionLineCapacity",
   路程: "distance",
   存在的路径类型: "pathTypes",
   起始节点名: "startNodeName",
@@ -534,6 +543,12 @@ export const PORT_DESC: Record<string, string> = {
     "每种种类的仓库总存储量：按比赛查询每个仓库的「种类(type) + 容量(capacity)」，将清单中「容量 × 数量」按种类(type)累加，输出 {仓库种类: 总存储量} 字典（如 {MATERIAL: 1200, PRODUCT: 800}），可接入下游的字典/公式端口",
   warehousePrice:
     "仓库总价格：按比赛查询每种仓库的「价格(price) × 输入数量」之和，作为单个浮点数输出，可接入下游的数值端口（效果/检查计算）",
+  productionLinePrice:
+    "生产线总价格：按比赛查询每条生产线的「价格(price) × 输入数量」之和，作为单个浮点数输出，可接入下游的数值端口（效果/检查计算）",
+  productionLineLabor:
+    "总用工数：按比赛查询每条生产线的「用工数(laborCount) × 输入数量」之和，作为单个浮点数输出，可接入下游的数值端口（效果/检查计算）",
+  productionLineCapacity:
+    "总年最大产量：按比赛查询每条生产线的「年最大产量(maxPerYear) × 输入数量」之和，作为单个浮点数输出，可接入下游的数值端口（效果/检查计算）",
   materials:
     "所需原料：按比赛查询每个零件的「配比(原料→系数)」，将清单中零件的「数量 × 系数」按原料累加，输出 {原料名称: 总数量} 字典，可接入下游的字典/公式端口",
   partMaterialQty:
@@ -625,6 +640,12 @@ export const PORT_TYPE: Record<string, string> = {
     "字典(种类→总存储量)：{仓库种类(type): 总存储量}，由清单中仓库容量 × 数量按种类累加得到，可直接接入字典/公式端口",
   warehousePrice:
     "价格：按比赛查询每种仓库的价格，将「价格 × 输入数量」求和，作为单个浮点数输出，可接入下游数值端口",
+  productionLinePrice:
+    "价格：按比赛查询每条生产线的价格，将「价格 × 输入数量」求和，作为单个浮点数输出，可接入下游数值端口",
+  productionLineLabor:
+    "用工数：按比赛查询每条生产线的用工数，将「用工数 × 输入数量」求和，作为单个浮点数输出，可接入下游数值端口",
+  productionLineCapacity:
+    "年产量：按比赛查询每条生产线的年最大产量，将「年最大产量 × 输入数量」求和，作为单个浮点数输出，可接入下游数值端口",
   distance:
     "路程：按比赛查询地图相邻节点最短路径距离之和，作为单个浮点数输出，可接入下游数值端口（效果/检查计算）",
   pathTypes:
@@ -694,6 +715,8 @@ export function inputOutType(type: string): string {
       return "字典(载具→数量)";
     case "warehouseList":
       return "字典(仓库→数量)";
+    case "productionLineList":
+      return "字典(生产线→数量)";
     case "techNode":
       return "科技节点名(单值)";
     default:
@@ -1212,6 +1235,10 @@ function buildInputSpec(graph: GGraph, edge?: GEdge): any {
   // 仓库清单输入源连自「每种种类的仓库总存储量」/「仓库总价格」端口时，标记为对应聚合端点。
   else if (h === "warehouseStorage") spec.aggregate = "WAREHOUSE_STORAGE";
   else if (h === "warehousePrice") spec.aggregate = "WAREHOUSE_TOTAL_PRICE";
+  // 生产线清单输入源连自各聚合端口时，标记为对应聚合端点。
+  else if (h === "productionLinePrice") spec.aggregate = "PRODUCTION_LINE_PRICE";
+  else if (h === "productionLineLabor") spec.aggregate = "PRODUCTION_LINE_LABOR";
+  else if (h === "productionLineCapacity") spec.aggregate = "PRODUCTION_LINE_CAPACITY";
   // 科技树节点输入源连自「前置节点」/「研发费用」端口时，标记为对应聚合端点。
   else if (h === "prerequisites") spec.aggregate = "TECH_PREREQUISITES";
   else if (h === "researchCost") spec.aggregate = "TECH_RESEARCH_COST";
@@ -1729,6 +1756,9 @@ export function flatToGraph(flat: Partial<FlatContract>): GGraph {
     VEHICLE_CARBON: "vehicleCarbon",
     WAREHOUSE_STORAGE: "warehouseStorage",
     WAREHOUSE_TOTAL_PRICE: "warehousePrice",
+    PRODUCTION_LINE_PRICE: "productionLinePrice",
+    PRODUCTION_LINE_LABOR: "productionLineLabor",
+    PRODUCTION_LINE_CAPACITY: "productionLineCapacity",
   };
   const rowH = 130;
   const PORT_GAP = 22; // 仅在反序列化布局用，与编辑器 PORT_GAP 保持一致
