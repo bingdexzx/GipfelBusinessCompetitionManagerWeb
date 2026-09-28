@@ -560,13 +560,14 @@
                   <div class="fs-formula-fields">
                     <span class="fs-formula-fields-title">可用字段：</span>
                     <code
-                      v-for="f in formulaFields.filter(f => !f.isCalculated)"
+                      v-for="f in formulaFields"
                       :key="f.fieldKey"
                       class="fs-formula-field-key"
-                      :title="`${f.name} (${f.fieldType})`"
+                      :class="{ 'fs-formula-field-key--calculated': f.isCalculated }"
+                      :title="`${f.name} (${f.fieldType})${f.isCalculated ? ' [计算字段]' : ''}`"
                       @click="insertFormulaField(f.fieldKey)"
-                    >{{ f.fieldKey }}</code>
-                    <span v-if="formulaFields.filter(f => !f.isCalculated).length === 0" style="color:#c0c4cc;font-size:12px">暂无可用字段</span>
+                    >{{ f.fieldKey }}<span v-if="f.isCalculated" class="fs-formula-field-calc-badge">fx</span></code>
+                    <span v-if="formulaFields.length === 0" style="color:#c0c4cc;font-size:12px">暂无可用字段</span>
                   </div>
                   <textarea
                     ref="formulaTextareaRef"
@@ -1619,6 +1620,24 @@ useResourceChanged("industry-fields", () => {
 .fs-formula-field-key:hover {
   background: #d9ecff;
   border-color: #409eff;
+}
+.fs-formula-field-key--calculated {
+  background: #fef9e7;
+  color: #e6a23c;
+  border-color: #faecd8;
+}
+.fs-formula-field-key--calculated:hover {
+  background: #fdf6ec;
+  border-color: #e6a23c;
+}
+.fs-formula-field-calc-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  margin-left: 3px;
+  color: #e6a23c;
+  vertical-align: super;
+  line-height: 1;
 }
 .fs-formula-textarea {
   width: 100%;
