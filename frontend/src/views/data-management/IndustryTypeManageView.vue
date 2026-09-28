@@ -569,6 +569,16 @@
                     >{{ f.fieldKey }}<span v-if="f.isCalculated" class="fs-formula-field-calc-badge">fx</span></code>
                     <span v-if="formulaFields.length === 0" style="color:#c0c4cc;font-size:12px">暂无可用字段</span>
                   </div>
+                  <div class="fs-formula-fields">
+                    <span class="fs-formula-fields-title">可用函数：</span>
+                    <code
+                      v-for="f in formulaFunctions"
+                      :key="f.key"
+                      class="fs-formula-fn"
+                      :title="f.desc"
+                      @click="insertFormulaField(f.key + '(')"
+                    >{{ f.label }}</code>
+                  </div>
                   <textarea
                     ref="formulaTextareaRef"
                     class="fs-formula-textarea"
@@ -866,6 +876,20 @@ async function handleDelete(row: any) {
 }
 
 // ============ 字段管理 ============
+
+// 公式可用函数列表
+const formulaFunctions = [
+  { key: "round", label: "round()", desc: "四舍五入" },
+  { key: "max", label: "max()", desc: "最大值" },
+  { key: "min", label: "min()", desc: "最小值" },
+  { key: "abs", label: "abs()", desc: "绝对值" },
+  { key: "ceil", label: "ceil()", desc: "向上取整" },
+  { key: "floor", label: "floor()", desc: "向下取整" },
+  { key: "sqrt", label: "sqrt()", desc: "平方根" },
+  { key: "log", label: "log()", desc: "对数" },
+  { key: "exp", label: "exp()", desc: "指数" },
+  { key: "pow", label: "pow()", desc: "幂运算" },
+];
 
 // 可作为计算公式引用的「其它字段」：本产业类型的字段，排除正在编辑的自身
 const formulaFields = computed(() => {
@@ -1620,6 +1644,22 @@ useResourceChanged("industry-fields", () => {
 .fs-formula-field-key:hover {
   background: #d9ecff;
   border-color: #409eff;
+}
+.fs-formula-fn {
+  display: inline-block;
+  background: #f0f9eb;
+  color: #67c23a;
+  border: 1px solid #e1f3d8;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: monospace;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.fs-formula-fn:hover {
+  background: #e1f3d8;
+  border-color: #67c23a;
 }
 .fs-formula-field-key--calculated {
   background: #fef9e7;
