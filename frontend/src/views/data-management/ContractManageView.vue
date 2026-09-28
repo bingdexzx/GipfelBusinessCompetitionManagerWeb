@@ -146,6 +146,7 @@
             filterable
             placeholder="选择合同类型"
             style="width: 100%"
+            append-to-body
             @change="onTypeChange"
           >
             <el-option v-for="t in contractTypes" :key="t.id" :label="t.name" :value="t.id" />
@@ -165,6 +166,7 @@
                   filterable
                   placeholder="选择公司"
                   style="flex: 1"
+                  append-to-body
                 >
                   <el-option v-for="c in companies" :key="c.id" :label="c.name" :value="c.id" />
                 </el-select>
@@ -186,7 +188,7 @@
             :key="field.key"
             :label="field.label"
             :required="field.required"
-            :label-position="field.type === 'materialList' || field.type === 'partList' || field.type === 'productList' || field.type === 'infrastructureList' || field.type === 'fuelList' || field.type === 'vehicleList' || field.type === 'warehouseList' || field.type === 'techNode' || field.type === 'mapNode' || field.type === 'nodeRoute' ? 'top' : undefined"
+            :label-position="field.type === 'materialList' || field.type === 'partList' || field.type === 'productList' || field.type === 'infrastructureList' || field.type === 'fuelList' || field.type === 'vehicleList' || field.type === 'warehouseList' || field.type === 'productionLineList' || field.type === 'techNode' || field.type === 'mapNode' || field.type === 'nodeRoute' ? 'top' : undefined"
           >
             <el-select
               v-if="field.type === 'ENTITY'"
@@ -194,6 +196,7 @@
               filterable
               placeholder="选择数据实体"
               style="width: 100%"
+              append-to-body
               @focus="loadEntityOptions(field.entityType)"
             >
               <el-option
@@ -252,6 +255,7 @@
                 clearable
                 placeholder="+ 添加节点"
                 style="width: 100%"
+                append-to-body
                 @change="(v: number | null) => addRouteNode(field.key, v)"
               >
                 <el-option
@@ -306,13 +310,14 @@
               </div>
               <el-button size="small" @click="addDictEntry(field.key)">+ 添加键值</el-button>
             </div>
-            <div v-else-if="field.type === 'materialList' || field.type === 'partList' || field.type === 'productList' || field.type === 'infrastructureList' || field.type === 'fuelList' || field.type === 'vehicleList' || field.type === 'warehouseList'" class="material-editor">
+            <div v-else-if="field.type === 'materialList' || field.type === 'partList' || field.type === 'productList' || field.type === 'infrastructureList' || field.type === 'fuelList' || field.type === 'vehicleList' || field.type === 'warehouseList' || field.type === 'productionLineList'" class="material-editor">
               <el-select
                 :model-value="materialKeys(field.key)"
                 multiple
                 filterable
-                :placeholder="field.type === 'partList' ? '选择零件' : (field.type === 'productList' ? '选择产品' : (field.type === 'infrastructureList' ? '选择基建' : (field.type === 'fuelList' ? '选择燃料' : (field.type === 'vehicleList' ? '选择载具' : (field.type === 'warehouseList' ? '选择仓库' : '选择原料')))))"
+                :placeholder="field.type === 'partList' ? '选择零件' : (field.type === 'productList' ? '选择产品' : (field.type === 'infrastructureList' ? '选择基建' : (field.type === 'fuelList' ? '选择燃料' : (field.type === 'vehicleList' ? '选择载具' : (field.type === 'warehouseList' ? '选择仓库' : (field.type === 'productionLineList' ? '选择生产线' : '选择原料'))))))"
                 style="width: 100%"
+                append-to-body
                 @focus="loadEntityOptions(field.entityType || entityTypeForFieldType(field.type))"
                 @change="onMaterialSelectChange(field.key, $event)"
               >
@@ -358,6 +363,7 @@
                 clearable
                 placeholder="选择所在地图节点"
                 style="width: 100%"
+                append-to-body
                 @focus="loadMapNodes()"
               >
                 <el-option
@@ -375,6 +381,7 @@
                 clearable
                 placeholder="选择科技树节点"
                 style="width: 100%"
+                append-to-body
                 @focus="loadTechNodes()"
               >
                 <el-option
@@ -905,6 +912,8 @@ function entityTypeForFieldType(type: string): string {
       return "VEHICLE";
     case "warehouseList":
       return "WAREHOUSE";
+    case "productionLineList":
+      return "PRODUCTION_LINE";
     default:
       return "MATERIAL";
   }
@@ -1240,7 +1249,7 @@ function fmtVal(v: any) {
   return String(v);
 }
 function formatInputValue(row: any) {
-  if (row.type === "materialList" || row.type === "partList" || row.type === "productList" || row.type === "infrastructureList" || row.type === "fuelList" || row.type === "vehicleList" || row.type === "warehouseList") {
+  if (row.type === "materialList" || row.type === "partList" || row.type === "productList" || row.type === "infrastructureList" || row.type === "fuelList" || row.type === "vehicleList" || row.type === "warehouseList" || row.type === "productionLineList") {
     const obj = row.value && typeof row.value === "object" ? row.value : {};
     const entries = Object.entries(obj).map(([k, v]) => `${k}×${v}`);
     return entries.length ? entries.join("，") : "—";
@@ -1337,7 +1346,8 @@ function onTypeChange() {
       f.type === "infrastructureList" ||
       f.type === "fuelList" ||
       f.type === "vehicleList" ||
-      f.type === "warehouseList"
+      f.type === "warehouseList" ||
+      f.type === "productionLineList"
     ) {
       loadEntityOptions(f.entityType || entityTypeForFieldType(f.type));
       createForm.inputs[f.key] = {};
@@ -1653,6 +1663,18 @@ useResourceChanged("contracts", () => {
 .mm-actions {
   display: flex;
   gap: 8px;
+}
+
+/* 新建合同弹窗表单左对齐 */
+:deep(.el-dialog .el-form-item__content) {
+  display: flex;
+  justify-content: flex-start;
+}
+:deep(.el-dialog .el-form-item__content .el-select) {
+  width: 100%;
+}
+:deep(.el-dialog .el-form-item__content .el-select .el-input__inner) {
+  text-align: left;
 }
 .party-row {
   display: flex;
