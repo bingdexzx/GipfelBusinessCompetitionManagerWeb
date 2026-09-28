@@ -191,7 +191,7 @@ export const mapsApi = {
 
 export const infrastructuresApi = {
   list: (params?: { competitionId?: number; page?: number; pageSize?: number }) =>
-    api.get("/infrastructures", { params: params || {} }),
+    api.get("/infrastructures", { params: params || {}, cache: false }),
   get: (id: number) => api.get(`/infrastructures/${id}`),
   create: (data: CreateInfrastructureInput) => api.post("/infrastructures", data),
   update: (id: number, data: UpdateInfrastructureInput) => api.patch(`/infrastructures/${id}`, data),
@@ -202,7 +202,7 @@ export const infrastructuresApi = {
 
 export const fuelsApi = {
   list: (params?: { competitionId?: number; page?: number; pageSize?: number }) =>
-    api.get("/fuels", { params: params || {} }),
+    api.get("/fuels", { params: params || {}, cache: false }),
   get: (id: number) => api.get(`/fuels/${id}`),
   create: (data: CreateFuelInput) => api.post("/fuels", data),
   update: (id: number, data: UpdateFuelInput) => api.patch(`/fuels/${id}`, data),
@@ -212,7 +212,7 @@ export const fuelsApi = {
 };
 
 export const industryTypesApi = {
-  list: () => api.get("/industry-types"),
+  list: () => api.get("/industry-types", { cache: false }),
   get: (id: number) => api.get(`/industry-types/${id}`),
   create: (data: CreateIndustryTypeInput) => api.post("/industry-types", data),
   update: (id: number, data: UpdateIndustryTypeInput) => api.patch(`/industry-types/${id}`, data),

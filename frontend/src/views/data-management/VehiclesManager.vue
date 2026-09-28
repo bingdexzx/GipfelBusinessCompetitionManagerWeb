@@ -323,7 +323,7 @@ async function loadData() {
       return;
     }
     const params: any = { page: 1, pageSize: 100, competitionId: compStore.competitionId };
-    const res: any = await api.get("/vehicles", { params });
+    const res: any = await api.get("/vehicles", { params, cache: false });
     data.value = Array.isArray(res) ? res : res?.items || [];
   } catch (e) {
     console.error("Failed to load vehicles:", e);

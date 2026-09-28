@@ -306,6 +306,7 @@ async function loadData() {
     }
     const res = await api.get("/tech-nodes", {
       params: { competitionId: compStore.competitionId },
+      cache: false,
     });
     nodes.value = res?.items || res || [];
     await nextTick();

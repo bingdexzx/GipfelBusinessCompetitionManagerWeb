@@ -220,6 +220,7 @@ async function loadData() {
     }
     const res = await api.get("/warehouses", {
       params: { competitionId: compStore.competitionId },
+      cache: false,
     });
     data.value = Array.isArray(res) ? res : [];
   } catch (e) {

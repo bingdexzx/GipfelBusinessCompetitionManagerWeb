@@ -188,6 +188,7 @@ async function loadData() {
   try {
     const res = await api.get("/production-lines", {
       params: { competitionId: compStore.competitionId },
+      cache: false,
     });
     data.value = Array.isArray(res) ? res : [];
   } catch (e) {
