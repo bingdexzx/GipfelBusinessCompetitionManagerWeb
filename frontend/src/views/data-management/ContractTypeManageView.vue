@@ -278,7 +278,7 @@ function openGraphNew() {
 }
 function onGraphSaved() {
   showGraph.value = false;
-  load();
+  load(true); // 强制刷新，绕过缓存
 }
 function onGraphClosed() {
   graphTarget.value = null;
@@ -304,7 +304,7 @@ async function onSimpleSaved(data: any) {
       ElMessage.success("已创建");
     }
     showSimple.value = false;
-    load();
+    load(true); // 强制刷新，绕过缓存
   } catch (e) {
     console.error(e);
   }
