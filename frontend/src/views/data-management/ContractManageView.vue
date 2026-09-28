@@ -139,7 +139,7 @@
 
     <!-- 新建合同 -->
     <el-dialog append-to-body v-model="showCreate" title="新建合同" width="640px">
-      <el-form label-width="130px">
+      <el-form label-position="top">
         <el-form-item label="合同类型" required>
           <el-select
             v-model="createForm.contractTypeId"
@@ -1665,38 +1665,14 @@ useResourceChanged("contracts", () => {
   gap: 8px;
 }
 
-/* 新建合同弹窗表单左对齐 */
-:deep(.el-dialog .el-form) {
-  text-align: left !important;
-}
+/* 新建合同弹窗表单样式 */
 :deep(.el-dialog .el-form-item) {
-  justify-content: flex-start !important;
+  margin-bottom: 18px;
 }
-:deep(.el-dialog .el-form-item__content) {
-  display: flex !important;
-  justify-content: flex-start !important;
-  text-align: left !important;
-}
-:deep(.el-dialog .el-select) {
-  text-align: left !important;
-}
-:deep(.el-dialog .el-select .el-input) {
-  text-align: left !important;
-}
-:deep(.el-dialog .el-select .el-input__wrapper) {
-  justify-content: flex-start !important;
-}
-:deep(.el-dialog .el-select .el-input__inner) {
-  text-align: left !important;
-}
-:deep(.el-dialog .el-input__inner) {
-  text-align: left !important;
-}
-:deep(.el-dialog .el-input-number) {
-  text-align: left !important;
-}
-:deep(.el-dialog .el-input-number .el-input__inner) {
-  text-align: left !important;
+:deep(.el-dialog .el-form-item__label) {
+  font-weight: 500;
+  color: #303133;
+  padding-bottom: 4px;
 }
 .party-row {
   display: flex;
