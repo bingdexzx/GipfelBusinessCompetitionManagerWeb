@@ -539,11 +539,11 @@ export const PORT_DESC: Record<string, string> = {
   vehiclePrice:
     "载具总价格：按比赛查询每种载具的「价格(price) × 输入数量」之和，作为单个浮点数输出，可接入下游的数值端口（效果/检查计算）",
   vehicleMaterialCargo:
-    "载具总原料载货量：按比赛查询每种载具的「最大原料载货量(maxMaterialCargo) × 输入数量」之和，作为单个浮点数输出，可接入下游的数值端口（效果/检查计算）",
+    "按路径类型的总原料载货量：按比赛查询每种载具可行驶的路径类型及其「最大原料载货量(maxMaterialCargo) × 输入数量」，按路径类型累加，输出 {路径类型: 总原料载货量} 字典，可接入下游的字典/公式端口",
   vehiclePartCargo:
-    "载具总零件载货量：按比赛查询每种载具的「最大零件载货量(maxPartCargo) × 输入数量」之和，作为单个浮点数输出，可接入下游的数值端口（效果/检查计算）",
+    "按路径类型的总零件载货量：按比赛查询每种载具可行驶的路径类型及其「最大零件载货量(maxPartCargo) × 输入数量」，按路径类型累加，输出 {路径类型: 总零件载货量} 字典，可接入下游的字典/公式端口",
   vehicleProductCargo:
-    "载具总产品载货量：按比赛查询每种载具的「最大产品载货量(maxProductCargo) × 输入数量」之和，作为单个浮点数输出，可接入下游的数值端口（效果/检查计算）",
+    "按路径类型的总产品载货量：按比赛查询每种载具可行驶的路径类型及其「最大产品载货量(maxProductCargo) × 输入数量」，按路径类型累加，输出 {路径类型: 总产品载货量} 字典，可接入下游的字典/公式端口",
   vehicleFuelPerKm:
     "总每公里油耗：按比赛查询每种载具的「每公里油耗(fuelConsumptionPerKm) × 输入数量」之和，作为单个浮点数输出，可接入下游的数值端口（效果/检查计算）",
   vehicleCarbon:
@@ -872,10 +872,10 @@ export function portDataType(node: GNode, kind: "in" | "out", idx: number): stri
       if (nodeOutputs(node)[idx] === "fuelQty") return "浮点数(燃料总数量)";
       if (nodeOutputs(node)[idx] === "fuelPrice") return "浮点数(燃料总价格)";
       if (nodeOutputs(node)[idx] === "vehiclePrice") return "浮点数(载具总价格)";
-      // ★ 原载具总载货量拆为三类（D16）
-      if (nodeOutputs(node)[idx] === "vehicleMaterialCargo") return "浮点数(载具总原料载货量)";
-      if (nodeOutputs(node)[idx] === "vehiclePartCargo") return "浮点数(载具总零件载货量)";
-      if (nodeOutputs(node)[idx] === "vehicleProductCargo") return "浮点数(载具总产品载货量)";
+      // ★ 原载具总载货量拆为三类（D16），现改为按路径类型分组的字典
+      if (nodeOutputs(node)[idx] === "vehicleMaterialCargo") return "字典(路径类型→总原料载货量)";
+      if (nodeOutputs(node)[idx] === "vehiclePartCargo") return "字典(路径类型→总零件载货量)";
+      if (nodeOutputs(node)[idx] === "vehicleProductCargo") return "字典(路径类型→总产品载货量)";
       if (nodeOutputs(node)[idx] === "vehicleFuelPerKm") return "浮点数(总每公里油耗)";
       if (nodeOutputs(node)[idx] === "vehicleCarbon") return "浮点数(总碳排数)";
       if (nodeOutputs(node)[idx] === "warehouseStorage") return "字典(种类→总存储量)";

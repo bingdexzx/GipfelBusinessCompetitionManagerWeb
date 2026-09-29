@@ -1387,19 +1387,68 @@ def compute_vehicle_total_price(raw, competition_id):
 
 
 # ★ 原 max_cargo 拆分为三类载货量（D16），对应三个独立聚合端点
+# 现改为按路径类型分组的字典格式：{路径类型: 总载货量}
+def _compute_vehicle_cargo_by_path_type(raw, competition_id, cargo_field, label):
+    """按路径类型分组计算载具总载货量。
+
+    返回 {路径类型名称: 总载货量} 字典。
+    每种载具的载货量按其可行驶的路径类型分组累加。
+    """
+    if not raw or not isinstance(raw, dict):
+        return {}
+    _require_competition(competition_id, label)
+    from apps.vehicles.models import Vehicle, VehiclePathType
+
+    # 获取清单中的载具名称和数量
+    vehicle_names = [str(k) for k in raw.keys()]
+    vehicle_qty = {str(k): to_number(v) for k, v in raw.items()}
+
+    # 查询载具信息
+    vehicles = Vehicle.objects.filter(
+        competition_id=competition_id,
+        name__in=vehicle_names
+    ).values("id", "name", cargo_field)
+
+    vehicle_map = {v["name"]: v for v in vehicles}
+
+    # 查询载具的路径类型关联
+    vehicle_ids = [v["id"] for v in vehicles]
+    path_type_links = VehiclePathType.objects.filter(
+        vehicle_id__in=vehicle_ids
+    ).select_related("path_type").values("vehicle_id", "path_type__name")
+
+    # 构建 vehicle_id -> [路径类型名称] 的映射
+    vehicle_path_types: dict[int, list[str]] = {}
+    for link in path_type_links:
+        vid = link["vehicle_id"]
+        pt_name = link["path_type__name"] or "未知"
+        vehicle_path_types.setdefault(vid, []).append(pt_name)
+
+    # 按路径类型累加载货量
+    result: dict[str, float] = {}
+    for name, qty in vehicle_qty.items():
+        vehicle = vehicle_map.get(name)
+        if not vehicle:
+            continue
+        cargo_value = to_number(vehicle.get(cargo_field, 0))
+        total_cargo = cargo_value * qty
+        path_types = vehicle_path_types.get(vehicle["id"], ["未知"])
+        for pt in path_types:
+            result[pt] = result.get(pt, 0) + total_cargo
+
+    return result
+
+
 def compute_vehicle_total_material_cargo(raw, competition_id):
-    from apps.vehicles.models import Vehicle
-    return _compute_named_field_aggregate(raw, competition_id, Vehicle, "max_material_cargo", "载具清单总原料载货量")
+    return _compute_vehicle_cargo_by_path_type(raw, competition_id, "max_material_cargo", "载具清单总原料载货量")
 
 
 def compute_vehicle_total_part_cargo(raw, competition_id):
-    from apps.vehicles.models import Vehicle
-    return _compute_named_field_aggregate(raw, competition_id, Vehicle, "max_part_cargo", "载具清单总零件载货量")
+    return _compute_vehicle_cargo_by_path_type(raw, competition_id, "max_part_cargo", "载具清单总零件载货量")
 
 
 def compute_vehicle_total_product_cargo(raw, competition_id):
-    from apps.vehicles.models import Vehicle
-    return _compute_named_field_aggregate(raw, competition_id, Vehicle, "max_product_cargo", "载具清单总产品载货量")
+    return _compute_vehicle_cargo_by_path_type(raw, competition_id, "max_product_cargo", "载具清单总产品载货量")
 
 
 def compute_vehicle_total_fuel_per_km(raw, competition_id):
