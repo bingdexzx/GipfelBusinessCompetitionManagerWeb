@@ -1176,7 +1176,8 @@ function onGlobalKeydown(e: KeyboardEvent) {
 
 // ===== FORMULA 编辑增强 =====
 const formulaFunctions = [
-  { key: "round", label: "round()", desc: "四舍五入" },
+  { key: "round", label: "round()", desc: "四舍五入取整" },
+  { key: "roundTo", label: "roundTo()", desc: "保留n位小数，如 roundTo(1.235, 2) → 1.24" },
   { key: "max", label: "max()", desc: "最大值" },
   { key: "min", label: "min()", desc: "最小值" },
   { key: "abs", label: "abs()", desc: "绝对值" },

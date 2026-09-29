@@ -718,6 +718,7 @@ def _builtin_funcs() -> dict:
         "floor": lambda x: math.floor(_f_to_num(x)),
         "ceil": lambda x: math.ceil(_f_to_num(x)),
         "round": lambda x: round(_f_to_num(x)),
+        "roundTo": lambda x, n: round(_f_to_num(x), int(_f_to_num(n))),  # 保留n位小数
         "trunc": lambda x: math.trunc(_f_to_num(x)),
         "pow": lambda a, b: math.pow(_f_to_num(a), _f_to_num(b)),
         "exp": lambda x: math.exp(_f_to_num(x)),
