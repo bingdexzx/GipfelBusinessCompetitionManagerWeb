@@ -420,10 +420,17 @@ def recompute_calc_fields(company_id: int) -> None:
         try:
             raw = _eval_graph(f, values, field_by_key, company)
             if raw is None:
-                logger.warning(
-                    "[calc] 字段 #%s(%s) 计算图无输出/求值为空，跳过", f.id, f.field_key
-                )
-                continue
+                # NUMBER 类型字段计算结果为空时，静默转换为 0
+                if f.field_type == "NUMBER":
+                    raw = 0
+                    logger.info(
+                        "[calc] 字段 #%s(%s) 计算图无输出/求值为空，静默转换为 0", f.id, f.field_key
+                    )
+                else:
+                    logger.warning(
+                        "[calc] 字段 #%s(%s) 计算图无输出/求值为空，跳过", f.id, f.field_key
+                    )
+                    continue
             stored = _serialize(f.field_type, raw)
             if f.field_type == "NUMBER":
                 # 小数部分无有效内容时不补位 0（'1.0'→'1'，'1.50'→'1.5'）
@@ -431,6 +438,14 @@ def recompute_calc_fields(company_id: int) -> None:
             values[f.field_key] = stored
             _write_calc_value(company_id, f.id, stored)
         except Exception as e:  # noqa: BLE001 单字段失败不中断其余字段
-            logger.warning(
-                "[calc] 字段 #%s(%s) 重算失败：%s", f.id, f.field_key, getattr(e, "message", e)
-            )
+            # NUMBER 类型字段计算失败时，静默转换为 0
+            if f.field_type == "NUMBER":
+                values[f.field_key] = "0"
+                _write_calc_value(company_id, f.id, "0")
+                logger.info(
+                    "[calc] 字段 #%s(%s) 重算失败，静默转换为 0：%s", f.id, f.field_key, getattr(e, "message", e)
+                )
+            else:
+                logger.warning(
+                    "[calc] 字段 #%s(%s) 重算失败：%s", f.id, f.field_key, getattr(e, "message", e)
+                )
