@@ -721,7 +721,7 @@ def _builtin_funcs() -> dict:
         "trunc": lambda x: math.trunc(_f_to_num(x)),
         "pow": lambda a, b: math.pow(_f_to_num(a), _f_to_num(b)),
         "exp": lambda x: math.exp(_f_to_num(x)),
-        "log": lambda x: math.log(_f_to_num(x)),
+        "log": lambda x, base=None: math.log(_f_to_num(x)) if base is None else math.log(_f_to_num(x), _f_to_num(base)),
         "log2": lambda x: math.log2(_f_to_num(x)),
         "log10": lambda x: math.log10(_f_to_num(x)),
         "sin": lambda x: math.sin(_f_to_num(x)),
