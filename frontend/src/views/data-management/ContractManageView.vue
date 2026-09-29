@@ -359,13 +359,13 @@
             <div v-else-if="field.type === 'ratingList'" class="rating-editor">
               <div v-if="Object.keys(createForm.inputs[field.key] || {}).length" class="rating-list">
                 <div
-                  v-for="(_, productName) in createForm.inputs[field.key]"
-                  :key="field.key + '-' + productName"
+                  v-for="(_, productName) in (createForm.inputs[field.key] as Record<string, string>)"
+                  :key="field.key + '-' + String(productName)"
                   class="rating-row"
                 >
                   <span class="rating-product">{{ productName }}</span>
                   <el-input
-                    v-model="createForm.inputs[field.key][productName]"
+                    v-model="createForm.inputs[field.key][String(productName)]"
                     placeholder="输入评级内容"
                     style="flex: 1"
                   />
@@ -373,7 +373,7 @@
                     size="small"
                     type="danger"
                     plain
-                    @click="removeRating(field.key, productName)"
+                    @click="removeRating(field.key, String(productName))"
                     >×</el-button
                   >
                 </div>
