@@ -1,6 +1,16 @@
 <template>
   <div class="region-overview">
-    <h2 class="page-title">区域总览</h2>
+    <div class="page-header">
+      <h2 class="page-title">区域总览</h2>
+      <el-button
+        size="small"
+        :loading="loading"
+        @click="refreshAll"
+      >
+        <el-icon v-if="!loading"><Refresh /></el-icon>
+        刷新
+      </el-button>
+    </div>
 
     <div v-if="!compStore.competitionId" class="no-comp-warning">
       请先在「比赛管理」中选择一个比赛
@@ -171,7 +181,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { Edit, Close } from "@element-plus/icons-vue";
+import { Edit, Close, Refresh } from "@element-plus/icons-vue";
 import { useCompetitionStore } from "@/stores/competition";
 import { useAuthStore } from "@/stores/auth";
 import { regionsApi, industryTypesApi, consumerDemandsApi, productsApi } from "@/api/index";
@@ -463,6 +473,12 @@ function formatValue(card: any) {
   return String(v);
 }
 
+// 手动刷新所有数据
+async function refreshAll() {
+  await Promise.all([loadRegions(), loadDemands(), loadProducts()]);
+  ElMessage.success("数据已刷新");
+}
+
 onMounted(async () => {
   await Promise.all([loadRegions(), loadDemands(), loadProducts()]);
 });
@@ -491,11 +507,17 @@ useResourceChanged("consumer-demand", () => loadDemands());
 <style scoped>
 .region-overview {
 }
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
 .page-title {
   font-size: 20px;
   font-weight: 600;
   color: var(--color-text-primary, #1f1f1f);
-  margin: 0 0 16px;
+  margin: 0;
 }
 .no-comp-warning {
   text-align: center;
