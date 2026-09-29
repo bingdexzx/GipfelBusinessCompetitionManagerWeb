@@ -363,8 +363,13 @@ export function nodeOutputs(node: GNode): string[] {
   // 每种原料的 碳排放系数×数量、价格×数量 之和），供下游数值源/公式节点连线引用。
   if (node.type === "input" && node.data.type === "materialList")
     return ["out", "carbon", "price", "materialQty"];
-  // 节点列表输入源额外暴露「路程」「路径类型」「起始节点名」「终止节点名」端点。
-  if (node.type === "input" && node.data.type === "nodeRoute") return ["out", "distance", "pathTypes", "startNodeName", "endNodeName"];
+  // 节点列表输入源额外暴露「路程」「路径类型」「起始节点名」「终止节点名」「按类型路程」端点。
+  //  - distance：总路程（浮点数）
+  //  - pathTypes：路径类型名称列表（字符串数组）
+  //  - startNodeName：起始节点名（字符串）
+  //  - endNodeName：终止节点名（字符串）
+  //  - distanceByType：按路径类型分组的总路程字典 {路径类型: 总距离}
+  if (node.type === "input" && node.data.type === "nodeRoute") return ["out", "distance", "pathTypes", "startNodeName", "endNodeName", "distanceByType"];
   // 零件清单输入源额外暴露「所需原料」「所需的科技节点」「零件总件数」「所需原料总数量」端点。
   //  - materials：按比赛展开每个零件的配比 → 原料→数量 字典；
   //  - techNodes：按比赛查每个零件所需的科技节点(TechNode)名称，去重返回字符串数组。
@@ -470,6 +475,7 @@ export const PORT_LABEL_TO_HANDLE: Record<string, string> = {
   存在的路径类型: "pathTypes",
   起始节点名: "startNodeName",
   终止节点名: "endNodeName",
+  按类型路程: "distanceByType",
   所需原料: "materials",
   所需原料总数量: "partMaterialQty",
   需要的零件: "parts",
@@ -657,6 +663,8 @@ export const PORT_TYPE: Record<string, string> = {
     "起始节点名：节点列表第一个节点的名称（字符串），可接入下游文本/公式端口",
   endNodeName:
     "终止节点名：节点列表最后一个节点的名称（字符串），可接入下游文本/公式端口",
+  distanceByType:
+    "按路径类型分组的总路程：查询相邻节点间各路径类型的最短距离，按路径类型名称累加，输出 {路径类型: 总距离} 字典，可接入下游字典/公式端口",
   materials:
     "字典(原料→数量)：{原料名称: 总数量}，由清单中零件数量与配比展开得到，可直接接入字典/公式端口",
   parts:
@@ -883,6 +891,8 @@ export function portDataType(node: GNode, kind: "in" | "out", idx: number): stri
       // nodeRoute 输入节点有第四、五个输出端口：起始/终止节点名称
       if (nodeOutputs(node)[idx] === "startNodeName") return "字符串(起始节点名)";
       if (nodeOutputs(node)[idx] === "endNodeName") return "字符串(终止节点名)";
+      // nodeRoute 输入节点有第六个输出端口 distanceByType：按路径类型分组的总路程字典
+      if (nodeOutputs(node)[idx] === "distanceByType") return "字典(路径类型→总距离)";
       // partList 输入节点有第二个输出端口 materials：零件配比展开后的原料字典，字典(原料→数量)
       if (nodeOutputs(node)[idx] === "materials") return "字典(原料→数量)";
       // productList 输入节点有第二个输出端口 parts：产品配比展开后的零件字典，字典(零件→数量)
@@ -1206,6 +1216,8 @@ function buildInputSpec(graph: GGraph, edge?: GEdge): any {
   else if (h === "startNodeName") spec.aggregate = "ROUTE_START_NODE_NAME";
   // 节点列表输入源连自「终止节点名」端口时，标记为 ROUTE_END_NODE_NAME 聚合端点。
   else if (h === "endNodeName") spec.aggregate = "ROUTE_END_NODE_NAME";
+  // 节点列表输入源连自「按类型路程」端口时，标记为 ROUTE_DISTANCE_BY_TYPE 聚合端点。
+  else if (h === "distanceByType") spec.aggregate = "ROUTE_DISTANCE_BY_TYPE";
   // 零件清单输入源连自「所需原料」端口时，标记为 PART_MATERIALS 聚合端点。
   else if (h === "materials") spec.aggregate = "PART_MATERIALS";
   // 零件清单输入源连自「所需原料总数量」端口时，标记为 PART_MATERIAL_TOTAL_QTY 聚合端点。
@@ -1733,6 +1745,7 @@ export function flatToGraph(flat: Partial<FlatContract>): GGraph {
     ROUTE_PATH_TYPES: "pathTypes",
     ROUTE_START_NODE_NAME: "startNodeName",
     ROUTE_END_NODE_NAME: "endNodeName",
+    ROUTE_DISTANCE_BY_TYPE: "distanceByType",
     PART_MATERIALS: "materials",
     PART_MATERIAL_TOTAL_QTY: "partMaterialQty",
     PRODUCT_PARTS: "parts",

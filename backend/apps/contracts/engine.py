@@ -1569,6 +1569,40 @@ def compute_route_end_node_name(node_ids, competition_id):
     return node["name"] if node else ""
 
 
+def compute_route_distance_by_type(node_ids, competition_id, ctx_cache=None):
+    """按路径类型分组的总路程：沿相邻节点间的最短路径逐段收集经过边的路径类型，
+    并按路径类型累加距离，输出 {路径类型: 总距离} 字典。
+
+    与 compute_route_path_types 类似，但返回的是按路径类型分组的距离总和。
+    """
+    if not node_ids or len(node_ids) < 2:
+        return {}
+    _require_competition(competition_id, "按类型路程")
+    from apps.maps.models import MapEdge
+
+    adj: dict[int, list[tuple[int, float, str]]] = {}
+    for e in MapEdge.objects.filter(competition_id=competition_id).values(
+        "from_node_id", "to_node_id", "distance", "path_type__name"
+    ):
+        d = to_number(e["distance"])
+        name = e.get("path_type__name") or "未知"
+        adj.setdefault(e["from_node_id"], []).append((e["to_node_id"], d, name))
+        adj.setdefault(e["to_node_id"], []).append((e["from_node_id"], d, name))
+
+    result: dict[str, float] = {}
+    for i in range(len(node_ids) - 1):
+        _, path = _dijkstra_path(adj, node_ids[i], node_ids[i + 1])
+        if not path:
+            continue
+        for a, b in zip(path, path[1:]):
+            # 找到边的距离和路径类型
+            for t, d, name in adj.get(a, []):
+                if t == b:
+                    result[name] = result.get(name, 0) + d
+                    break
+    return result
+
+
 def models_q_from_to(node_ids):
     """构造 MapEdge 的 from_node_id__in / to_node_id__in OR 查询。"""
     from django.db.models import Q
@@ -1749,6 +1783,8 @@ def eval_value_spec(spec: Any, inputs: dict, scope: dict | None = None, ctx: Eva
             return compute_route_start_node_name(to_number_array(raw), ctx.competition_id if ctx else None)
         if aggregate == "ROUTE_END_NODE_NAME":
             return compute_route_end_node_name(to_number_array(raw), ctx.competition_id if ctx else None)
+        if aggregate == "ROUTE_DISTANCE_BY_TYPE":
+            return compute_route_distance_by_type(to_number_array(raw), ctx.competition_id if ctx else None, ctx.cache if ctx else None)
         if aggregate == "PART_MATERIALS":
             return compute_part_materials(raw, ctx.competition_id if ctx else None)
         if aggregate == "PART_MATERIAL_TOTAL_QTY":
