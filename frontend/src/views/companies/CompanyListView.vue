@@ -195,7 +195,7 @@ async function loadCompanies() {
   }
   dataLoading.value = true;
   try {
-    const c = await api.get("/companies", { params: { competitionId: compStore.competitionId } });
+    const c = await api.get("/companies", { params: { competitionId: compStore.competitionId }, cache: false });
     companies.value = filterByScope(Array.isArray(c) ? c : []);
   } catch (e) {
     console.error("Failed to load companies:", e);
