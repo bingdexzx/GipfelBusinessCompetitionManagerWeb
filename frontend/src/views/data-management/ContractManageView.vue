@@ -87,6 +87,13 @@
             @click="handleDelete(row)"
             >删除</el-button
           >
+          <el-button
+            v-if="authStore.isSuperAdmin"
+            size="small"
+            type="danger"
+            @click="handleDeleteWithoutRollback(row)"
+            >不回滚删除</el-button
+          >
         </template>
       </el-table-column>
     </el-table>
@@ -133,6 +140,13 @@
           type="danger"
           @click="handleDelete(row)"
           >删除</el-button
+        >
+        <el-button
+          v-if="authStore.isSuperAdmin"
+          size="small"
+          type="danger"
+          @click="handleDeleteWithoutRollback(row)"
+          >不回滚删除</el-button
         >
       </template>
     </MobileCards>
@@ -1673,6 +1687,34 @@ async function handleDelete(row: any) {
   try {
     await contractsApi.remove(row.id);
     ElMessage.success("已删除");
+    loadContracts();
+  } catch (e) {
+    console.error(e);
+  }
+}
+async function handleDeleteWithoutRollback(row: any) {
+  await ElMessageBox.confirm(
+    `确定删除合同「${row.name}」且不回滚已执行的效果吗？`,
+    "删除确认（不回滚）",
+    {
+      type: "warning",
+      confirmButtonText: "下一步",
+      cancelButtonText: "取消",
+    },
+  );
+  await ElMessageBox.confirm(
+    `⚠️ 此操作不可恢复！合同「${row.name}」将被永久删除，但已执行的效果不会回滚。确认继续？`,
+    "二次确认（不回滚删除）",
+    {
+      type: "error",
+      confirmButtonText: "确认删除（不回滚）",
+      cancelButtonText: "再想想",
+      distinguishCancelAndClose: true,
+    },
+  );
+  try {
+    await contractsApi.removeWithoutRollback(row.id);
+    ElMessage.success("已删除（不回滚）");
     loadContracts();
   } catch (e) {
     console.error(e);

@@ -256,6 +256,10 @@ export const contractsApi = {
   setStatus: (id: number, status: string) => api.patch(`/contracts/${id}/status`, { status }),
   remove: (id: number, competitionId?: number | null) =>
     api.delete(`/contracts/${id}`, competitionId != null ? { params: { competitionId } } : undefined),
+  removeWithoutRollback: (id: number, competitionId?: number | null) =>
+    api.delete(`/contracts/${id}`, {
+      params: { noRollback: "true", ...(competitionId != null ? { competitionId } : {}) },
+    }),
   impact: (id: number) => api.get(`/contracts/${id}/impact`, { cache: false }),
 };
 

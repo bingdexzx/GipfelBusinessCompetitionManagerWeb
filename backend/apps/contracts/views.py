@@ -266,25 +266,29 @@ class ContractItemAPIView(APIView):
             competition_id = None
         assert_same_competition(contract.competition_id, competition_id)
 
+        # 是否跳过回滚（noRollback=true 时不回滚已执行的效果）
+        no_rollback = request.query_params.get("noRollback", "").lower() == "true"
+
         # 复原判定基于「是否曾落账」（ContractFieldEffect 记录存在）
         effect_count = ContractFieldEffect.objects.filter(contract_id=contract.id).count()
         with transaction.atomic():
-            if effect_count > 0:
+            if effect_count > 0 and not no_rollback:
                 engine_dict = _contract_to_engine_dict(contract)
                 _engine.revert_contract(engine_dict)
             contract.delete()
 
-        # 复原基础字段后级联重算计算字段
-        parties = parse_json_array(contract.parties)
-        affected = [
-            p for p in parties
-            if isinstance(p, dict) and not p.get("isHost") and isinstance(p.get("companyId"), int)
-        ]
-        for p in affected:
-            _recompute_calc_fields_safe(p["companyId"])
-            emit_resource_changed(
-                "company-field", p["companyId"], contract.competition_id, "updated"
-            )
+        # 复原基础字段后级联重算计算字段（仅在回滚模式下）
+        if not no_rollback:
+            parties = parse_json_array(contract.parties)
+            affected = [
+                p for p in parties
+                if isinstance(p, dict) and not p.get("isHost") and isinstance(p.get("companyId"), int)
+            ]
+            for p in affected:
+                _recompute_calc_fields_safe(p["companyId"])
+                emit_resource_changed(
+                    "company-field", p["companyId"], contract.competition_id, "updated"
+                )
         return Response({"ok": True})
 
 
