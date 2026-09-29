@@ -356,6 +356,52 @@
                 </div>
               </div>
             </div>
+            <div v-else-if="field.type === 'ratingList'" class="rating-editor">
+              <div v-if="Object.keys(createForm.inputs[field.key] || {}).length" class="rating-list">
+                <div
+                  v-for="(_, productName) in createForm.inputs[field.key]"
+                  :key="field.key + '-' + productName"
+                  class="rating-row"
+                >
+                  <span class="rating-product">{{ productName }}</span>
+                  <el-input
+                    v-model="createForm.inputs[field.key][productName]"
+                    placeholder="输入评级内容"
+                    style="flex: 1"
+                  />
+                  <el-button
+                    size="small"
+                    type="danger"
+                    plain
+                    @click="removeRating(field.key, productName)"
+                    >×</el-button
+                  >
+                </div>
+              </div>
+              <div class="rating-add-row">
+                <el-select
+                  v-model="ratingAddProduct"
+                  filterable
+                  placeholder="选择产品"
+                  style="flex: 1"
+                  append-to-body
+                  @focus="loadEntityOptions('PRODUCT')"
+                >
+                  <el-option
+                    v-for="opt in availableRatingProducts(field.key)"
+                    :key="opt.id"
+                    :label="opt.name"
+                    :value="opt.name"
+                  />
+                </el-select>
+                <el-button
+                  size="small"
+                  type="primary"
+                  :disabled="!ratingAddProduct"
+                  @click="addRating(field.key)"
+                >+ 添加</el-button>
+              </div>
+            </div>
             <div v-else-if="field.type === 'mapNode'" class="dashed-box">
               <el-select
                 v-model="createForm.inputs[field.key]"
@@ -682,6 +728,9 @@ const createForm = reactive({
   parties: {} as Record<string, number>,
   inputs: {} as Record<string, any>,
 });
+
+// 评级列表：临时存储待添加的产品名称
+const ratingAddProduct = ref<string>("");
 
 const selectedType = computed(
   () => contractTypes.value.find((t: any) => t.id === createForm.contractTypeId) || null,
@@ -1254,6 +1303,11 @@ function formatInputValue(row: any) {
     const entries = Object.entries(obj).map(([k, v]) => `${k}×${v}`);
     return entries.length ? entries.join("，") : "—";
   }
+  if (row.type === "ratingList") {
+    const obj = row.value && typeof row.value === "object" ? row.value : {};
+    const entries = Object.entries(obj).map(([k, v]) => `${k}: ${v}`);
+    return entries.length ? entries.join("，") : "—";
+  }
   if (row.type === "ENTITY") {
     const opt = entityOptions(row.entityType).find((o: any) => o.id === row.value);
     return opt ? `${opt.name} (id=${row.value})` : `实体id=${row.value}`;
@@ -1352,6 +1406,10 @@ function onTypeChange() {
       loadEntityOptions(f.entityType || entityTypeForFieldType(f.type));
       createForm.inputs[f.key] = {};
     }
+    else if (f.type === "ratingList") {
+      loadEntityOptions("PRODUCT");
+      createForm.inputs[f.key] = {};
+    }
   });
 }
 
@@ -1377,6 +1435,23 @@ function renameDictKey(key: string, oldK: string, newK: string) {
   const val = obj[oldK];
   delete obj[oldK];
   obj[newK] = val;
+}
+
+// ===== 评级列表（ratingList）：选择产品 + 填写评级内容 → {"产品名": "评级内容"} 字典 =====
+function addRating(key: string) {
+  const product = ratingAddProduct.value;
+  if (!product) return;
+  const obj = (createForm.inputs[key] as Record<string, any>) || (createForm.inputs[key] = {});
+  obj[product] = "";
+  ratingAddProduct.value = "";
+}
+function removeRating(key: string, productName: string) {
+  delete (createForm.inputs[key] as any)[productName];
+}
+// 可选产品列表：排除已选择的产品
+function availableRatingProducts(key: string): any[] {
+  const selected = new Set(Object.keys(createForm.inputs[key] || {}));
+  return entityOptions("PRODUCT").filter((o: any) => !selected.has(o.name));
 }
 
 // ===== 原料清单（materialList）：多选原料 + 各自数量 → {"原料名": 数量} 字典 =====
@@ -1746,6 +1821,38 @@ useResourceChanged("contracts", () => {
   flex-direction: column;
   gap: 8px;
   width: 100%;
+}
+.rating-editor {
+  border: 1px dashed #dcdfe6;
+  border-radius: 6px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+.rating-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rating-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rating-product {
+  min-width: 120px;
+  font-size: 13px;
+  color: #303133;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rating-add-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .dashed-box {
   border: 1px dashed #dcdfe6;

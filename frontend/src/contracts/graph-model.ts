@@ -423,6 +423,9 @@ export function nodeOutputs(node: GNode): string[] {
   //  - productionLineCapacity：按比赛查每条生产线的 maxPerYear × 数量 之和。
   if (node.type === "input" && node.data.type === "productionLineList")
     return ["out", "productionLinePrice", "productionLineLabor", "productionLineCapacity"];
+  // 评级清单输入源：输出字典 {产品名: 评级内容}，无需额外聚合端点。
+  if (node.type === "input" && node.data.type === "ratingList")
+    return ["out"];
   return NODE_PORTS[node.type]?.outputs || [];
 }
 
@@ -717,6 +720,8 @@ export function inputOutType(type: string): string {
       return "字典(仓库→数量)";
     case "productionLineList":
       return "字典(生产线→数量)";
+    case "ratingList":
+      return "字典(产品→评级)";
     case "techNode":
       return "科技节点名(单值)";
     default:
