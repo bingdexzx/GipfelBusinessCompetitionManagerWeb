@@ -79,7 +79,13 @@ def _resolve_allowed_hosts() -> list:
     注意：urlparse(...).netloc 含端口（host:port），但 Django 的 get_host() 用
     split_domain_port 拆出 domain 再 validate_host，仅校验 domain 与 ALLOWED_HOSTS，
     端口被忽略——故这里剥掉端口，仅放 host。
+
+    特殊情况：设置 DJANGO_ALLOW_ALL_HOSTS=true 可允许所有 Host 头（适用于无法预知
+    所有可能 Host 头的场景，如 ISP 分配的反向 DNS 名称）。
     """
+    # 如果设置了 DJANGO_ALLOW_ALL_HOSTS=true，返回通配符
+    if os.environ.get("DJANGO_ALLOW_ALL_HOSTS", "").lower() == "true":
+        return ["*"]
     hosts = ["127.0.0.1", "localhost", "::1"]
     extra = os.environ.get("DJANGO_ALLOWED_HOSTS", "").strip()
     if extra:

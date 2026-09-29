@@ -75,35 +75,41 @@ SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = (_SECURE_COOKIES == "true")
 # deploy 脚本对纯 IP 部署总是把公网 IP 幂等写入 DJANGO_ALLOWED_HOSTS；当
 # LOG_VIEWER_PUBLIC_URL 探测/写入失败（如受限网络）导致该项缺失时，
 # 日志查看器仍能凭 DJANGO_ALLOWED_HOSTS 放行公网 Host 头，避免 400。
-_ALLOWED_HOSTS = ["127.0.0.1", "localhost", "::1"]
-if _LV_URL:
-    from urllib.parse import urlparse as _urlparse
+#
+# 特殊情况：设置 DJANGO_ALLOW_ALL_HOSTS=true 可允许所有 Host 头（适用于无法预知
+# 所有可能 Host 头的场景，如 ISP 分配的反向 DNS 名称）。
+if os.environ.get("DJANGO_ALLOW_ALL_HOSTS", "").lower() == "true":
+    ALLOWED_HOSTS = ["*"]
+else:
+    _ALLOWED_HOSTS = ["127.0.0.1", "localhost", "::1"]
+    if _LV_URL:
+        from urllib.parse import urlparse as _urlparse
 
-    _p = _urlparse(_LV_URL)
-    if _p.hostname:  # hostname 不含端口；netloc 含端口，validate_host 不识别
-        if _p.hostname not in _ALLOWED_HOSTS:
-            _ALLOWED_HOSTS.append(_p.hostname)
-_DJANGO_EXTRA = os.environ.get("DJANGO_ALLOWED_HOSTS", "").strip()
-if _DJANGO_EXTRA:
-    for _h in (_s.strip() for _s in _DJANGO_EXTRA.split(",") if _s.strip()):
-        # DJANGO_ALLOWED_HOSTS 可能含 host:port 或 [IPv6]:port 形式（如 deploy 早期版本会带端口），
-        # 这里剥端口/IPv6 方括号，避免「无效条目」（Django validate_host 不识别带端口的 host）。
-        if _h.startswith("["):
-            _host = _h[1:].split("]", 1)[0]
-        else:
-            _host = _h.split(":", 1)[0]
-        if _host and _host not in _ALLOWED_HOSTS:
-            _ALLOWED_HOSTS.append(_host)
-_EXTRA_HOSTS = os.environ.get("LOGVIEWER_ALLOWED_HOSTS", "").strip()
-if _EXTRA_HOSTS:
-    for _h in (_s.strip() for _s in _EXTRA_HOSTS.split(",") if _s.strip()):
-        if _h.startswith("["):
-            _host = _h[1:].split("]", 1)[0]
-        else:
-            _host = _h.split(":", 1)[0]
-        if _host and _host not in _ALLOWED_HOSTS:
-            _ALLOWED_HOSTS.append(_host)
-ALLOWED_HOSTS = _ALLOWED_HOSTS
+        _p = _urlparse(_LV_URL)
+        if _p.hostname:  # hostname 不含端口；netloc 含端口，validate_host 不识别
+            if _p.hostname not in _ALLOWED_HOSTS:
+                _ALLOWED_HOSTS.append(_p.hostname)
+    _DJANGO_EXTRA = os.environ.get("DJANGO_ALLOWED_HOSTS", "").strip()
+    if _DJANGO_EXTRA:
+        for _h in (_s.strip() for _s in _DJANGO_EXTRA.split(",") if _s.strip()):
+            # DJANGO_ALLOWED_HOSTS 可能含 host:port 或 [IPv6]:port 形式（如 deploy 早期版本会带端口），
+            # 这里剥端口/IPv6 方括号，避免「无效条目」（Django validate_host 不识别带端口的 host）。
+            if _h.startswith("["):
+                _host = _h[1:].split("]", 1)[0]
+            else:
+                _host = _h.split(":", 1)[0]
+            if _host and _host not in _ALLOWED_HOSTS:
+                _ALLOWED_HOSTS.append(_host)
+    _EXTRA_HOSTS = os.environ.get("LOGVIEWER_ALLOWED_HOSTS", "").strip()
+    if _EXTRA_HOSTS:
+        for _h in (_s.strip() for _s in _EXTRA_HOSTS.split(",") if _s.strip()):
+            if _h.startswith("["):
+                _host = _h[1:].split("]", 1)[0]
+            else:
+                _host = _h.split(":", 1)[0]
+            if _host and _host not in _ALLOWED_HOSTS:
+                _ALLOWED_HOSTS.append(_host)
+    ALLOWED_HOSTS = _ALLOWED_HOSTS
 
 # 端口：由 .env 的 LOG_VIEWER_PORT 决定（默认 8120）；Windows 开发由 scripts/start-dev.bat 拉起
 LOG_VIEWER_PORT = int(os.environ.get("LOG_VIEWER_PORT", "8120"))
