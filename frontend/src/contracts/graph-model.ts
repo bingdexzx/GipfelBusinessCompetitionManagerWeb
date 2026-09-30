@@ -931,6 +931,8 @@ export function portDataType(node: GNode, kind: "in" | "out", idx: number): stri
   // 便于类型连线校验放行字典源（CONST 字典 / 字典运算节点 / 清单聚合字典等）。
   if (node.type === "condition" && node.data.condKind === "DICT_COMPARE") return "字典";
   if (node.type === "condition" && node.data.condKind === "LIST_COMPARE") return "列表";
+  // 比较节点的等于/不等于（CMP_EQ / CMP_NE）使用 deep_equal，支持任意类型
+  if (node.type === "compare" && (node.data.op === "CMP_EQ" || node.data.op === "CMP_NE")) return "任意";
   const h = nodeInputHandles(node)[idx];
   return PORT_TYPE[h] || "任意值";
 }
