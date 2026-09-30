@@ -94,7 +94,7 @@ def compute_pb_data(item: Stock | None, dto: dict) -> dict:
 # ==================== 股票 ====================
 class StockSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)
-    code = serializers.CharField(max_length=64, trim_whitespace=True, read_only=True)
+    code = serializers.CharField(max_length=64, trim_whitespace=True)
     name = serializers.CharField(max_length=255, trim_whitespace=True)
     # 总股本 / 初始净利润 / 价格：精确到 4 位（与 model 对齐）。
     # 用 DecimalField 是因为：浮点会累计误差，玩家账户不平就源于此。
