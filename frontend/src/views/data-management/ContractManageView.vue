@@ -1663,18 +1663,37 @@ async function executeContract(row: any) {
 
 // 执行/创建失败时弹出错误窗口，展示后端返回的具体错误信息
 function showExecuteError(e: any) {
-  console.error("合同操作失败:", e);
+  console.error("合同操作失败完整错误:", JSON.stringify(e, null, 2));
+  console.error("合同操作失败 response:", e?.response);
+  console.error("合同操作失败 response.data:", e?.response?.data);
+  
   // 尝试从不同格式的错误响应中提取消息
   let msg = "操作失败";
-  if (e?.response?.data?.message) {
-    msg = e.response.data.message;
-  } else if (e?.response?.data?.detail) {
-    msg = e.response.data.detail;
-  } else if (e?.response?.data && typeof e.response.data === 'string') {
-    msg = e.response.data;
+  const data = e?.response?.data;
+  
+  if (data) {
+    if (typeof data === 'string') {
+      msg = data;
+    } else if (data.message) {
+      msg = data.message;
+    } else if (data.detail) {
+      msg = data.detail;
+    } else if (data.error) {
+      msg = data.error;
+    } else if (data.non_field_errors) {
+      msg = Array.isArray(data.non_field_errors) ? data.non_field_errors.join('\n') : String(data.non_field_errors);
+    } else {
+      // 尝试将整个 data 对象转为字符串
+      try {
+        msg = JSON.stringify(data);
+      } catch {
+        msg = String(data);
+      }
+    }
   } else if (e?.message) {
     msg = String(e.message);
   }
+  
   // 将换行符转换为 HTML 换行，并转义 HTML 特殊字符
   const htmlMsg = msg
     .replace(/&/g, "&amp;")
