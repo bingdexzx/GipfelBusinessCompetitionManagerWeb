@@ -1018,6 +1018,14 @@ EXPR_HELPERS = {
 
 # ==================== apply_op（列表/字典/通用运算） ====================
 
+def _list_set_equal(a: list, b: list) -> bool:
+    """列表集合相等判断：元素个数相同且每个元素都能在对方列表中找到匹配（不考虑顺序）。"""
+    if len(a) != len(b):
+        return False
+    # 双向包含检查：a 的每个元素都在 b 中找到匹配，且 b 的每个元素都在 a 中找到匹配
+    return (all(any(deep_equal(x, y) for y in b) for x in a)
+            and all(any(deep_equal(y, x) for x in a) for y in b))
+
 def apply_op(op: str, args: list, scope: dict | None = None) -> Any:
     a = args
     as_list = lambda x: x if isinstance(x, list) else ([] if x is None else [x])  # noqa: E731
@@ -1225,8 +1233,13 @@ def apply_op(op: str, args: list, scope: dict | None = None) -> Any:
 
     # —— 比较 ——
     if op == "CMP_EQ":
+        # 列表比较：集合相等（不考虑顺序），与 LIST_COMPARE 的 EQ 语义一致
+        if isinstance(a[0], list) and isinstance(a[1], list):
+            return _list_set_equal(a[0], a[1])
         return deep_equal(a[0], a[1])
     if op == "CMP_NE":
+        if isinstance(a[0], list) and isinstance(a[1], list):
+            return not _list_set_equal(a[0], a[1])
         return not deep_equal(a[0], a[1])
     if op == "CMP_GT":
         return num(a[0]) > num(a[1])
@@ -2376,7 +2389,7 @@ class ContractEngine:
                     def set_has(bigger, smaller):
                         return all(any(deep_equal(y, x) for y in bigger) for x in smaller)
 
-                    set_equal = set_has(a1, a2) and set_has(a2, a1)
+                    set_equal = _list_set_equal(a1, a2)
                     if op == "ELEMENT_EQ":
                         passed = len(a1) == len(a2) and all(deep_equal(x, a2[i]) for i, x in enumerate(a1))
                         detail = (f"列表元素相等（长度 {len(a1)}，逐项一致）" if passed else f"列表元素不相等（长度 值1={len(a1)} / 值2={len(a2)}，或存在位置不一致的元素）")
