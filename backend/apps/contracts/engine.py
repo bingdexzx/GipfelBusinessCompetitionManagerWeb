@@ -1701,11 +1701,21 @@ def compute_route_distance_by_type(node_ids, competition_id, ctx_cache=None):
     from apps.maps.models import MapEdge
 
     adj: dict[int, list[tuple[int, float, str]]] = {}
-    for e in MapEdge.objects.filter(competition_id=competition_id).values(
-        "from_node_id", "to_node_id", "distance", "path_type__name"
-    ):
+    edges_qs = MapEdge.objects.filter(competition_id=competition_id).values(
+        "from_node_id", "to_node_id", "distance", "path_type__name", "path_type_id"
+    )
+    # 调试日志：记录查询到的边数据
+    edges_list = list(edges_qs)
+    logger.info("[compute_route_distance_by_type] 查询到 %d 条边", len(edges_list))
+    for e in edges_list[:3]:  # 只记录前3条
+        logger.info("[compute_route_distance_by_type] 边数据: %s", e)
+    for e in edges_list:
         d = to_number(e["distance"])
-        name = e.get("path_type__name") or "未知"
+        name = e.get("path_type__name")
+        # 如果路径类型名称为空，记录详细警告
+        if not name:
+            logger.warning("[compute_route_distance_by_type] 地图边 from=%s to=%s path_type_id=%s 的路径类型名称为空", e["from_node_id"], e["to_node_id"], e.get("path_type_id"))
+            name = "未知"
         adj.setdefault(e["from_node_id"], []).append((e["to_node_id"], d, name))
         adj.setdefault(e["to_node_id"], []).append((e["from_node_id"], d, name))
 
