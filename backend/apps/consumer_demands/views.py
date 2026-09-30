@@ -114,6 +114,12 @@ def _recompute_dependent_fields(competition_id: int, regions: list[str]) -> None
             field_key="location"
         ).values_list("id", "industry_type_id")
 
+        # 扩展节点名称列表，包含带引号和不带引号的版本
+        expanded_node_names = set(node_names_in_regions)
+        for name in node_names_in_regions:
+            expanded_node_names.add(f'"{name}"')
+            expanded_node_names.add(f"'{name}'")
+
         for field_id, industry_type_id in location_fields:
             # 找到使用这些产业类型的公司
             company_ids_for_type = list(
@@ -126,7 +132,7 @@ def _recompute_dependent_fields(competition_id: int, regions: list[str]) -> None
             cfvs = CompanyFieldValue.objects.filter(
                 company_id__in=company_ids_for_type,
                 industry_field_id=field_id,
-                value__in=node_names_in_regions
+                value__in=expanded_node_names
             ).values_list("company_id", flat=True)
             company_ids.update(cfvs)
 
