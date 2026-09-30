@@ -398,6 +398,7 @@ export function nodeOutputs(node: GNode): string[] {
       "infraIncome",
       "infraCarbon",
       "infraActivationPrice",
+      "infraTotalQty",
     ];
   // 科技树节点输入源：单选一个科技节点，额外暴露「前置节点」「研发费用」端点。
   if (node.type === "input" && node.data.type === "techNode")
@@ -490,6 +491,7 @@ export const PORT_LABEL_TO_HANDLE: Record<string, string> = {
   基建总人均收益加成: "infraIncome",
   基建总减碳排放加成: "infraCarbon",
   基建启用总费用: "infraActivationPrice",
+  基建总数量: "infraTotalQty",
   基建列表: "infraList",
   载具列表: "vehList",
   前置节点: "prerequisites",
@@ -586,6 +588,8 @@ export const PORT_DESC: Record<string, string> = {
     "基建总减碳排放加成：按比赛查询每种基建的「carbonReductionBonus(减碳排放加成) × 输入数量」之和，作为单个浮点数输出，可接入下游数值端口",
   infraActivationPrice:
     "基建启用总费用：按比赛查询每种基建的「activationPrice(激活价格) × 输入数量」之和，作为单个浮点数输出，可接入下游数值端口（效果/检查计算）",
+  infraTotalQty:
+    "基建总数量：直接把清单字典中各基建的数量相加，输出单个浮点数，可接入下游的数值端口（效果/检查计算），无需查表",
   prerequisites:
     "前置节点：按比赛查询该科技树节点的全部前置依赖节点（经 TechPrerequisite.prerequisite 关联），输出前置节点名称的字符串数组，可接入下游的列表/字典端口",
   researchCost:
@@ -689,6 +693,8 @@ export const PORT_TYPE: Record<string, string> = {
     "减碳排放加成：按比赛查询每种基建的 carbonReductionBonus，将「carbonReductionBonus × 输入数量」求和，浮点数输出",
   infraActivationPrice:
     "价格：按比赛查询每种基建的激活价格，将「激活价格 × 输入数量」求和，作为单个浮点数输出，可接入下游数值端口",
+  infraTotalQty:
+    "总数：把清单字典中各基建的数量直接相加，作为单个浮点数输出，可接入下游数值端口",
   prerequisites:
     "列表(科技节点名)：字符串数组，由该科技树节点的全部前置依赖节点名称组成，可直接接入列表/字典端口",
   researchCost:
@@ -909,6 +915,7 @@ export function portDataType(node: GNode, kind: "in" | "out", idx: number): stri
       if (nodeOutputs(node)[idx] === "infraIncome") return "浮点数(基建总人均收益加成)";
       if (nodeOutputs(node)[idx] === "infraCarbon") return "浮点数(基建总减碳排放加成)";
       if (nodeOutputs(node)[idx] === "infraActivationPrice") return "浮点数(基建启用总费用)";
+      if (nodeOutputs(node)[idx] === "infraTotalQty") return "浮点数(基建总数量)";
       // techNode 输入节点有第二、第三输出端口：前置节点列表 / 研发费用
       if (nodeOutputs(node)[idx] === "prerequisites") return "列表(科技节点名)";
       if (nodeOutputs(node)[idx] === "researchCost") return "浮点数(研发费用)";
@@ -1276,6 +1283,8 @@ function buildInputSpec(graph: GGraph, edge?: GEdge): any {
       infraCarbon: "INFRA_CARBON",
       // 「基建启用总费用」端口：activationPrice × 数量 之和。
       infraActivationPrice: "INFRA_ACTIVATION_PRICE",
+      // 「基建总数量」端口：清单字典各基建数量之和（无需查库）。
+      infraTotalQty: "INFRA_TOTAL_QTY",
     };
     if (m[h]) spec.aggregate = m[h];
   }

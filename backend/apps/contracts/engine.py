@@ -1938,7 +1938,7 @@ def eval_value_spec(spec: Any, inputs: dict, scope: dict | None = None, ctx: Eva
             if spec.get("party") and ctx:
                 loc_node = resolve_party_location_node_id(spec["party"], ctx)
             return compute_material_list_price(raw, ctx.competition_id if ctx else None, loc_node)
-        if aggregate in ("MATERIAL_TOTAL_QTY", "PART_TOTAL_QTY", "PRODUCT_TOTAL_QTY", "FUEL_TOTAL_QTY"):
+        if aggregate in ("MATERIAL_TOTAL_QTY", "PART_TOTAL_QTY", "PRODUCT_TOTAL_QTY", "FUEL_TOTAL_QTY", "INFRA_TOTAL_QTY"):
             return compute_total_qty(raw)
         if aggregate == "VEHICLE_TOTAL_PRICE":
             return compute_vehicle_total_price(raw, ctx.competition_id if ctx else None)
