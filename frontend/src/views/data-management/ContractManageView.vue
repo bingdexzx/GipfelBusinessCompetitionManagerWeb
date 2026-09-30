@@ -785,22 +785,48 @@ const industryFieldKeyMap = computed<Map<number, Set<string>>>(() => {
 });
 
 // 从合同类型的效果树递归收集叶子「产业字段」效果引用的 (party, fieldKey)。
-// 效果树结构：{kind:"FIELD",party,fieldKey,...} / IF{then,else} / FOREACH{body} / ASSIGN（无子效果）。
+// 效果树结构：{kind:"FIELD",party,fieldKey,...} / IF{cond,then,else} / FOREACH{body} / ASSIGN（无子效果）。
+// ctx 可选：提供时会评估 IF 条件，只收集当前条件下会执行的分支中的字段引用。
 function collectEffectFieldRefs(
   effects: any[],
   out: { party: string; fieldKey: string }[] = [],
+  ctx?: FormConditionCtx,
 ): { party: string; fieldKey: string }[] {
   for (const e of effects || []) {
     if (!e || typeof e !== "object") continue;
     if (e.kind === "FIELD") out.push({ party: e.party || "", fieldKey: e.fieldKey || "" });
     else if (e.kind === "IF") {
-      collectEffectFieldRefs(e.then, out);
-      collectEffectFieldRefs(e.else, out);
-    } else if (e.kind === "FOREACH") collectEffectFieldRefs(e.body, out);
+      // 评估 IF 条件：有上下文时按条件短路收集，否则收集全部分支（兼容编辑器预览）
+      if (ctx && e.cond) {
+        const condResult = evalFormCondition(e.cond, ctx);
+        if (condResult === true) {
+          // 条件为真 → 只收集 then 分支
+          collectEffectFieldRefs(e.then, out, ctx);
+        } else if (condResult === false) {
+          // 条件为假 → 只收集 else 分支
+          collectEffectFieldRefs(e.else, out, ctx);
+        } else {
+          // 无法判定 → 收集全部分支（fail-open）
+          collectEffectFieldRefs(e.then, out, ctx);
+          collectEffectFieldRefs(e.else, out, ctx);
+        }
+      } else {
+        // 无上下文 → 收集全部分支
+        collectEffectFieldRefs(e.then, out, ctx);
+        collectEffectFieldRefs(e.else, out, ctx);
+      }
+    } else if (e.kind === "FOREACH") collectEffectFieldRefs(e.body, out, ctx);
   }
   return out;
 }
-const effectFieldRefs = computed(() => collectEffectFieldRefs(parseJson(selectedType.value?.effects, [])));
+const effectFieldRefs = computed(() => {
+  // 构建表单上下文用于评估 IF 条件
+  const ctx: FormConditionCtx = {
+    inputs: createForm.inputs,
+    industryTypeOf: getPartyIndustry,
+  };
+  return collectEffectFieldRefs(parseJson(selectedType.value?.effects, []), [], ctx);
+});
 
 // 字段显示名（取首个含该 fieldKey 的产业字段中文名，汇总去重场景下同名 key 语义一致）。
 function fieldNameOf(fieldKey: string): string {
