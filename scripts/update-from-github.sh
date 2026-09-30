@@ -433,6 +433,21 @@ if [[ -f "$INSTALL_DIR/backend/.env" ]]; then
     fi
 
     # ---- 域名形态：脚本统一决定日志查看器公网地址（自动，无需人工改 .env）----
+    # ---- 同时设置 CORS、CSRF 和 SECURE_COOKIES 环境变量 ----
+    if [[ -n "$DOMAIN" ]]; then
+        # 取消注释并设置 CORS 白名单（兼容已注释 #CORS_ORIGIN=... 与未注释两种写法）
+        sed -i -E "s|^#?[[:space:]]*CORS_ORIGIN=.*|CORS_ORIGIN=https://${DOMAIN},http://${DOMAIN}|" "$INSTALL_DIR/backend/.env"
+        grep -q '^CORS_ORIGIN=' "$INSTALL_DIR/backend/.env" || \
+            echo "CORS_ORIGIN=https://${DOMAIN},http://${DOMAIN}" >> "$INSTALL_DIR/backend/.env"
+        # CSRF Origin 白名单：/admin 登录表单等带 Origin 的 POST 必须命中，否则 403
+        sed -i -E "s|^#?[[:space:]]*DJANGO_CSRF_TRUSTED_ORIGINS=.*|DJANGO_CSRF_TRUSTED_ORIGINS=https://${DOMAIN},http://${DOMAIN}|" "$INSTALL_DIR/backend/.env"
+        grep -q '^DJANGO_CSRF_TRUSTED_ORIGINS=' "$INSTALL_DIR/backend/.env" || \
+            echo "DJANGO_CSRF_TRUSTED_ORIGINS=https://${DOMAIN},http://${DOMAIN}" >> "$INSTALL_DIR/backend/.env"
+        # HTTPS cookie 安全设置：有域名部署时自动启用 Secure 标记
+        sed -i -E "s|^#?[[:space:]]*SECURE_COOKIES=.*|SECURE_COOKIES=true|" "$INSTALL_DIR/backend/.env"
+        grep -q '^SECURE_COOKIES=' "$INSTALL_DIR/backend/.env" || \
+            echo "SECURE_COOKIES=true" >> "$INSTALL_DIR/backend/.env"
+    fi
     #   · 有 --logviewer-tls-port（--origin-cert 时默认 8443）→ https://<域名>:<端口>/
     #   · 否则（log.<域名> 子域形态）                        → https://log.<域名>/
     #

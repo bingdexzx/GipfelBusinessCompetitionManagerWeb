@@ -478,7 +478,14 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 # ==================== Session/Cookie ====================
 SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = True
-# SESSION_COOKIE_SECURE / CSRF_COOKIE_SECURE 暂不在此无条件开启：
-# 纯 HTTP 部署下标记 Secure 会导致 cookie 无法回传、admin 登录失败。
-# 如需开启，请参照日志查看器按「外网地址是否为 https」条件设置
-# （LOGVIEWER_SECURE_COOKIES 的同类做法），而不是硬编码 True。
+
+# HTTPS cookie 安全设置：根据请求来源或环境变量自动判断是否启用 Secure 标记
+# 逻辑与日志查看器（backend/logviewer/logviewer/settings.py）保持一致：
+# - 优先读取环境变量 SECURE_COOKIES（支持 "true"/"false"）
+# - 未设置时，根据当前请求是否来自 HTTPS 自动判断
+# - 纯 HTTP 部署下标记 Secure 会导致 cookie 无法回传、admin 登录失败
+_SECURE_COOKIES = os.environ.get("SECURE_COOKIES", "").strip().lower()
+if not _SECURE_COOKIES:
+    # 默认不强制开启：部署脚本会根据域名/证书情况设置环境变量
+    _SECURE_COOKIES = "false"
+SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = (_SECURE_COOKIES == "true")

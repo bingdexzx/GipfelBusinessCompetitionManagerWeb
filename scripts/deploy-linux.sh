@@ -296,6 +296,10 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
         sed -i -E "s|^#?[[:space:]]*DJANGO_CSRF_TRUSTED_ORIGINS=.*|DJANGO_CSRF_TRUSTED_ORIGINS=https://${DOMAIN},http://${DOMAIN}|" "$INSTALL_DIR/backend/.env"
         grep -q '^DJANGO_CSRF_TRUSTED_ORIGINS=' "$INSTALL_DIR/backend/.env" || \
             echo "DJANGO_CSRF_TRUSTED_ORIGINS=https://${DOMAIN},http://${DOMAIN}" >> "$INSTALL_DIR/backend/.env"
+        # HTTPS cookie 安全设置：有域名部署时自动启用 Secure 标记
+        sed -i -E "s|^#?[[:space:]]*SECURE_COOKIES=.*|SECURE_COOKIES=true|" "$INSTALL_DIR/backend/.env"
+        grep -q '^SECURE_COOKIES=' "$INSTALL_DIR/backend/.env" || \
+            echo "SECURE_COOKIES=true" >> "$INSTALL_DIR/backend/.env"
     else
         # 无域名（纯 IP）部署：日志查看器走 nginx 公网 LOG_VIEWER_PORT 端口（默认 8120，
         # 见 _log_viewer_port），显式下发【公网】地址，避免前端 /api/version 把 Host
