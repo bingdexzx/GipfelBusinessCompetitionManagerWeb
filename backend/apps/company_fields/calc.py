@@ -296,6 +296,8 @@ def _eval_graph(
                     sandbox: dict = {}
                     for key, f in field_by_key.items():
                         sandbox[key] = _field_raw_with_default(f, values, key)
+                    # 添加消费者需求总数作为特殊变量（按所在地）
+                    sandbox["consumerDemand"] = _consumer_demand_total(company, values.get(LOCATION_FIELD_KEY))
                     sandbox.update(EXPR_HELPERS)
                     sandbox.update(scope)
                     try:

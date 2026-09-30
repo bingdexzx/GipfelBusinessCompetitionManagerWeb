@@ -269,6 +269,7 @@
                 <div class="ge-formula-hints">
                   <div class="ge-formula-hint-title">可用变量（字段键）：
                     <code v-for="k in getFormulaFieldKeys()" :key="k" class="ge-formula-key">{{ k }}</code>
+                    <code class="ge-formula-key ge-formula-key--special" title="区域消费者需求总数（按公司所在地）">consumerDemand</code>
                     <span v-if="!getFormulaFieldKeys().length" class="ge-tip-inline">暂无字段</span>
                   </div>
                   <div class="ge-formula-hint-title">函数：
@@ -720,7 +721,7 @@ function showFormulaAutocomplete(ta: HTMLTextAreaElement, _nodeData: any) {
   const wordMatch = before.match(/[a-zA-Z_]\w*$/);
   const word = wordMatch ? wordMatch[0] : "";
   const fieldKeys = getFormulaFieldKeys();
-  const allItems = [...fieldKeys, ...formulaFunctions.map((f) => f.key)];
+  const allItems = [...fieldKeys, "consumerDemand", ...formulaFunctions.map((f) => f.key)];
   const filtered = word
     ? allItems.filter((item) => item.toLowerCase().startsWith(word.toLowerCase()))
     : allItems;
@@ -1535,6 +1536,11 @@ onUnmounted(() => {
   margin: 0 2px;
   font-size: 10px;
   font-family: monospace;
+}
+.ge-formula-key--special {
+  background: #fef9e7;
+  color: #e6a23c;
+  border-color: #faecd8;
 }
 .ge-formula-fn {
   display: inline-block;
