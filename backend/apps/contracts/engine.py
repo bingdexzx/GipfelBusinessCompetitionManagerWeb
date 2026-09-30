@@ -2084,6 +2084,9 @@ class ContractEngine:
                     v2 = resolve_value(eff.get("value2"), sc)
                     new_value = combine_values(new_value, v2, eff.get("valueOp") or "ADD", field["field_type"])
                 current = self._read_current_field_value(party["companyId"], field["id"])
+                # 字段从未被写入时，使用字段定义的初始值（default_value），而非从零开始
+                if current is None:
+                    current = field.get("default_value")
                 config = parse_field_config(field.get("config"))
                 applied = apply_field_effect(current, field["field_type"], config, eff["op"], new_value)
                 self._write_field_value(
