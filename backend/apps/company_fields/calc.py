@@ -196,15 +196,30 @@ def _order_calc_fields(calc_fields: list) -> list:
 def _consumer_demand_total(company: dict, stored_location: str | None) -> object:
     """消费者需求总数（按所在地）：公司所在区域的需求量合计。
 
+    stored_location 存储的是地图节点名称，需要先查找该节点所属的区域，
+    然后按区域聚合消费者需求。
+
     返回 DB 聚合原值（int/Decimal，任意精度），不做 float 化——大数量级下
     float 会丢精度（10^23 量级 ULP≈10^7）。"""
     from django.db.models import Sum
 
     from apps.consumer_demands.models import ConsumerDemand
+    from apps.maps.models import MapNode
 
-    region = str(stored_location or "").strip()
-    if not region:
+    location_name = str(stored_location or "").strip()
+    if not location_name:
         return 0
+
+    # 根据地图节点名称查找对应的区域
+    node = MapNode.objects.filter(
+        competition_id=company["competition_id"],
+        name=location_name
+    ).values("region").first()
+
+    if not node or not node.get("region"):
+        return 0
+
+    region = node["region"]
     agg = ConsumerDemand.objects.filter(
         competition_id=company["competition_id"], region=region
     ).aggregate(s=Sum("quantity"))
