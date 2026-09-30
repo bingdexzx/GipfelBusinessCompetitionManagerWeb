@@ -1338,7 +1338,7 @@ function getTrialEffectDisplay(effect: any): string {
 }
 
 const listOps = Object.keys(OP_ARG_SPECS).filter(
-  (k) => !k.startsWith("DICT_") && !ARITH_OPS.includes(k),
+  (k) => k.startsWith("LIST_"),
 );
 const dictOps = Object.keys(OP_ARG_SPECS).filter((k) => k.startsWith("DICT_"));
 // 当前所选运算节点的可选 op 列表（list-op / dict-op / calc 共用同一面板）。
