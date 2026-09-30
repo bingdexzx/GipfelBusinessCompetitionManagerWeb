@@ -479,6 +479,10 @@ def apply_field_effect(
                 after = n_before - n_val
             else:  # ADD
                 after = n_before + n_val
+    # NUMBER 类型：确保 after 为纯数值（int/float），避免 Decimal 被序列化为带引号的字符串
+    if not is_list and not is_dict and (field_type or "").upper() == "NUMBER":
+        if isinstance(after, Decimal):
+            after = float(after) if after != after.to_integral_value() else int(after)
     return {"store": dumps_engine_json(after), "before": before, "after": after}
 
 
