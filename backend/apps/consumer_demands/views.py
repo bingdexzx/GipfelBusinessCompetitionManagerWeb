@@ -59,9 +59,13 @@ def _recompute_dependent_fields(competition_id: int, regions: list[str]) -> None
     """消费诉求变更后，触发受其影响公司的 calcGraph 重算。
 
     calcGraph 中 CONSUMER_DEMAND 节点按公司「所在地」字段值聚合消费诉求量
-    （见 apps.company_fields.calc._consumer_demand_total）。因此，本函数只需
-    找出 competition 内、所在地等于诉求 region 字符串的所有公司，逐一调
+    （见 apps.company_fields.calc._consumer_demand_total）。因此，本函数需要
+    找出 competition 内、所在地字段值对应的区域等于诉求 region 的所有公司，逐一调
     recompute_calc_fields 即可——未引用消费诉求的 calcGraph 在求值时自然短路。
+
+    查找逻辑：
+    1. 先通过 Region 表找到区域 ID，再找 region_id 匹配的公司
+    2. 再找所在地产业字段值对应的区域在 regions 列表中的公司
 
     调用方负责：删除/修改 region 时同时把旧 region 传入，保证旧区域下的
     公司也能重算（避免陈旧值）。
@@ -69,26 +73,63 @@ def _recompute_dependent_fields(competition_id: int, regions: list[str]) -> None
     重算失败仅记日志，不阻断主流程——主请求已完成，消费诉求本身的数据
     写入是源头事实。
     """
-    from apps.companies.models import Company
+    from apps.companies.models import Company, CompanyFieldValue
     from apps.company_fields.calc import recompute_calc_fields
+    from apps.industry_types.models import IndustryField
+    from apps.maps.models import MapNode
     from apps.regions.models import Region
 
     regions_clean = [r for r in (regions or []) if r]
     if not regions_clean:
         return
+
+    company_ids = set()
+
+    # 方式1：通过公司的 region_id 字段查找
     region_ids = list(
         Region.objects.filter(competition_id=competition_id, name__in=regions_clean)
         .values_list("id", flat=True)
     )
-    if not region_ids:
-        return
-    company_ids = list(
-        Company.objects.filter(
+    if region_ids:
+        company_ids.update(
+            Company.objects.filter(
+                competition_id=competition_id,
+                region_id__in=region_ids,
+                industry_type_id__isnull=False,
+            ).values_list("id", flat=True)
+        )
+
+    # 方式2：通过公司的"所在地"产业字段值查找
+    # 先找出所有地图节点名称对应的区域
+    node_names_in_regions = list(
+        MapNode.objects.filter(
             competition_id=competition_id,
-            region_id__in=region_ids,
-            industry_type_id__isnull=False,
-        ).values_list("id", flat=True)
+            region__in=regions_clean
+        ).values_list("name", flat=True)
     )
+
+    if node_names_in_regions:
+        # 找到所有产业类型中的"location"字段
+        location_fields = IndustryField.objects.filter(
+            field_key="location"
+        ).values_list("id", "industry_type_id")
+
+        for field_id, industry_type_id in location_fields:
+            # 找到使用这些产业类型的公司
+            company_ids_for_type = list(
+                Company.objects.filter(
+                    competition_id=competition_id,
+                    industry_type_id=industry_type_id,
+                ).values_list("id", flat=True)
+            )
+            # 检查这些公司的所在地字段值是否在目标区域的节点名称中
+            cfvs = CompanyFieldValue.objects.filter(
+                company_id__in=company_ids_for_type,
+                industry_field_id=field_id,
+                value__in=node_names_in_regions
+            ).values_list("company_id", flat=True)
+            company_ids.update(cfvs)
+
     for cid in company_ids:
         try:
             recompute_calc_fields(cid)
