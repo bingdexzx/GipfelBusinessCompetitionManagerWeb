@@ -44,6 +44,10 @@ EngineNum = (int, Decimal)
 #: 超过 JS Number 安全整数（2^53）的阈值——出站 JSON 序列化时需转字符串
 JS_MAX_SAFE_INT = 2 ** 53
 
+#: 数值相等比较的容差（Decimal）：解决浮点精度导致 "0.1*3 ≠ 0.3" 这类假失败。
+#: 1e-9 覆盖常规业务场景的小数位精度（合同金额/数量通常不超过6位小数）。
+_NUMERIC_EQUALITY_EPSILON = Decimal("1e-9")
+
 
 def is_finite_num(v: Any) -> bool:
     """引擎数值的有限性检查（兼容 int / Decimal，替代 math.isfinite）。"""
@@ -247,6 +251,8 @@ def deep_equal(a: Any, b: Any) -> bool:
     if isinstance(a, bool) or isinstance(b, bool):
         return a is b
     # 数值比较：int / float / Decimal 相互比较（Python 原生支持 int<->float<->Decimal）
+    # 注意：为避免浮点精度问题导致 "0.1*3 ≠ 0.3" 这类假失败，
+    # 对非整数数值使用容差比较（1e-9）。
     a_num = isinstance(a, (int, float, Decimal)) and not isinstance(a, bool)
     b_num = isinstance(b, (int, float, Decimal)) and not isinstance(b, bool)
     if a_num and b_num:
@@ -254,7 +260,29 @@ def deep_equal(a: Any, b: Any) -> bool:
             return False
         if isinstance(b, Decimal) and not b.is_finite():
             return False
-        return a == b
+        # 整数用严格相等（无限精度，无舍入）
+        if isinstance(a, int) and isinstance(b, int):
+            return a == b
+        # 非整数数值（float/Decimal）用容差比较，避免浮点精度问题
+        try:
+            da = a if isinstance(a, Decimal) else Decimal(str(a))
+            db = b if isinstance(b, Decimal) else Decimal(str(b))
+            return abs(da - db) < _NUMERIC_EQUALITY_EPSILON
+        except (decimal.InvalidOperation, ValueError, TypeError):
+            return a == b
+    # 字符串与数值比较：尝试将字符串转为数字后再比较（解决 "200" == 200 的问题）
+    if isinstance(a, str) and b_num:
+        try:
+            da = Decimal(a.strip())
+            return deep_equal(da, b)
+        except (decimal.InvalidOperation, ValueError, TypeError):
+            return False
+    if isinstance(b, str) and a_num:
+        try:
+            db = Decimal(b.strip())
+            return deep_equal(a, db)
+        except (decimal.InvalidOperation, ValueError, TypeError):
+            return False
     if isinstance(a, str) and isinstance(b, str):
         return a == b
     if isinstance(a, list) and isinstance(b, list):
@@ -288,6 +316,11 @@ def compare_op(actual: Any, op: str, expected: Any) -> bool:
     if op == "LT":
         return actual < expected
     if op == "EQ":
+        # 数值相等用容差比较，避免浮点精度问题
+        if isinstance(actual, (int, Decimal)) and isinstance(expected, (int, Decimal)):
+            if isinstance(actual, int) and isinstance(expected, int):
+                return actual == expected
+            return abs(actual - expected) < _NUMERIC_EQUALITY_EPSILON
         return actual == expected
     if op == "LTE":
         return actual <= expected
