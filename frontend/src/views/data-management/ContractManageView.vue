@@ -1099,16 +1099,16 @@ function routeFullyLinked(arr: number[]) {
 }
 function addableMapNodes(key: string) {
   const sel: number[] = (createForm.inputs[key] as any[]) || [];
-  const notSel = mapNodes.value.filter((m: any) => !sel.includes(m.id));
-  // 第 1 个节点任选；之后只能选与当前末节点有连线的节点
-  if (!sel.length || !mapEdges.value.length) return notSel;
+  // 第 1 个节点任选；之后只能选与当前末节点有连线的节点（允许重复选择）
+  if (!sel.length || !mapEdges.value.length) return mapNodes.value;
   const last = sel[sel.length - 1];
-  return notSel.filter((m: any) => mapNodesLinked(last, m.id));
+  return mapNodes.value.filter((m: any) => mapNodesLinked(last, m.id));
 }
 function addRouteNode(key: string, id: number | null) {
   if (id == null) return;
   const arr: number[] = [...((createForm.inputs[key] as any[]) || [])];
-  if (!arr.includes(id)) arr.push(id);
+  // 允许重复选择节点
+  arr.push(id);
   createForm.inputs[key] = arr;
   routeAddVal.value = null;
 }
