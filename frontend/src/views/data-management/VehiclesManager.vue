@@ -86,14 +86,14 @@
           getFuelName(detailData.fuelId)
         }}</el-descriptions-item>
         <el-descriptions-item label="可通过路径类型">
-          <template v-if="detailData.pathTypeIds?.length">
+          <template v-if="(detailData as any).vehiclePathTypes?.length">
             <el-tag
-              v-for="ptId in detailData.pathTypeIds"
-              :key="ptId"
+              v-for="vpt in (detailData as any).vehiclePathTypes"
+              :key="vpt.pathTypeId ?? vpt.pathType?.id"
               size="small"
               style="margin: 2px"
             >
-              {{ getPathTypeNameById(ptId) }}
+              {{ vpt.pathType?.name || getPathTypeNameById(vpt.pathTypeId) }}
             </el-tag>
           </template>
           <span v-else style="color: #c0c4cc">-</span>
@@ -405,7 +405,9 @@ function openEdit(row: VehicleItem) {
   form.maxProductCargo = (row as any).maxProductCargo ?? 0;
   form.price = (row as any).price ?? 0;
   form.carbonEmission = (row as any).carbonEmission ?? 0;
-  form.pathTypeIds = row.pathTypeIds ?? [];
+  form.pathTypeIds = (row as any).vehiclePathTypes
+    ? (row as any).vehiclePathTypes.map((v: any) => v.pathTypeId ?? v.pathType?.id).filter(Boolean)
+    : (row.pathTypeIds ?? []);
   dialogVisible.value = true;
 }
 
@@ -444,7 +446,7 @@ async function handleSubmit() {
       maxProductCargo: form.maxProductCargo,
       price: form.price,
       carbonEmission: form.carbonEmission,
-      pathTypeIds: form.pathTypeIds,
+      vehiclePathTypes: (form.pathTypeIds || []).map((id: number) => ({ pathTypeId: id })),
     };
     try {
       if (isEdit.value && editingId.value) {
