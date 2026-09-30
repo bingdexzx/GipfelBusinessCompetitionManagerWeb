@@ -245,7 +245,7 @@ export const contractTypesApi = {
 
 export const contractsApi = {
   list: (params?: { competitionId?: number; status?: string; page?: number; pageSize?: number }) =>
-    api.get("/contracts", { params: params || {} }),
+    api.get("/contracts", { params: params || {}, cache: false }),
   get: (id: number) => api.get(`/contracts/${id}`),
   create: (data: CreateContractInput) => api.post("/contracts", data),
   execute: (id: number, data?: Record<string, unknown>) => api.post(`/contracts/${id}/execute`, data || {}),
@@ -266,7 +266,7 @@ export const contractsApi = {
 export const companiesApi = {
   // 列出公司（可按比赛 / 区域过滤）。权限编辑器中用于选择「合同审核范围」；区域管理用于按区域枚举公司。
   list: (params?: { competitionId?: number; regionId?: number }) =>
-    api.get("/companies", { params: params || {} }),
+    api.get("/companies", { params: params || {}, cache: false }),
   get: (id: number) => api.get(`/companies/${id}`),
   update: (id: number, data: UpdateCompanyInput) => api.patch(`/companies/${id}`, data),
   remove: (id: number, competitionId?: number | null) =>

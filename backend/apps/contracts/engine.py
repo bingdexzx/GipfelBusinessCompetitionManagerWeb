@@ -1097,7 +1097,21 @@ def apply_op(op: str, args: list, scope: dict | None = None) -> Any:
     # —— 字典 ——
     if op == "DICT_GET":
         d = as_dict(a[0]); k = a[1]
-        return d[k] if k in d else a[2]
+        if k in d:
+            return d[k]
+        # 类型容错：键以字符串形式传入但字典键为数字（或反之），尝试互相转换后查找
+        if isinstance(k, str):
+            try:
+                kn = to_number(k)
+                if kn != k and kn in d:
+                    return d[kn]
+            except (ValueError, TypeError, decimal.InvalidOperation):
+                pass
+        elif isinstance(k, (int, Decimal)):
+            ks = str(k)
+            if ks in d:
+                return d[ks]
+        return a[2]
     if op == "DICT_KEYS":
         return list(as_dict(a[0]).keys())
     if op == "DICT_VALUES":
@@ -1105,7 +1119,21 @@ def apply_op(op: str, args: list, scope: dict | None = None) -> Any:
     if op == "DICT_ENTRIES":
         return [[k, v] for k, v in as_dict(a[0]).items()]
     if op == "DICT_HAS_KEY":
-        return a[1] in as_dict(a[0])
+        d = as_dict(a[0]); k = a[1]
+        if k in d:
+            return True
+        # 类型容错：同 DICT_GET
+        if isinstance(k, str):
+            try:
+                kn = to_number(k)
+                if kn != k and kn in d:
+                    return True
+            except (ValueError, TypeError, decimal.InvalidOperation):
+                pass
+        elif isinstance(k, (int, Decimal)):
+            if str(k) in d:
+                return True
+        return False
     if op == "DICT_MERGE":
         out = {}
         for x in a:
