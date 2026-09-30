@@ -59,8 +59,16 @@
             <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
           </template>
         </MobileCards>
-        <div class="pager" v-if="systemTotal > pageSize">
+        <div class="pager" v-if="systemTotal > 0">
+          <div class="pager-size">
+            <span>每页显示</span>
+            <el-select v-model="pageSize" style="width: 70px" @change="handlePageSizeChange">
+              <el-option v-for="s in pageSizeOptions" :key="s" :label="s" :value="s" />
+            </el-select>
+            <span>条</span>
+          </div>
           <el-pagination
+            v-if="systemTotal > pageSize"
             v-model:current-page="systemPage"
             :page-size="pageSize"
             :total="systemTotal"
@@ -123,8 +131,16 @@
               <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
             </template>
           </MobileCards>
-          <div class="pager" v-if="competitionTotal > pageSize">
+          <div class="pager" v-if="competitionTotal > 0">
+            <div class="pager-size">
+              <span>每页显示</span>
+              <el-select v-model="pageSize" style="width: 70px" @change="handlePageSizeChange">
+                <el-option v-for="s in pageSizeOptions" :key="s" :label="s" :value="s" />
+              </el-select>
+              <span>条</span>
+            </div>
             <el-pagination
+              v-if="competitionTotal > pageSize"
               v-model:current-page="competitionPage"
               :page-size="pageSize"
               :total="competitionTotal"
@@ -245,7 +261,8 @@ const competitionUsers = ref<UserItem[]>([]);
 const loadingUsers = ref(false);
 
 // 分页状态
-const pageSize = 20;
+const pageSizeOptions = [10, 20, 50, 100];
+const pageSize = ref(20);
 const systemPage = ref(1);
 const systemTotal = ref(0);
 const competitionPage = ref(1);
@@ -391,7 +408,7 @@ function permSummary(row: UserItem) {
 
 async function loadSystemUsers() {
   try {
-    const res = await usersApi.list({ competitionId: "null", page: systemPage.value, pageSize });
+    const res = await usersApi.list({ competitionId: "null", page: systemPage.value, pageSize: pageSize.value });
     // 后端返回 { items, total } 分页对象，但 cachedApi 已把列表响应降维为裸数组，
     // 故 res 可能是数组；统一兼容两种形态。
     const paged = !Array.isArray(res) && res?.items;
@@ -409,7 +426,7 @@ async function loadCompetitionUsers() {
     return;
   }
   try {
-    const res = await usersApi.list({ competitionId: competitionId.value, page: competitionPage.value, pageSize });
+    const res = await usersApi.list({ competitionId: competitionId.value, page: competitionPage.value, pageSize: pageSize.value });
     const paged = !Array.isArray(res) && res?.items;
     competitionUsers.value = paged ? res.items : Array.isArray(res) ? res : [];
     competitionTotal.value = paged ? (res.total ?? competitionUsers.value.length) : competitionUsers.value.length;
@@ -429,6 +446,17 @@ async function loadAll() {
 
 /** 切换 tab 时重置分页 */
 function handleTabChange() {
+  if (activeTab.value === "system") {
+    systemPage.value = 1;
+    loadSystemUsers();
+  } else {
+    competitionPage.value = 1;
+    loadCompetitionUsers();
+  }
+}
+
+/** 切换每页显示条数 */
+function handlePageSizeChange() {
   if (activeTab.value === "system") {
     systemPage.value = 1;
     loadSystemUsers();
@@ -616,8 +644,17 @@ useResourceChanged("users", () => {
 /* 分页器 */
 .pager {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   margin-top: 16px;
   flex-wrap: wrap;
+  gap: 12px;
+}
+.pager-size {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #606266;
 }
 </style>
