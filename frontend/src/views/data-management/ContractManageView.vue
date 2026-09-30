@@ -151,6 +151,25 @@
       </template>
     </MobileCards>
 
+    <div class="pager" v-if="totalContracts > 0">
+      <div class="pager-size">
+        <span>每页显示</span>
+        <el-select v-model="pageSize" style="width: 70px" @change="handlePageSizeChange">
+          <el-option v-for="s in pageSizeOptions" :key="s" :label="s" :value="s" />
+        </el-select>
+        <span>条</span>
+      </div>
+      <el-pagination
+        v-if="totalContracts > pageSize"
+        v-model:current-page="currentPage"
+        :page-size="pageSize"
+        :total="totalContracts"
+        layout="prev, pager, next, total"
+        :pager-count="isPhone ? 5 : 9"
+        @current-change="handlePageChange"
+      />
+    </div>
+
     <!-- 新建合同 -->
     <el-dialog append-to-body v-model="showCreate" title="新建合同" width="640px">
       <el-form label-position="top">
@@ -747,6 +766,12 @@ const loading = ref(false);
 const searchText = ref("");
 const submitting = ref(false);
 
+// 分页状态
+const pageSizeOptions = [10, 20, 50, 100];
+const pageSize = ref(20);
+const currentPage = ref(1);
+const totalContracts = ref(0);
+
 const showCreate = ref(false);
 const showDetail = ref(false);
 const detailRow = ref<any>(null);
@@ -1268,13 +1293,8 @@ function contractNumbersText(row: any) {
 }
 
 const filteredContracts = computed(() => {
-  if (!searchText.value) return contracts.value;
-  const q = searchText.value.toLowerCase();
-  return contracts.value.filter(
-    (c: any) =>
-      contractNumbersText(c).toLowerCase().includes(q) ||
-      c.contractType?.name?.toLowerCase().includes(q),
-  );
+  // 搜索过滤在当前页内进行，服务端已返回当前页数据
+  return contracts.value;
 });
 
 // 当前用户是否可操作合同（新建/执行/审核任一），用于空态引导展示
@@ -1282,7 +1302,7 @@ const canOperateContracts = computed(
   () => authStore.can("contract:manage") || authStore.canAny(["contract:execute", "contract:audit"]),
 );
 // 列表中是否存在草稿（决定「暂无草稿可执行」引导是否出现）
-const hasDraft = computed(() => filteredContracts.value.some((c: any) => c.status === "DRAFT"));
+const hasDraft = computed(() => contracts.value.some((c: any) => c.status === "DRAFT"));
 
 // 当前账号对某合同是否具备执行资格（与后端 _assert_execute_scope 对齐）。
 // 超管恒可；其余账号须持有 execute/audit/manage 任一合同权限，且合同的
@@ -1399,17 +1419,38 @@ function formatInputValue(row: any) {
 async function loadContracts() {
   if (!compStore.competitionId) {
     contracts.value = [];
+    totalContracts.value = 0;
     return;
   }
   loading.value = true;
   try {
-    const res = await contractsApi.list({ competitionId: compStore.competitionId });
-    contracts.value = Array.isArray(res) ? res : res.items || [];
+    const params: Record<string, unknown> = {
+      competitionId: compStore.competitionId,
+      page: currentPage.value,
+      pageSize: pageSize.value
+    };
+    // 搜索关键词传给后端（如有）
+    if (searchText.value) params.search = searchText.value;
+    const res = await contractsApi.list(params as any);
+    const paged = !Array.isArray(res) && res?.items;
+    contracts.value = paged ? res.items : Array.isArray(res) ? res : [];
+    totalContracts.value = paged ? (res.total ?? contracts.value.length) : contracts.value.length;
   } catch (e) {
     console.error(e);
   } finally {
     loading.value = false;
   }
+}
+
+/** 切换分页 */
+function handlePageChange() {
+  loadContracts();
+}
+
+/** 切换每页显示条数 */
+function handlePageSizeChange() {
+  currentPage.value = 1;
+  loadContracts();
 }
 async function loadTypes() {
   try {
@@ -1867,6 +1908,7 @@ useCompetitionReload(
     if (authStore.can("contractType:view")) loadTypes();
     if (authStore.can("company:view")) loadCompanies();
     if (authStore.can("industryType:view")) loadIndustryTypes();
+    currentPage.value = 1;
     loadContracts();
   },
   () => {
@@ -1874,10 +1916,17 @@ useCompetitionReload(
     contractTypes.value = [];
     companies.value = [];
     industryTypes.value = [];
+    totalContracts.value = 0;
   },
 );
 
 useResourceChanged("contracts", () => {
+  loadContracts();
+});
+
+// 搜索时重置到第一页
+watch(searchText, () => {
+  currentPage.value = 1;
   loadContracts();
 });
 </script>
@@ -2103,6 +2152,23 @@ useResourceChanged("contracts", () => {
   white-space: pre-wrap;
   word-break: break-all;
 }
+/* 分页器 */
+.pager {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.pager-size {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #606266;
+}
+
 /* 弹窗内嵌套表格：手机端改为卡片（标签:值竖向排列） */
 .dlg-cards {
   display: flex;
