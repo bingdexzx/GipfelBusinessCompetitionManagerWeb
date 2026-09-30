@@ -13,7 +13,7 @@
       </div>
     </div>
 
-    <el-tabs v-model="activeTab">
+    <el-tabs v-model="activeTab" @tab-change="handleTabChange">
       <!-- 系统账号：不归属任何比赛（全局账号） -->
       <el-tab-pane label="账号（系统）" name="system">
         <el-table v-if="!isPhone" v-loading="loadingUsers" :data="systemUsers" border stripe style="width: 100%; margin-top: 16px">
@@ -39,27 +39,37 @@
               <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
             </template>
           </el-table-column>
-          </el-table>
-          <MobileCards
-            v-else
-            v-loading="loadingUsers"
-            :data="systemUsers"
-            :columns="accountColumns"
-            :row-key="(row: any) => row.id"
-          >
-            <template #role="{ row }">
-              <el-tag :type="roleTag(row.role)">{{ roleLabel(row.role) }}</el-tag>
-            </template>
-            <template #perm="{ row }">
-              <el-tag :type="permSummary(row).type" size="small">{{ permSummary(row).text }}</el-tag>
-            </template>
-            <template #actions="{ row }">
-              <el-button size="small" @click="handleEdit(row, 'system')">编辑</el-button>
-              <el-button size="small" @click="handleResetPassword(row)">重置密码</el-button>
-              <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
-            </template>
-          </MobileCards>
-        </el-tab-pane>
+        </el-table>
+        <MobileCards
+          v-else
+          v-loading="loadingUsers"
+          :data="systemUsers"
+          :columns="accountColumns"
+          :row-key="(row: any) => row.id"
+        >
+          <template #role="{ row }">
+            <el-tag :type="roleTag(row.role)">{{ roleLabel(row.role) }}</el-tag>
+          </template>
+          <template #perm="{ row }">
+            <el-tag :type="permSummary(row).type" size="small">{{ permSummary(row).text }}</el-tag>
+          </template>
+          <template #actions="{ row }">
+            <el-button size="small" @click="handleEdit(row, 'system')">编辑</el-button>
+            <el-button size="small" @click="handleResetPassword(row)">重置密码</el-button>
+            <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+          </template>
+        </MobileCards>
+        <div class="pager" v-if="systemTotal > pageSize">
+          <el-pagination
+            v-model:current-page="systemPage"
+            :page-size="pageSize"
+            :total="systemTotal"
+            layout="prev, pager, next, total"
+            :pager-count="isPhone ? 5 : 9"
+            @current-change="loadSystemUsers"
+          />
+        </div>
+      </el-tab-pane>
 
       <!-- 比赛用账号：归属于当前选中的比赛，比赛删除时联级删除 -->
       <el-tab-pane label="账号（比赛用）" name="competition">
@@ -113,6 +123,16 @@
               <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
             </template>
           </MobileCards>
+          <div class="pager" v-if="competitionTotal > pageSize">
+            <el-pagination
+              v-model:current-page="competitionPage"
+              :page-size="pageSize"
+              :total="competitionTotal"
+              layout="prev, pager, next, total"
+              :pager-count="isPhone ? 5 : 9"
+              @current-change="loadCompetitionUsers"
+            />
+          </div>
         </template>
       </el-tab-pane>
     </el-tabs>
@@ -224,6 +244,13 @@ const systemUsers = ref<UserItem[]>([]);
 const competitionUsers = ref<UserItem[]>([]);
 const loadingUsers = ref(false);
 
+// 分页状态
+const pageSize = 20;
+const systemPage = ref(1);
+const systemTotal = ref(0);
+const competitionPage = ref(1);
+const competitionTotal = ref(0);
+
 const dialogVisible = ref(false);
 const isEdit = ref(false);
 const editingId = ref<number | null>(null);
@@ -323,7 +350,7 @@ async function loadCompanies() {
   }
 }
 
-// 公司选择框的标签/提示随身份变化（管理员=“管理的公司”，选手=“可查看/操作的公司”）
+// 公司选择框的标签/提示随身份变化（管理员="管理的公司"，选手="可查看/操作的公司"）
 const companyScopeLabel = computed(() =>
   form.role === "COMPETITION_ADMIN" ? "管理的公司" : "可查看/操作的公司",
 );
@@ -364,10 +391,12 @@ function permSummary(row: UserItem) {
 
 async function loadSystemUsers() {
   try {
-    const res = await usersApi.list({ competitionId: "null" });
+    const res = await usersApi.list({ competitionId: "null", page: systemPage.value, pageSize });
     // 后端返回 { items, total } 分页对象，但 cachedApi 已把列表响应降维为裸数组，
     // 故 res 可能是数组；统一兼容两种形态。
-    systemUsers.value = Array.isArray(res) ? res : res?.items ?? [];
+    const paged = !Array.isArray(res) && res?.items;
+    systemUsers.value = paged ? res.items : Array.isArray(res) ? res : [];
+    systemTotal.value = paged ? (res.total ?? systemUsers.value.length) : systemUsers.value.length;
   } catch (e) {
     console.error("加载系统账号失败:", e);
   }
@@ -376,11 +405,14 @@ async function loadSystemUsers() {
 async function loadCompetitionUsers() {
   if (!competitionId.value) {
     competitionUsers.value = [];
+    competitionTotal.value = 0;
     return;
   }
   try {
-    const res = await usersApi.list({ competitionId: competitionId.value });
-    competitionUsers.value = Array.isArray(res) ? res : res?.items ?? [];
+    const res = await usersApi.list({ competitionId: competitionId.value, page: competitionPage.value, pageSize });
+    const paged = !Array.isArray(res) && res?.items;
+    competitionUsers.value = paged ? res.items : Array.isArray(res) ? res : [];
+    competitionTotal.value = paged ? (res.total ?? competitionUsers.value.length) : competitionUsers.value.length;
   } catch (e) {
     console.error("加载比赛账号失败:", e);
   }
@@ -392,6 +424,17 @@ async function loadAll() {
     await Promise.all([loadSystemUsers(), loadCompetitionUsers()]);
   } finally {
     loadingUsers.value = false;
+  }
+}
+
+/** 切换 tab 时重置分页 */
+function handleTabChange() {
+  if (activeTab.value === "system") {
+    systemPage.value = 1;
+    loadSystemUsers();
+  } else {
+    competitionPage.value = 1;
+    loadCompetitionUsers();
   }
 }
 
@@ -498,8 +541,9 @@ function resetForm() {
   formRef.value?.resetFields();
 }
 
-// 切换比赛时刷新“比赛用账号”列表
+// 切换比赛时重置分页并刷新"比赛用账号"列表
 watch(competitionId, () => {
+  competitionPage.value = 1;
   loadCompetitionUsers();
 });
 
@@ -568,5 +612,12 @@ useResourceChanged("users", () => {
 :deep(.perm-col .cell) {
   padding-left: 22px;
   padding-right: 22px;
+}
+/* 分页器 */
+.pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+  flex-wrap: wrap;
 }
 </style>
