@@ -567,6 +567,11 @@
                       :title="`${f.name} (${f.fieldType})${f.isCalculated ? ' [计算字段]' : ''}`"
                       @click="insertFormulaField(f.fieldKey)"
                     >{{ f.fieldKey }}<span v-if="f.isCalculated" class="fs-formula-field-calc-badge">fx</span></code>
+                    <code
+                      class="fs-formula-field-key fs-formula-field-key--special"
+                      title="区域消费者需求总数（按公司所在地）"
+                      @click="insertFormulaField('consumerDemand')"
+                    >consumerDemand</code>
                     <span v-if="formulaFields.length === 0" style="color:#c0c4cc;font-size:12px">暂无可用字段</span>
                   </div>
                   <div class="fs-formula-fields">
@@ -1668,6 +1673,16 @@ useResourceChanged("industry-fields", () => {
   border-color: #faecd8;
 }
 .fs-formula-field-key--calculated:hover {
+  background: #fdf6ec;
+  border-color: #e6a23c;
+}
+.fs-formula-field-key--special {
+  background: #fef9e7;
+  color: #e6a23c;
+  border-color: #faecd8;
+  cursor: pointer;
+}
+.fs-formula-field-key--special:hover {
   background: #fdf6ec;
   border-color: #e6a23c;
 }
