@@ -2350,7 +2350,19 @@ class ContractEngine:
 
             if not passed and em:
                 detail = em
-            results.append({"kind": c["kind"], "party": c.get("party", ""), "label": label, "passed": passed, "actual": actual, "expected": expected, "detail": detail, "customError": bool(em and detail == em)})
+            # 构建检查表达式信息
+            expression = _build_check_expression(c, kind, actual, expected)
+            results.append({
+                "kind": c["kind"],
+                "party": c.get("party", ""),
+                "label": label,
+                "passed": passed,
+                "actual": actual,
+                "expected": expected,
+                "detail": detail,
+                "expression": expression,
+                "customError": bool(em and detail == em)
+            })
 
         if throw_on_fail and any(not r["passed"] for r in results):
             failed = "\n".join(
@@ -2360,6 +2372,63 @@ class ContractEngine:
             )
             raise BusinessError(f"合同前置检查未通过:\n{failed}", code=400, status_code=400)
         return results
+
+
+def _build_check_expression(condition: dict, kind: str, actual: Any, expected: Any) -> str:
+    """构建检查表达式的可读字符串。"""
+    op = condition.get("op") or "GTE"
+    op_label = COMPARE_OP_LABEL.get(op, op)
+
+    if kind == "VALUE_COMPARE":
+        v1_desc = _describe_value_source(condition.get("value1"))
+        v2_desc = _describe_value_source(condition.get("value2"))
+        return f"{v1_desc} {op_label} {v2_desc}"
+
+    elif kind == "DICT_COMPARE":
+        v1_desc = _describe_value_source(condition.get("value1"))
+        v2_desc = _describe_value_source(condition.get("value2"))
+        return f"{v1_desc} {op_label} {v2_desc}（字典逐项比较）"
+
+    elif kind == "LIST_COMPARE":
+        v1_desc = _describe_value_source(condition.get("value1"))
+        v2_desc = _describe_value_source(condition.get("value2"))
+        return f"{v1_desc} {op_label} {v2_desc}（列表比较）"
+
+    elif kind == "FIELD_COMPARE":
+        field_key = condition.get("fieldKey", "")
+        party = condition.get("party", "")
+        v_desc = _describe_value_source(condition.get("value"))
+        return f"公司「{party}」的字段「{field_key}」{op_label} {v_desc}"
+
+    elif kind == "INDUSTRY_IS":
+        industry_type_id = condition.get("industryTypeId")
+        return f"公司「{condition.get('party', '')}」的产业类型 == #{industry_type_id}"
+
+    return f"{kind} 检查"
+
+
+def _describe_value_source(spec: Any) -> str:
+    """描述值来源的可读字符串。"""
+    if not spec or not isinstance(spec, dict):
+        return dumps_engine_json(spec)
+
+    stype = spec.get("type")
+    if stype == "CONST":
+        return dumps_engine_json(spec.get("value"))
+    elif stype == "INPUT":
+        return f"输入项「{spec.get('key', '')}」"
+    elif stype == "ENTITY":
+        return f"实体属性「{spec.get('attribute', '')}」"
+    elif stype == "FIELD":
+        return f"字段「{spec.get('fieldKey', '')}」"
+    elif stype == "FORMULA":
+        return f"公式({spec.get('expr', '')})"
+    elif stype == "VAR":
+        return f"变量「{spec.get('name', '')}」"
+    elif stype == "OP":
+        return f"运算({spec.get('op', '')})"
+
+    return dumps_engine_json(spec)
 
     # ---------- 字段定位 / 读写 ----------
 

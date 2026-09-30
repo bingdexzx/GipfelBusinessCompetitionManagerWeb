@@ -635,7 +635,7 @@
         size="small"
         style="margin-top: 12px"
       >
-        <el-table-column prop="label" label="检查项" min-width="200" :formatter="condKindFmt" />
+        <el-table-column prop="label" label="检查项" min-width="150" :formatter="condKindFmt" />
         <el-table-column label="结果" width="90">
           <template #default="{ row }">
             <el-tag :type="row.passed ? 'success' : 'danger'">{{
@@ -643,12 +643,14 @@
             }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="detail" label="详情" min-width="260" />
+        <el-table-column prop="expression" label="检查表达式" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="detail" label="详情" min-width="200" show-overflow-tooltip />
       </el-table>
       <div v-else class="dlg-cards">
         <div v-for="row in precheckResults" :key="row.label" class="dlg-card">
           <div class="dlg-row"><span>检查项</span><b>{{ row.label }}</b></div>
           <div class="dlg-row"><span>结果</span><b :class="row.passed ? 'dlg-ok' : 'dlg-bad'">{{ row.passed ? '通过' : '未通过' }}</b></div>
+          <div v-if="row.expression" class="dlg-row"><span>表达式</span><b>{{ row.expression }}</b></div>
           <div class="dlg-row"><span>详情</span><b>{{ row.detail }}</b></div>
         </div>
       </div>
