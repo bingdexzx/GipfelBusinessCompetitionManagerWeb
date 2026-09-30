@@ -248,6 +248,8 @@ export const contractsApi = {
     api.get("/contracts", { params: params || {}, cache: false }),
   get: (id: number) => api.get(`/contracts/${id}`),
   create: (data: CreateContractInput) => api.post("/contracts", data),
+  updateInputs: (id: number, inputs: Record<string, any>) =>
+    api.patch(`/contracts/${id}`, { inputs }),
   execute: (id: number, data?: Record<string, unknown>) => api.post(`/contracts/${id}/execute`, data || {}),
   // 分步补全合同编号：传入 { [role]: 编号 }，仅更新指定参与方
   updatePartyNumbers: (id: number, partyNumbers: Record<string, string>) =>

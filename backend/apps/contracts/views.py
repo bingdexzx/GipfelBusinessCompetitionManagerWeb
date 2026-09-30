@@ -242,7 +242,7 @@ class ContractCollectionAPIView(APIView):
 
 
 class ContractItemAPIView(APIView):
-    """GET/DELETE /api/contracts/:id —— 详情 + 删除。"""
+    """GET/PATCH/DELETE /api/contracts/:id —— 详情 + 更新输入 + 删除。"""
 
     permission_classes = _PERM_CLASSES
 
@@ -252,6 +252,31 @@ class ContractItemAPIView(APIView):
         _assert_view_scope(request.user, contract)
         data = _serialize_contract(contract)
         return Response(_enrich_party_companies([data])[0])
+
+    @require_permissions(_CONTRACT_MANAGE_PERM)
+    def patch(self, request, pk):
+        """更新合同输入参数（仅草稿状态允许）。"""
+        contract = _get_contract(pk, request.user)
+        if contract.status != "DRAFT":
+            raise BusinessError("仅草稿状态的合同可以修改输入参数", code=400, status_code=400)
+        inputs = request.data.get("inputs")
+        if inputs is None:
+            raise BusinessError("缺少 inputs 参数", code=400, status_code=400)
+        if not isinstance(inputs, dict):
+            raise BusinessError("inputs 必须是对象", code=400, status_code=400)
+        # 合并更新：保留原有输入，覆盖传入的字段
+        existing = parse_json_array(contract.inputs) if contract.inputs else {}
+        if isinstance(existing, str):
+            try:
+                existing = json.loads(existing)
+            except (ValueError, TypeError):
+                existing = {}
+        if not isinstance(existing, dict):
+            existing = {}
+        existing.update(inputs)
+        contract.inputs = json.dumps(existing, ensure_ascii=False)
+        contract.save(update_fields=["inputs", "updated_at"])
+        return Response(_serialize_contract(contract))
 
     @require_permissions(_CONTRACT_MANAGE_PERM)
     def delete(self, request, pk):

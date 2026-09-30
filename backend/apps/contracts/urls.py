@@ -9,6 +9,7 @@
 - GET    /api/contracts                    列表（分页/增量/公司范围过滤）
 - POST   /api/contracts                    创建
 - GET    /api/contracts/:id                详情
+- PATCH  /api/contracts/:id                更新输入参数（仅草稿）
 - DELETE /api/contracts/:id                删除（仅超管）
 - POST   /api/contracts/:id/execute       执行（会签落账）
 - PATCH  /api/contracts/:id/party-numbers 分步补全编号

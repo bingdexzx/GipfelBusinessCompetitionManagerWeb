@@ -549,18 +549,41 @@
         </div>
 
         <el-divider>输入参数</el-divider>
+        <template v-if="detailRow.status === 'DRAFT'">
+          <div style="margin-bottom: 12px; text-align: right">
+            <template v-if="editingInputs">
+              <el-button size="small" type="primary" :loading="submitting" @click="saveInputs">保存</el-button>
+              <el-button size="small" @click="cancelEditInputs">取消</el-button>
+            </template>
+            <el-button v-else size="small" type="primary" @click="startEditInputs">修改输入</el-button>
+          </div>
+        </template>
         <el-table v-if="!isPhone" :data="detailInputs" border size="small">
           <el-table-column prop="key" label="参数" width="160" />
           <el-table-column prop="label" label="名称" width="200" />
           <el-table-column label="值">
-            <template #default="{ row }">{{ formatInputValue(row) }}</template>
+            <template #default="{ row }">
+              <template v-if="editingInputs && row.type !== 'materialList' && row.type !== 'partList' && row.type !== 'productList' && row.type !== 'infrastructureList' && row.type !== 'fuelList' && row.type !== 'vehicleList' && row.type !== 'warehouseList' && row.type !== 'productionLineList' && row.type !== 'ratingList' && row.type !== 'nodeRoute' && row.type !== 'ENTITY'">
+                <el-input v-if="row.type === 'number'" v-model.number="editingInputsData[row.key]" size="small" />
+                <el-switch v-else-if="row.type === 'boolean'" v-model="editingInputsData[row.key]" size="small" />
+                <el-input v-else v-model="editingInputsData[row.key]" size="small" />
+              </template>
+              <template v-else>{{ formatInputValue(row) }}</template>
+            </template>
           </el-table-column>
         </el-table>
         <div v-else class="dlg-cards">
           <div v-for="row in detailInputs" :key="row.key" class="dlg-card">
             <div class="dlg-row"><span>参数</span><b>{{ row.key }}</b></div>
             <div class="dlg-row"><span>名称</span><b>{{ row.label }}</b></div>
-            <div class="dlg-row"><span>值</span><b>{{ formatInputValue(row) }}</b></div>
+            <div class="dlg-row"><span>值</span>
+              <template v-if="editingInputs && row.type !== 'materialList' && row.type !== 'partList' && row.type !== 'productList' && row.type !== 'infrastructureList' && row.type !== 'fuelList' && row.type !== 'vehicleList' && row.type !== 'warehouseList' && row.type !== 'productionLineList' && row.type !== 'ratingList' && row.type !== 'nodeRoute' && row.type !== 'ENTITY'">
+                <el-input v-if="row.type === 'number'" v-model.number="editingInputsData[row.key]" size="small" />
+                <el-switch v-else-if="row.type === 'boolean'" v-model="editingInputsData[row.key]" size="small" />
+                <el-input v-else v-model="editingInputsData[row.key]" size="small" />
+              </template>
+              <b v-else>{{ formatInputValue(row) }}</b>
+            </div>
           </div>
         </div>
 
@@ -738,6 +761,10 @@ const partyNumbers = reactive<Record<string, string>>({});
 
 // 详情页内联补编号编辑态：{ role: 正在编辑的参与方角色, value: 输入框当前值 }
 const editingNumber = reactive<{ role: string | null; value: string }>({ role: null, value: "" });
+
+// 详情页输入参数编辑态
+const editingInputs = ref(false);
+const editingInputsData = reactive<Record<string, any>>({});
 
 const createForm = reactive({
   contractTypeId: undefined as number | undefined,
@@ -1655,6 +1682,32 @@ async function saveNumber(row: any) {
     detailRow.value = updated;
     cancelEditNumber();
     ElMessage.success("编号已保存");
+    loadContracts();
+  } catch (e: any) {
+    showExecuteError(e);
+  } finally {
+    submitting.value = false;
+  }
+}
+
+// 详情页输入参数编辑
+function startEditInputs() {
+  const inputs = parseJson(detailRow.value?.inputs, {});
+  Object.assign(editingInputsData, inputs);
+  editingInputs.value = true;
+}
+function cancelEditInputs() {
+  editingInputs.value = false;
+  Object.keys(editingInputsData).forEach((k) => delete editingInputsData[k]);
+}
+async function saveInputs() {
+  submitting.value = true;
+  try {
+    await contractsApi.updateInputs(detailRow.value.id, { ...editingInputsData });
+    const updated = await contractsApi.get(detailRow.value.id);
+    detailRow.value = updated;
+    editingInputs.value = false;
+    ElMessage.success("输入参数已保存");
     loadContracts();
   } catch (e: any) {
     showExecuteError(e);
