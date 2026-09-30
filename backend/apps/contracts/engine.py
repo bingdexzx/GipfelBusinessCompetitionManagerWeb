@@ -1023,6 +1023,9 @@ def apply_op(op: str, args: list, scope: dict | None = None) -> Any:
     as_list = lambda x: x if isinstance(x, list) else ([] if x is None else [x])  # noqa: E731
     as_dict = lambda x: x if isinstance(x, dict) else {}  # noqa: E731
     num = to_number
+    # 调试日志：记录 OP 调用
+    if op == "DICT_GET":
+        logger.debug("[apply_op] DICT_GET args=%r, types=%r", a, [type(x).__name__ for x in a])
 
     # —— 列表 ——
     if op == "LIST_APPEND":
@@ -1101,6 +1104,8 @@ def apply_op(op: str, args: list, scope: dict | None = None) -> Any:
     # —— 字典 ——
     if op == "DICT_GET":
         d = as_dict(a[0]); k = a[1]
+        # 调试日志：帮助定位 DICT_GET 问题
+        logger.debug("[DICT_GET] dict=%r, key=%r (type=%s), dict_keys=%r", d, k, type(k).__name__, list(d.keys()) if isinstance(d, dict) else None)
         if k in d:
             return d[k]
         # 类型容错：键以字符串形式传入但字典键为数字（或反之），尝试互相转换后查找
@@ -1108,6 +1113,7 @@ def apply_op(op: str, args: list, scope: dict | None = None) -> Any:
             try:
                 kn = to_number(k)
                 if kn != k and kn in d:
+                    logger.debug("[DICT_GET] 类型容错命中：str key %r -> num %r", k, kn)
                     return d[kn]
             except (ValueError, TypeError, decimal.InvalidOperation):
                 pass
