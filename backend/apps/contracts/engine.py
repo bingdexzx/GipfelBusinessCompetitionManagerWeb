@@ -2365,11 +2365,19 @@ class ContractEngine:
             })
 
         if throw_on_fail and any(not r["passed"] for r in results):
-            failed = "\n".join(
-                f"• {r['detail']}" if r.get('customError')
-                else f"• {r['label']}: {r['detail']}"
-                for r in results if not r["passed"]
-            )
+            failed_lines = []
+            for r in results:
+                if r["passed"]:
+                    continue
+                if r.get('customError'):
+                    failed_lines.append(f"• {r['detail']}")
+                else:
+                    expr = r.get('expression', '')
+                    if expr:
+                        failed_lines.append(f"• {r['label']}: {r['detail']}\n  表达式: {expr}")
+                    else:
+                        failed_lines.append(f"• {r['label']}: {r['detail']}")
+            failed = "\n".join(failed_lines)
             raise BusinessError(f"合同前置检查未通过:\n{failed}", code=400, status_code=400)
         return results
 
