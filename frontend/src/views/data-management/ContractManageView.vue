@@ -1665,9 +1665,17 @@ async function executeContract(row: any) {
 function showExecuteError(e: any) {
   const msg: string =
     e?.response?.data?.message || (e?.message ? String(e.message) : "操作失败");
-  ElMessageBox.alert(msg, "合同操作失败", {
+  // 将换行符转换为 HTML 换行，并转义 HTML 特殊字符
+  const htmlMsg = msg
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br>")
+    .replace(/  /g, "&nbsp;&nbsp;");
+  ElMessageBox.alert(htmlMsg, "合同操作失败", {
     type: "error",
     confirmButtonText: "我知道了",
+    dangerouslyUseHTMLString: true,
   }).catch(() => {});
 }
 async function handleDelete(row: any) {
