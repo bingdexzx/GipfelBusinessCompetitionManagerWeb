@@ -207,7 +207,12 @@ def _consumer_demand_total(company: dict, stored_location: str | None) -> object
     from apps.maps.models import MapNode
 
     location_name = str(stored_location or "").strip()
+    logger.info(
+        "[consumer_demand] company_id=%s, competition_id=%s, stored_location=%s",
+        company.get("id"), company.get("competition_id"), location_name
+    )
     if not location_name:
+        logger.info("[consumer_demand] location_name 为空，返回 0")
         return 0
 
     # 根据地图节点名称查找对应的区域
@@ -216,14 +221,21 @@ def _consumer_demand_total(company: dict, stored_location: str | None) -> object
         name=location_name
     ).values("region").first()
 
+    logger.info("[consumer_demand] 查找地图节点 '%s' 结果: %s", location_name, node)
     if not node or not node.get("region"):
+        logger.info("[consumer_demand] 未找到地图节点或节点无区域，返回 0")
         return 0
 
     region = node["region"]
     agg = ConsumerDemand.objects.filter(
         competition_id=company["competition_id"], region=region
     ).aggregate(s=Sum("quantity"))
-    return agg["s"] or 0
+    result = agg["s"] or 0
+    logger.info(
+        "[consumer_demand] 区域=%s, 查询结果=%s, 返回=%s",
+        region, agg, result
+    )
+    return result
 
 
 def _eval_graph(
