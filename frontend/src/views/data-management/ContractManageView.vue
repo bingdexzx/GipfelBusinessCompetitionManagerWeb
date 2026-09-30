@@ -1663,8 +1663,18 @@ async function executeContract(row: any) {
 
 // 执行/创建失败时弹出错误窗口，展示后端返回的具体错误信息
 function showExecuteError(e: any) {
-  const msg: string =
-    e?.response?.data?.message || (e?.message ? String(e.message) : "操作失败");
+  console.error("合同操作失败:", e);
+  // 尝试从不同格式的错误响应中提取消息
+  let msg = "操作失败";
+  if (e?.response?.data?.message) {
+    msg = e.response.data.message;
+  } else if (e?.response?.data?.detail) {
+    msg = e.response.data.detail;
+  } else if (e?.response?.data && typeof e.response.data === 'string') {
+    msg = e.response.data;
+  } else if (e?.message) {
+    msg = String(e.message);
+  }
   // 将换行符转换为 HTML 换行，并转义 HTML 特殊字符
   const htmlMsg = msg
     .replace(/&/g, "&amp;")
