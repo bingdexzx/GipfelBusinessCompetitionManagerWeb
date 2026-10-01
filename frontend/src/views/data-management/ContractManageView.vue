@@ -3,6 +3,21 @@
     <div class="mm-toolbar">
       <h2 class="mm-title">{{ authStore.can("contract:manage") ? "合同管理" : "合同" }}</h2>
       <div class="mm-actions">
+        <el-select
+          v-model="partyCompanyId"
+          filterable
+          clearable
+          placeholder="按参与方筛选"
+          style="width: 180px"
+          @change="onPartyFilterChange"
+        >
+          <el-option
+            v-for="c in companies"
+            :key="c.id"
+            :label="c.name"
+            :value="c.id"
+          />
+        </el-select>
         <SearchToggle v-model="searchText" placeholder="搜索合同编号或类型" />
         <el-button
           v-if="authStore.can('contract:manage')"
@@ -778,6 +793,9 @@ const pageSize = ref(100);
 const currentPage = ref(1);
 const totalContracts = ref(0);
 
+// 参与方公司筛选
+const partyCompanyId = ref<number | undefined>(undefined);
+
 const showCreate = ref(false);
 const showDetail = ref(false);
 const detailRow = ref<any>(null);
@@ -1486,6 +1504,8 @@ async function loadContracts() {
     };
     // 搜索关键词传给后端（如有）
     if (searchText.value) params.search = searchText.value;
+    // 参与方公司筛选
+    if (partyCompanyId.value) params.partyCompanyId = partyCompanyId.value;
     const res = await contractsApi.list(params as any);
     const paged = !Array.isArray(res) && res?.items;
     contracts.value = paged ? res.items : Array.isArray(res) ? res : [];
@@ -1967,6 +1987,7 @@ useCompetitionReload(
     if (authStore.can("company:view")) loadCompanies();
     if (authStore.can("industryType:view")) loadIndustryTypes();
     currentPage.value = 1;
+    partyCompanyId.value = undefined;
     loadContracts();
   },
   () => {
@@ -1975,6 +1996,7 @@ useCompetitionReload(
     companies.value = [];
     industryTypes.value = [];
     totalContracts.value = 0;
+    partyCompanyId.value = undefined;
   },
 );
 
@@ -1997,6 +2019,12 @@ watch(searchText, () => {
   currentPage.value = 1;
   loadContracts();
 });
+
+// 参与方公司筛选变更时重置到第一页
+function onPartyFilterChange() {
+  currentPage.value = 1;
+  loadContracts();
+}
 </script>
 
 <style scoped>

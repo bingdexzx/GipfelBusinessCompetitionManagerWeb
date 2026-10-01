@@ -163,6 +163,17 @@ class ContractCollectionAPIView(APIView):
         if status:
             qs = qs.filter(status=status)
 
+        # 搜索关键词（合同编号 或 合同类型名称）
+        search = (request.query_params.get("search") or "").strip()
+
+        # 参与方公司过滤（JSON parties 字段，需内存过滤）
+        party_company_id = request.query_params.get("partyCompanyId")
+        if party_company_id:
+            try:
+                party_company_id = int(party_company_id)
+            except (TypeError, ValueError):
+                party_company_id = None
+
         # 增量同步
         updated_after = request.query_params.get("updatedAfter")
         base_where = {}
@@ -179,6 +190,10 @@ class ContractCollectionAPIView(APIView):
             updated_qs = qs.filter(**where).order_by("-created_at")
             changed = [_serialize_contract(c) for c in updated_qs]
             changed = _filter_by_scope(changed, request.user)
+            if party_company_id:
+                changed = _filter_by_party_company(changed, party_company_id)
+            if search:
+                changed = _filter_by_search(changed, search)
             require_existing = _truthy(request.query_params.get("requireExistingIds"))
             all_current_ids = []
             if require_existing:
@@ -186,31 +201,37 @@ class ContractCollectionAPIView(APIView):
                 scoped_base = _filter_by_scope(
                     [_serialize_contract(c) for c in base_rows], request.user
                 )
+                if party_company_id:
+                    scoped_base = _filter_by_party_company(scoped_base, party_company_id)
+                if search:
+                    scoped_base = _filter_by_search(scoped_base, search)
                 all_current_ids = [c["id"] for c in scoped_base]
             previous_ids = _parse_previous_ids(request.query_params.get("previousIds"))
             return Response(
                 build_incremental_result(changed, all_current_ids, previous_ids, total=len(changed))
             )
 
-        # 判断是否需要公司范围过滤（需解析 JSON parties 字段，无法下推到数据库 where）
+        # 判断是否需要内存过滤（公司范围过滤 / 参与方公司过滤 / 搜索）
         needs_scope = _needs_scope_filter(request.user)
-        if not needs_scope:
+        if not needs_scope and not party_company_id and not search:
             page, page_size, skip = parse_pagination(request.query_params)
             total = qs.count()
             rows = list(qs.order_by("-created_at")[skip : skip + page_size])
             items = _enrich_party_companies([_serialize_contract(c) for c in rows])
             return Response(paginated_response(items, total, page, page_size))
 
-        # 有范围限制：需解析 JSON parties 做内存过滤，无法下推到数据库（已知限制）。
-        # 非超管的操作类账号（execute/audit/manage）与持公司范围的纯 view 账号进入此分支，
-        # 其可见合同集本身受公司范围约束，实际体量有限；若要支撑超大规模，需对 parties 内
-        # 公司 id 做冗余列（如 contract_party_companies 表）以支持 SQL 级过滤。
+        # 需内存过滤：公司范围限制 / 参与方公司筛选 / 搜索（parties 为 JSON 字段，无法下推到数据库）。
         all_rows = list(qs.order_by("-created_at"))
         serialized = [_serialize_contract(c) for c in all_rows]
-        filtered = _filter_by_scope(serialized, request.user)
-        total = len(filtered)
+        if needs_scope:
+            serialized = _filter_by_scope(serialized, request.user)
+        if party_company_id:
+            serialized = _filter_by_party_company(serialized, party_company_id)
+        if search:
+            serialized = _filter_by_search(serialized, search)
+        total = len(serialized)
         page, page_size, skip = parse_pagination(request.query_params)
-        paged = filtered[skip : skip + page_size]
+        paged = serialized[skip : skip + page_size]
         paged = _enrich_party_companies(paged)
         return Response(paginated_response(paged, total, page, page_size))
 
@@ -817,6 +838,44 @@ def _filter_by_scope(items: list[dict], user) -> list[dict]:
         ]
 
     return items
+
+
+def _filter_by_party_company(items: list[dict], company_id: int) -> list[dict]:
+    """按参与方公司过滤：仅保留参与方中包含指定 companyId 的合同。"""
+    result = []
+    for c in items:
+        parties = c.get("parties") if isinstance(c.get("parties"), list) else []
+        for p in parties:
+            if isinstance(p, dict) and p.get("companyId") == company_id:
+                result.append(c)
+                break
+    return result
+
+
+def _filter_by_search(items: list[dict], search: str) -> list[dict]:
+    """按关键词搜索：匹配合同编号（parties 中的 contractNumber）或合同类型名称。"""
+    search_lower = search.lower()
+    result = []
+    for c in items:
+        # 搜索合同编号：遍历参与方的 contractNumber
+        parties = c.get("parties") if isinstance(c.get("parties"), list) else []
+        matched = False
+        for p in parties:
+            if isinstance(p, dict):
+                cn = p.get("contractNumber") or ""
+                if cn and search_lower in str(cn).lower():
+                    matched = True
+                    break
+        # 搜索合同类型名称
+        if not matched:
+            ct = c.get("contractType")
+            if isinstance(ct, dict):
+                ct_name = ct.get("name") or ""
+                if ct_name and search_lower in ct_name.lower():
+                    matched = True
+        if matched:
+            result.append(c)
+    return result
 
 
 def _get_last_signatory_company_id(contract: Contract) -> int | None:
