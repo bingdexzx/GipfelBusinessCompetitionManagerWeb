@@ -859,20 +859,21 @@ def _filter_by_party_company(items: list[dict], company_id: int) -> list[dict]:
 
 
 def _filter_by_search(items: list[dict], search: str) -> list[dict]:
-    """按关键词搜索：匹配合同编号（parties 中的 contractNumber）或合同类型名称。"""
+    """按关键词搜索：合同编号精确匹配，合同类型名称模糊匹配。"""
     search_lower = search.lower()
+    search_stripped = search.strip()
     result = []
     for c in items:
         matched = False
-        # 搜索合同编号：遍历参与方的 contractNumber
+        # 搜索合同编号：精确匹配（忽略前后空格）
         parties = c.get("parties") if isinstance(c.get("parties"), list) else []
         for p in parties:
             if isinstance(p, dict):
-                cn = p.get("contractNumber") or ""
-                if cn and search_lower in str(cn).lower():
+                cn = str(p.get("contractNumber") or "").strip()
+                if cn and cn == search_stripped:
                     matched = True
                     break
-        # 搜索合同类型名称
+        # 搜索合同类型名称：模糊匹配
         if not matched:
             ct = c.get("contractType")
             if isinstance(ct, dict):
@@ -887,9 +888,10 @@ def _filter_by_search(items: list[dict], search: str) -> list[dict]:
 def _pre_filter_by_search(rows: list, search: str) -> list:
     """在原始模型实例上做轻量搜索过滤（避免全量序列化）。
 
-    检查合同类型名称（通过 select_related 已加载）和合同编号（JSON 字符串匹配）。
+    合同编号精确匹配，合同类型名称模糊匹配。
     """
     search_lower = search.lower()
+    search_stripped = search.strip()
     result = []
     for contract in rows:
         matched = False
@@ -897,14 +899,14 @@ def _pre_filter_by_search(rows: list, search: str) -> list:
         if contract.contract_type and contract.contract_type.name:
             if search_lower in contract.contract_type.name.lower():
                 matched = True
-        # 搜索合同编号：在原始 JSON 字符串中查找（避免完整解析）
+        # 搜索合同编号：精确匹配
         if not matched and contract.parties:
             try:
                 parties = json.loads(contract.parties)
                 for p in parties:
                     if isinstance(p, dict):
-                        cn = p.get("contractNumber") or ""
-                        if cn and search_lower in str(cn).lower():
+                        cn = str(p.get("contractNumber") or "").strip()
+                        if cn and cn == search_stripped:
                             matched = True
                             break
             except (json.JSONDecodeError, TypeError):
