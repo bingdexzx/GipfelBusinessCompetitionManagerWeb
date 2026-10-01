@@ -893,6 +893,7 @@ function partyLabel(role: string): string {
 }
 
 // 已选参与方公司、但其所属产业缺少效果所需字段 → 触发「该产业不支持该合同」。
+// 同时跳过「挂在 IF 分支下且该分支当前评估为不会执行」的效果，避免误拦。
 const missingEffectFields = computed(() => {
   const out: {
     party: string;
@@ -900,21 +901,49 @@ const missingEffectFields = computed(() => {
     companyName: string;
     fieldName: string;
   }[] = [];
-  for (const ref of effectFieldRefs.value) {
-    if (!ref.party || !ref.fieldKey) continue;
-    const companyId = (createForm.parties as Record<string, number>)[ref.party];
-    if (companyId == null) continue; // 该参与方尚未选公司，暂不判定
-    const industryTypeId = companyIndustryMap.value[companyId];
-    const set = industryTypeId != null ? industryFieldKeyMap.value.get(industryTypeId) : undefined;
-    if (!set || !set.has(ref.fieldKey)) {
-      out.push({
-        party: ref.party,
-        fieldKey: ref.fieldKey,
-        companyName: companyName(companyId) || `公司#${companyId}`,
-        fieldName: fieldNameOf(ref.fieldKey),
-      });
+  // 构建用于评估效果树 IF 分支短路的上下文
+  const ctx: FormConditionCtx = {
+    inputs: createForm.inputs,
+    industryTypeOf: getPartyIndustry,
+  };
+  // 从效果树递归收集：遇到 IF 时按条件短路，只收集会执行的分支
+  function collectActiveRefs(effects: any[]) {
+    for (const e of effects || []) {
+      if (!e || typeof e !== "object") continue;
+      if (e.kind === "FIELD") {
+        const party = e.party || "";
+        const fieldKey = e.fieldKey || "";
+        if (!party || !fieldKey) continue;
+        const companyId = (createForm.parties as Record<string, number>)[party];
+        if (companyId == null) continue;
+        const industryTypeId = companyIndustryMap.value[companyId];
+        const set = industryTypeId != null ? industryFieldKeyMap.value.get(industryTypeId) : undefined;
+        if (!set || !set.has(fieldKey)) {
+          out.push({
+            party,
+            fieldKey,
+            companyName: companyName(companyId) || `公司#${companyId}`,
+            fieldName: fieldNameOf(fieldKey),
+          });
+        }
+      } else if (e.kind === "IF" && e.cond) {
+        const condResult = evalFormCondition(e.cond, ctx);
+        if (condResult === true) {
+          collectActiveRefs(e.then);
+        } else if (condResult === false) {
+          collectActiveRefs(e.else);
+        } else {
+          // 无法判定 → 收集全部分支（fail-open，与运行时一致）
+          collectActiveRefs(e.then);
+          collectActiveRefs(e.else);
+        }
+      } else if (e.kind === "FOREACH") {
+        collectActiveRefs(e.body);
+      }
+      // ASSIGN 无子效果，跳过
     }
   }
+  collectActiveRefs(parseJson(selectedType.value?.effects, []));
   return out;
 });
 // 参与方角色 → 当前所绑公司的产业类型 id（未绑定返回 undefined，交由求值器 fail-open）。
