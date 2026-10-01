@@ -393,7 +393,18 @@ export const messagesApi = {
   markAllRead: () => api.post("/messages/read-all"),
   /** 删除已发布消息。 */
   remove: (id: number) => api.delete(`/messages/${id}`),
+  /** 查看消息阅读情况（仅发布者可查）。 */
+  readStatus: (id: number): Promise<ReadStatusResponse> => api.get(`/messages/${id}/read-status`, { cache: false }),
 };
+
+export interface ReadStatusResponse {
+  messageId: number;
+  total: number;
+  readCount: number;
+  unreadCount: number;
+  readList: { userId: number; username: string; displayName: string; read: boolean; readAt: string | null }[];
+  unreadList: { userId: number; username: string; displayName: string; read: boolean; readAt: string | null }[];
+}
 
 // ===================== 股票系统 =====================
 export const stockApi = {

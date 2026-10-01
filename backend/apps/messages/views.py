@@ -447,3 +447,53 @@ class ItemView(APIView):
             "message", message_id, recipient_ids, "deleted", competition_id=competition_id
         )
         return Response({"message": "已删除"})
+
+
+class ReadStatusView(APIView):
+    """GET /api/messages/:id/read-status — 查看消息阅读情况（仅发布者可查）。"""
+    permission_classes = (IsAuthenticated, PermissionsPermission)
+
+    @require_permissions("message:view")
+    def get(self, request, pk):
+        from apps.users.models import User
+
+        actor = request.user
+        try:
+            msg = Message.objects.get(pk=pk)
+        except Message.DoesNotExist:
+            raise BusinessError("消息不存在", code=404, status_code=404)
+        
+        # 仅发布者本人可查看阅读情况
+        if actor.role != "SUPER_ADMIN" and msg.sender_id != actor.id:
+            raise BusinessError("仅发布者可查看阅读情况", code=403, status_code=403)
+        
+        # 获取所有收件人及其阅读状态
+        recipients = MessageRecipient.objects.filter(message_id=pk).select_related("user")
+        user_ids = [r.user_id for r in recipients]
+        users = User.objects.filter(id__in=user_ids).values("id", "username", "display_name")
+        user_map = {u["id"]: u for u in users}
+        
+        read_list = []
+        unread_list = []
+        for r in recipients:
+            user_info = user_map.get(r.user_id, {})
+            item = {
+                "userId": r.user_id,
+                "username": user_info.get("username", f"用户{r.user_id}"),
+                "displayName": user_info.get("display_name") or user_info.get("username", f"用户{r.user_id}"),
+                "read": r.read,
+                "readAt": r.read_at.isoformat() if r.read_at else None,
+            }
+            if r.read:
+                read_list.append(item)
+            else:
+                unread_list.append(item)
+        
+        return Response({
+            "messageId": pk,
+            "total": len(user_ids),
+            "readCount": len(read_list),
+            "unreadCount": len(unread_list),
+            "readList": read_list,
+            "unreadList": unread_list,
+        })

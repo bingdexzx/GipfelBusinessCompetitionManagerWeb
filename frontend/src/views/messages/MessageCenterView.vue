@@ -110,14 +110,22 @@
                 >
               </div>
             </div>
-            <el-button
-              class="del-btn"
-              :icon="Delete"
-              text
-              type="danger"
-              @click.stop="deleteSent(item)"
-              >删除</el-button
-            >
+            <div class="sent-actions">
+              <el-button
+                size="small"
+                text
+                type="primary"
+                @click.stop="showReadStatus(item)"
+              >阅读情况</el-button>
+              <el-button
+                class="del-btn"
+                :icon="Delete"
+                text
+                type="danger"
+                @click.stop="deleteSent(item)"
+                >删除</el-button
+              >
+            </div>
           </div>
         </div>
       </el-tab-pane>
@@ -214,6 +222,37 @@
         <el-button type="primary" :loading="submitting" @click="submitPublish">发布</el-button>
       </template>
     </el-dialog>
+
+    <!-- 阅读情况对话框 -->
+    <el-dialog v-model="readStatusVisible" title="阅读情况" width="500px" append-to-body>
+      <div v-if="readStatusData" class="read-status-content">
+        <div class="read-status-summary">
+          <el-tag type="success">已读 {{ readStatusData.readCount }} 人</el-tag>
+          <el-tag type="warning">未读 {{ readStatusData.unreadCount }} 人</el-tag>
+        </div>
+        <el-divider />
+        <div v-if="readStatusData.readList.length" class="read-status-section">
+          <h4>已读</h4>
+          <div class="read-status-list">
+            <div v-for="user in readStatusData.readList" :key="user.userId" class="read-status-item">
+              <span class="user-name">{{ user.displayName }}</span>
+              <span class="read-time">{{ user.readAt ? formatTime(user.readAt) : '' }}</span>
+            </div>
+          </div>
+        </div>
+        <div v-if="readStatusData.unreadList.length" class="read-status-section">
+          <h4>未读</h4>
+          <div class="read-status-list">
+            <div v-for="user in readStatusData.unreadList" :key="user.userId" class="read-status-item unread">
+              <span class="user-name">{{ user.displayName }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="readStatusVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -229,7 +268,7 @@ import {
   Plus,
   Close,
 } from "@element-plus/icons-vue";
-import api, { messagesApi, type InboxItem, type SentItem, type MessageImage } from "@/api";
+import api, { messagesApi, type InboxItem, type SentItem, type MessageImage, type ReadStatusResponse } from "@/api";
 import { getApiBaseUrl } from "@/config";
 import { useAuthStore } from "@/stores/auth";
 import { useCompetitionStore } from "@/stores/competition";
@@ -500,6 +539,20 @@ async function submitPublish() {
   }
 }
 
+// ---------- 阅读情况 ----------
+const readStatusVisible = ref(false);
+const readStatusData = ref<ReadStatusResponse | null>(null);
+
+async function showReadStatus(item: SentItem) {
+  try {
+    readStatusData.value = await messagesApi.readStatus(item.id);
+    readStatusVisible.value = true;
+  } catch (e) {
+    console.error("获取阅读情况失败:", e);
+    ElMessage.error("获取阅读情况失败");
+  }
+}
+
 onMounted(() => {
   loadInbox();
 });
@@ -685,5 +738,51 @@ onMounted(() => {
   border: 1px solid var(--color-border, #e8eaef);
   overflow: hidden;
   cursor: zoom-in;
+}
+.sent-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.read-status-content {
+  max-height: 400px;
+  overflow-y: auto;
+}
+.read-status-summary {
+  display: flex;
+  gap: 12px;
+}
+.read-status-section {
+  margin-bottom: 16px;
+}
+.read-status-section h4 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  color: var(--color-text, #1f2330);
+}
+.read-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.read-status-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--color-surface, #f5f7fa);
+  border-radius: 6px;
+}
+.read-status-item.unread {
+  background: var(--color-warning-soft, #fef3cd);
+}
+.user-name {
+  font-size: 14px;
+  color: var(--color-text, #1f2330);
+}
+.read-time {
+  font-size: 12px;
+  color: var(--color-text-tertiary, #9aa1ad);
 }
 </style>

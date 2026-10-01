@@ -24,6 +24,7 @@ from .views import (
     ItemView,
     MarkReadView,
     ReadAllView,
+    ReadStatusView,
     SelectableUsersView,
     SentView,
     UnreadCountView,
@@ -40,6 +41,7 @@ urlpatterns = [
     path("messages/read-all", ReadAllView.as_view(), name="read-all"),
     path("messages/upload-image", UploadImageView.as_view(), name="upload-image"),
     path("messages", CollectionView.as_view(), name="collection"),
+    path("messages/<int:pk>/read-status", ReadStatusView.as_view(), name="read-status"),
     path("messages/<int:pk>/read", MarkReadView.as_view(), name="mark-read"),
     path("messages/<int:pk>", ItemView.as_view(), name="item"),
 ]
