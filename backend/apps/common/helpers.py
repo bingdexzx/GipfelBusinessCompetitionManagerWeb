@@ -58,7 +58,8 @@ def company_list_scopes(user, view_perm: str = "company:view") -> list | None:
     - SUPER_ADMIN：不过滤
     - 无 company:view 权限：不过滤（由权限层拦截）
     - 有 company:view 且 viewCompanyScopes 非空：仅这些公司
-    - 有 company:view 且 viewCompanyScopes 为空：不过滤（可见本比赛全部公司）
+    - 有 company:view 且 viewCompanyScopes 为空列表：不可见任何公司
+    - 有 company:view 且 viewCompanyScopes 为 null：不过滤（可见本比赛全部公司）
     """
     from apps.common.permissions import has_permission
 
@@ -66,8 +67,10 @@ def company_list_scopes(user, view_perm: str = "company:view") -> list | None:
         return None
     if not has_permission(user.role, user.permissions_list, view_perm):
         return None
-    scopes = user.view_company_scopes_list
-    return scopes if scopes else None
+    # view_company_scopes 为 null 时不过滤；为空列表时过滤为空（不可见任何公司）
+    if user.view_company_scopes is None:
+        return None
+    return user.view_company_scopes_list
 
 
 def get_company_scoped(pk, user, view_perm: str = "company:view"):
