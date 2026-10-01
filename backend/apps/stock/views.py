@@ -257,6 +257,16 @@ def _serialize_account(account, with_field_balance: bool = False) -> dict:
             data["fieldBalance"] = v
         else:
             data["fieldBalance"] = None
+    # 添加用户名（避免前端 N+1 请求）
+    if account.user_id:
+        from apps.users.models import User
+        try:
+            user = User.objects.get(pk=account.user_id)
+            data["userName"] = user.display_name or user.username
+        except User.DoesNotExist:
+            data["userName"] = None
+    else:
+        data["userName"] = None
     return data
 
 
@@ -514,12 +524,20 @@ class AccountOverviewView(APIView):
 
         # 公司名映射
         from apps.companies.models import Company
+        from apps.users.models import User
 
         company_ids = [a.company_id for a in accounts if a.company_id]
         company_name_map: dict[int, str] = {}
         if company_ids:
             for c in Company.objects.filter(pk__in=company_ids):
                 company_name_map[c.id] = c.name
+
+        # 用户名映射
+        user_ids = [a.user_id for a in accounts if a.user_id]
+        user_name_map: dict[int, str] = {}
+        if user_ids:
+            for u in User.objects.filter(pk__in=user_ids):
+                user_name_map[u.id] = u.display_name or u.username
 
         result = []
         for acc in accounts:
@@ -543,6 +561,7 @@ class AccountOverviewView(APIView):
                 "companyId": acc.company_id,
                 "companyName": company_name_map.get(acc.company_id) if acc.company_id else None,
                 "userId": acc.user_id,
+                "userName": user_name_map.get(acc.user_id) if acc.user_id else None,
                 "cashBalance": eff_cash,
                 "holdings": hs,
                 "holdingsMarketValue": holdings_market_value,

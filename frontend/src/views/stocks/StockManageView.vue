@@ -93,7 +93,7 @@
         </el-table-column>
         <el-table-column label="归属" min-width="120">
           <template #default="{ row }">
-            <span v-if="row.ownerType === 'USER'">{{ row.userId === authStore.user?.id ? "我自己" : "用户#" + row.userId }}</span>
+            <span v-if="row.ownerType === 'USER'">{{ row.userId === authStore.user?.id ? "我自己" : (row.userName || ("用户#" + row.userId)) }}</span>
             <span v-else>{{ companyName(row.companyId) }}</span>
           </template>
         </el-table-column>
@@ -117,7 +117,7 @@
         <div v-for="row in accounts" :key="row.id" class="dlg-card">
           <div class="dlg-row"><span>账户名</span><b>{{ row.name }}</b></div>
           <div class="dlg-row"><span>类型</span><b>{{ row.ownerType === "USER" ? "个人" : "公司" }}</b></div>
-          <div class="dlg-row"><span>归属</span><b>{{ row.ownerType === 'USER' ? (row.userId === authStore.user?.id ? "我自己" : "用户#" + row.userId) : companyName(row.companyId) }}</b></div>
+          <div class="dlg-row"><span>归属</span><b>{{ row.ownerType === 'USER' ? (row.userId === authStore.user?.id ? "我自己" : (row.userName || '用户#'+row.userId)) : companyName(row.companyId) }}</b></div>
           <div class="dlg-row"><span>现金(元)</span><b>{{ row.bindFieldId ? fmt(row.fieldBalance != null ? row.fieldBalance : row.cashBalance) : fmt(row.cashBalance) }}<el-tag v-if="row.bindFieldId" size="small" type="success" effect="plain" class="field-link-tag">联动</el-tag></b></div>
           <div class="dlg-actions">
             <el-button size="small" text @click="openAccountDialog(row)">编辑</el-button>
@@ -171,7 +171,7 @@
         </el-table-column>
         <el-table-column label="归属" min-width="120">
           <template #default="{ row }">
-            <span v-if="row.ownerType === 'USER'">用户#{{ row.userId }}</span>
+            <span v-if="row.ownerType === 'USER'">{{ row.userName || ("用户#" + row.userId) }}</span>
             <span v-else>{{ row.companyName || ("公司#" + row.companyId) }}</span>
           </template>
         </el-table-column>
@@ -199,7 +199,7 @@
         <div v-for="row in overview" :key="row.id" class="dlg-card">
           <div class="dlg-row"><span>账户名</span><b>{{ row.name }}</b></div>
           <div class="dlg-row"><span>类型</span><b>{{ row.ownerLabel }}</b></div>
-          <div class="dlg-row"><span>归属</span><b>{{ row.ownerType === 'USER' ? '用户#'+row.userId : (row.companyName || ('公司#'+row.companyId)) }}</b></div>
+          <div class="dlg-row"><span>归属</span><b>{{ row.ownerType === 'USER' ? (row.userName || '用户#'+row.userId) : (row.companyName || ('公司#'+row.companyId)) }}</b></div>
           <div class="dlg-row"><span>可用资金(元)</span><b>{{ fmt(row.cashBalance) }}</b></div>
           <div class="dlg-row"><span>持仓市值(元)</span><b>{{ fmt(row.holdingsMarketValue) }}</b></div>
           <div class="dlg-row"><span>总资产(元)</span><b>{{ fmt(row.totalAssets) }}</b></div>
