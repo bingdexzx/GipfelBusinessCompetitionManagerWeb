@@ -1443,7 +1443,8 @@ async function loadContracts() {
 }
 
 /** 切换分页 */
-function handlePageChange() {
+function handlePageChange(page: number) {
+  currentPage.value = page;
   loadContracts();
 }
 

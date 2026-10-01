@@ -406,7 +406,10 @@ function permSummary(row: UserItem) {
   return { text: `选手·${n} 公司`, type: "info" };
 }
 
-async function loadSystemUsers() {
+async function loadSystemUsers(page?: number) {
+  if (page !== undefined) {
+    systemPage.value = page;
+  }
   try {
     const res = await usersApi.list({ competitionId: "null", page: systemPage.value, pageSize: pageSize.value });
     // 后端返回 { items, total } 分页对象，但 cachedApi 已把列表响应降维为裸数组，
@@ -419,7 +422,10 @@ async function loadSystemUsers() {
   }
 }
 
-async function loadCompetitionUsers() {
+async function loadCompetitionUsers(page?: number) {
+  if (page !== undefined) {
+    competitionPage.value = page;
+  }
   if (!competitionId.value) {
     competitionUsers.value = [];
     competitionTotal.value = 0;
