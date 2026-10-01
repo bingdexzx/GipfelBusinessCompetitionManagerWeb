@@ -244,8 +244,10 @@ export const contractTypesApi = {
 };
 
 export const contractsApi = {
+  /** 合同列表（分页）。
+   *  normalize:false 保留 {items,total} 分页对象——页面需要 total 展示分页。 */
   list: (params?: { competitionId?: number; status?: string; page?: number; pageSize?: number }) =>
-    api.get("/contracts", { params: params || {}, cache: false }),
+    api.get("/contracts", { params: params || {}, cache: false, normalize: false }),
   get: (id: number) => api.get(`/contracts/${id}`),
   create: (data: CreateContractInput) => api.post("/contracts", data),
   updateInputs: (id: number, inputs: Record<string, any>) =>
