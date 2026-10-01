@@ -242,6 +242,10 @@ def build_candle(
     可能超出「body + 理论价 + 噪声影线」的合成范围（如买卖单挂价贴限价），
     K 线必须如实反映（仍夹在涨跌停限幅内）。
     """
+    # 确保 open_ 和 close 是 float 类型（避免 Decimal 和 float 混合运算）
+    open_ = float(open_)
+    close = float(close)
+    
     up_pct = upper_pct if upper_pct is not None else limit_pct
     dn_pct = lower_pct if lower_pct is not None else limit_pct
     upper = float(round2(Decimal(str(open_)) * (Decimal("1") + Decimal(str(up_pct)))))
