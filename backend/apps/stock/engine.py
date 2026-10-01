@@ -1218,22 +1218,55 @@ def generate_market_maker_orders(
 
 
 # ==================== 平盘推进（辅助） ====================
-def _advance_round_flat(stock, competition_id: int, limit_pct: float) -> tuple[int, dict]:
-    """平盘推进：价格不动、轮次 +1、生成平盘 K 线、作废旧轮订单。
+def _advance_round_flat(
+    stock, competition_id: int, limit_pct: float,
+    drift_data: dict | None = None,
+) -> tuple[int, dict]:
+    """平盘推进：轮次 +1、生成 K 线、作废旧轮订单。
 
-    用于「无任何订单」或「撮合不成交」两种情形（平盘轮），保证各股票
-    round 全局同步、K 线序列无空洞（与 StockCandle「每轮每股票一根」的
-    模型约束一致）。订单语义与成交路径统一：委托仅在本轮有效，轮次结束
-    未成交即作废（平盘轮价格未动，旧单的 ±10% 限价本就仍然有效，作废
-    只是让生命周期规则不再依赖「本轮是否成交」这一偶然因素）。
+    用于「无任何订单」或「撮合不成交」两种情形，保证各股票
+    round 全局同步、K 线序列无空洞。
 
-    返回 (新轮次, 平盘 K 线 dict)。调用方须处于 transaction.atomic() 内。
+    drift_data: 可选的趋势漂移参数 {happiness, currentCarbon, industryAvgCarbon,
+                happinessImpact, carbonImpact, carbonSaturateRatio, maxMovePct}。
+                提供时会根据幸福度/碳排放计算价格漂移，否则价格不动。
+
+    返回 (新轮次, K 线 dict)。调用方须处于 transaction.atomic() 内。
     """
     from .models import Stock, StockCandle, StockOrder
+    from decimal import Decimal as D
 
     new_round = stock.round + 1
+    old_price = stock.current_price
+
+    # 计算趋势漂移（即使无交易，股价也应随幸福度/碳排放自然波动）
+    if drift_data:
+        drift = compute_drift(
+            drift_data["happiness"],
+            drift_data["currentCarbon"],
+            drift_data["industryAvgCarbon"],
+            drift_data["happinessImpact"],
+            drift_data["carbonImpact"],
+            drift_data["carbonSaturateRatio"],
+        )
+        max_move = drift_data["maxMovePct"]
+        # 添加随机性：漂移方向确定，幅度有 ±50% 随机波动
+        drift_with_noise = drift * (1 + random.uniform(-0.5, 0.5))
+        # 计算新价格（仅应用漂移，无买压）
+        theoretical = float(old_price) * (1 + drift_with_noise * max_move)
+        # 限幅
+        upper = float(old_price) * (1 + limit_pct)
+        lower = float(old_price) * (1 - limit_pct)
+        new_price = round2(max(lower, min(upper, theoretical)))
+        # 确保价格不为 0
+        if new_price < Decimal("0.01"):
+            new_price = Decimal("0.01")
+    else:
+        drift = 0.0
+        new_price = old_price
+
     candle = build_candle(
-        stock.current_price, stock.current_price, new_round, None, limit_pct
+        float(old_price), float(new_price), new_round, None, limit_pct
     )
     StockCandle.objects.create(
         stock_id=stock.id,
@@ -1246,7 +1279,7 @@ def _advance_round_flat(stock, competition_id: int, limit_pct: float) -> tuple[i
         round=candle["round"],
     )
     Stock.objects.filter(pk=stock.id).update(
-        current_price=stock.current_price, round=new_round
+        current_price=new_price, round=new_round
     )
     # 轮次推进后处理旧轮订单：重新验证价格限制
     # 如果价格仍在有效范围内，订单应保持有效（更新轮次）
@@ -1371,11 +1404,20 @@ def advance_one_stock(
                     # 价格超出限制，标记为撤销
                     order.status = "CANCELLED"
                     order.save(update_fields=["status"])
-        # 无任何订单（做市商关闭且无玩家委托）→ 平盘推进：价格不动但 round 照常 +1，
-        # 避免该股票 round 长期冻结、与其他股票失去同步（round 全局同步语义）。
+        # 无任何订单（做市商关闭且无玩家委托）→ 趋势漂移推进：
+        # 即使无交易，股价也应随幸福度/碳排放自然波动，避免平盘。
         if not orders:
+            drift_data = {
+                "happiness": float(effective_happiness(stock, field_map)),
+                "currentCarbon": float(effective_carbon(stock, field_map)),
+                "industryAvgCarbon": float(effective_industry_avg_carbon(stock, field_map)),
+                "happinessImpact": stock_config["happinessImpact"],
+                "carbonImpact": stock_config["carbonImpact"],
+                "carbonSaturateRatio": stock_config["carbonSaturateRatio"],
+                "maxMovePct": stock_config["maxMovePct"],
+            }
             new_round, candle = _advance_round_flat(
-                stock, competition_id, stock_config["limitPct"]
+                stock, competition_id, stock_config["limitPct"], drift_data
             )
             return {
                 "stockId": stock.id,
@@ -1383,10 +1425,10 @@ def advance_one_stock(
                 "round": new_round,
                 "skipped": True,
                 "matched": False,
-                "finalPrice": stock.current_price,
+                "finalPrice": float(candle["close"]),
                 "pressure": 0.0,
-                "drift": 0.0,
-                "theoretical": float(stock.current_price),
+                "drift": drift_data["happiness"] * stock_config["happinessImpact"],
+                "theoretical": float(candle["close"]),
                 "buyQty": 0,
                 "sellQty": 0,
                 "buyAmount": 0,
@@ -1521,17 +1563,26 @@ def advance_one_stock(
         # 把 final 转 Decimal 用于后续 Decimal 化路径（candle 入库、K 线保存等）
         price["final"] = final_price
 
-        # 撮合不成交 → 平盘：价格不动，但轮次照常推进（round 全局同步），
-        # 生成平盘 K 线保证 K 线序列无空洞；旧轮未成交订单随轮次作废（与成交路径同规则）。
+        # 撮合不成交 → 趋势漂移：根据幸福度/碳排放计算价格漂移，
+        # 避免无成交时长期平盘；轮次照常推进，K 线序列无空洞。
         if not match["matched"]:
-            new_round, candle = _advance_round_flat(stock, competition_id, limit_pct)
+            drift_data = {
+                "happiness": float(effective_happiness(stock, field_map)),
+                "currentCarbon": float(effective_carbon(stock, field_map)),
+                "industryAvgCarbon": float(effective_industry_avg_carbon(stock, field_map)),
+                "happinessImpact": stock_config["happinessImpact"],
+                "carbonImpact": stock_config["carbonImpact"],
+                "carbonSaturateRatio": stock_config["carbonSaturateRatio"],
+                "maxMovePct": stock_config["maxMovePct"],
+            }
+            new_round, candle = _advance_round_flat(stock, competition_id, limit_pct, drift_data)
             return {
                 "stockId": stock.id,
                 "code": stock.code,
                 "round": new_round,
                 "skipped": True,
                 "matched": False,
-                "finalPrice": stock.current_price,
+                "finalPrice": float(candle["close"]),
                 "pressure": price["pressure"],
                 "drift": price["drift"],
                 "theoretical": price["theoretical"],
