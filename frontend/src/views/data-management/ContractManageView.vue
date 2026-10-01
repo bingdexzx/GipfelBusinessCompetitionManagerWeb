@@ -53,7 +53,14 @@
         </el-empty>
       </template>
       <el-table-column label="合同编号" min-width="220">
-        <template #default="{ row }">{{ contractNumbersText(row) }}</template>
+        <template #default="{ row }">
+          <div class="number-tags">
+            <template v-for="(num, idx) in getContractNumbers(row)" :key="idx">
+              <el-tag size="small" type="info">{{ num }}</el-tag>
+            </template>
+            <span v-if="getContractNumbers(row).length === 0" class="num-empty">未编号</span>
+          </div>
+        </template>
       </el-table-column>
       <el-table-column label="类型" min-width="200">
         <template #default="{ row }">{{ row.contractType?.name || "—" }}</template>
@@ -120,7 +127,14 @@
       :loading="loading"
       :row-key="(row: any) => row.id"
     >
-      <template #numbers="{ row }">{{ contractNumbersText(row) }}</template>
+      <template #numbers="{ row }">
+        <div class="number-tags">
+          <template v-for="(num, idx) in getContractNumbers(row)" :key="idx">
+            <el-tag size="small" type="info">{{ num }}</el-tag>
+          </template>
+          <span v-if="getContractNumbers(row).length === 0" class="num-empty">未编号</span>
+        </div>
+      </template>
       <template #type="{ row }">{{ row.contractType?.name || "—" }}</template>
       <template #status="{ row }">
         <el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
@@ -1365,6 +1379,14 @@ function contractNumbersText(row: any) {
   return nums.length ? nums.join("、") : "—";
 }
 
+function getContractNumbers(row: any): string[] {
+  const parties = parseJson(row?.parties, []);
+  return parties
+    .filter((p: any) => !p.isHost)
+    .map((p: any) => p.contractNumber)
+    .filter((n: any) => n != null && String(n).trim() !== "");
+}
+
 const filteredContracts = computed(() => {
   // 搜索过滤在当前页内进行，服务端已返回当前页数据
   return contracts.value;
@@ -2043,6 +2065,12 @@ function onPartyFilterChange() {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+.number-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
 }
 .party-box {
   display: inline-flex;
