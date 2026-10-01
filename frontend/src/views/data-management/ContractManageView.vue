@@ -700,18 +700,24 @@
     </el-dialog>
 
     <!-- 该产业不支持该合同：所选参与方公司产业缺少效果字段 -->
-    <el-dialog append-to-body v-model="showUnsupported" title="该产业不支持该合同" width="620px">
+    <el-dialog append-to-body v-model="showUnsupported" title="该产业不支持该合同" width="660px">
       <el-alert
         type="error"
         :closable="false"
         title="所选参与方公司所属产业缺少合同所需字段，无法创建该合同"
+        description="请确认公司已设置正确的产业类型，且该产业类型下包含合同效果引用的字段。如刚添加过字段，可点击下方「刷新数据重试」。"
       />
       <el-table v-if="!isPhone" :data="missingEffectFields" border size="small" style="margin-top: 12px">
-        <el-table-column label="参与方" width="140">
+        <el-table-column label="参与方" width="100">
           <template #default="{ row }">{{ partyLabel(row.party) }}</template>
         </el-table-column>
-        <el-table-column prop="companyName" label="公司" min-width="160" />
-        <el-table-column label="缺失字段" min-width="200">
+        <el-table-column prop="companyName" label="公司" min-width="120" />
+        <el-table-column label="所属产业类型" min-width="120">
+          <template #default="{ row }">
+            <span :class="{ 'text-red': !row.industryTypeId }">{{ row.industryTypeName }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="缺失字段" min-width="180">
           <template #default="{ row }">{{ row.fieldName }}（{{ row.fieldKey }}）</template>
         </el-table-column>
       </el-table>
@@ -719,11 +725,13 @@
         <div v-for="row in missingEffectFields" :key="row.companyName + row.fieldKey" class="dlg-card">
           <div class="dlg-row"><span>参与方</span><b>{{ partyLabel(row.party) }}</b></div>
           <div class="dlg-row"><span>公司</span><b>{{ row.companyName }}</b></div>
+          <div class="dlg-row"><span>所属产业类型</span><b :class="{ 'text-red': !row.industryTypeId }">{{ row.industryTypeName }}</b></div>
           <div class="dlg-row"><span>缺失字段</span><b>{{ row.fieldName }}（{{ row.fieldKey }}）</b></div>
         </div>
       </div>
       <template #footer>
-        <el-button type="primary" @click="showUnsupported = false">我知道了</el-button>
+        <el-button @click="showUnsupported = false">关闭</el-button>
+        <el-button type="warning" :loading="refreshingFields" @click="refreshAndRetry">刷新数据重试</el-button>
       </template>
     </el-dialog>
   </div>
@@ -900,6 +908,8 @@ const missingEffectFields = computed(() => {
     fieldKey: string;
     companyName: string;
     fieldName: string;
+    industryTypeId: number | null;
+    industryTypeName: string;
   }[] = [];
   // 构建用于评估效果树 IF 分支短路的上下文
   const ctx: FormConditionCtx = {
@@ -916,14 +926,17 @@ const missingEffectFields = computed(() => {
         if (!party || !fieldKey) continue;
         const companyId = (createForm.parties as Record<string, number>)[party];
         if (companyId == null) continue;
-        const industryTypeId = companyIndustryMap.value[companyId];
+        const industryTypeId = companyIndustryMap.value[companyId] ?? null;
         const set = industryTypeId != null ? industryFieldKeyMap.value.get(industryTypeId) : undefined;
         if (!set || !set.has(fieldKey)) {
+          const it = industryTypeId != null ? industryTypes.value.find((x: any) => x.id === industryTypeId) : null;
           out.push({
             party,
             fieldKey,
             companyName: companyName(companyId) || `公司#${companyId}`,
             fieldName: fieldNameOf(fieldKey),
+            industryTypeId,
+            industryTypeName: it?.name || (industryTypeId == null ? "（未设置产业类型）" : `产业类型#${industryTypeId}`),
           });
         }
       } else if (e.kind === "IF" && e.cond) {
@@ -953,6 +966,21 @@ function getPartyIndustry(role?: string): number | null | undefined {
   if (cid == null) return undefined;
   return companyIndustryMap.value[cid] ?? undefined;
 }
+// 刷新产业类型与公司数据后重新校验（解决新增字段后前端缓存未更新导致的误报）
+async function refreshAndRetry() {
+  refreshingFields.value = true;
+  try {
+    await Promise.all([loadIndustryTypes(), loadCompanies()]);
+    showUnsupported.value = missingEffectFields.value.length > 0;
+    if (!showUnsupported.value) {
+      ElMessage.success("数据已刷新，字段校验已通过");
+    }
+  } finally {
+    refreshingFields.value = false;
+  }
+}
+const refreshingFields = ref(false);
+
 // 输入项是否可见：无 branch → 始终可见；有 branch → 按 IF 条件实时求值显隐（fail-open 显示）。
 function isFieldVisible(field: any): boolean {
   const b = field?.branch;
@@ -1496,6 +1524,7 @@ async function loadCompanies() {
   }
   try {
     const res = await api.get("/companies", {
+      cache: false,
       params: {
         competitionId: compStore.competitionId,
         // 持有 contract:manage（可新建合同）时不限 viewCompanyScopes：
@@ -1953,6 +1982,16 @@ useResourceChanged("contracts", () => {
   loadContracts();
 });
 
+// 监听产业类型/字段变更：其他页面新增/修改字段后，本页的 industryFieldKeyMap 需同步更新，
+// 否则创建合同时 missingEffectFields 会因旧数据误报「字段不存在」。
+// 产业类型/字段是全局资源（competitionId=null），需用 scope:"global" 匹配。
+useResourceChanged("industry-types", () => {
+  loadIndustryTypes();
+}, { scope: "global" });
+useResourceChanged("industry-fields", () => {
+  loadIndustryTypes();
+}, { scope: "global" });
+
 // 搜索时重置到第一页
 watch(searchText, () => {
   currentPage.value = 1;
@@ -2247,5 +2286,8 @@ watch(searchText, () => {
 }
 .dlg-edit .el-button {
   margin: 0;
+}
+.text-red {
+  color: #f5483b;
 }
 </style>
