@@ -1284,9 +1284,7 @@ def _advance_round_flat(
     Stock.objects.filter(pk=stock.id).update(
         current_price=new_price, round=new_round
     )
-    # 轮次推进后处理旧轮订单：重新验证价格限制
-    # 如果价格仍在有效范围内，订单应保持有效（更新轮次）
-    # 如果价格超出限制，则撤销订单
+    # 轮次推进后处理旧轮订单：批量更新（避免逐个 save 的性能问题）
     from decimal import Decimal as D
     
     old_orders = StockOrder.objects.filter(
@@ -1298,27 +1296,30 @@ def _advance_round_flat(
     
     if old_orders.exists():
         # 获取当前价格和涨跌幅限制
-        current_price = stock.current_price
+        current_price = new_price
         upper_limit = current_price * (1 + D(str(limit_pct)))
         lower_limit = current_price * (1 - D(str(limit_pct)))
         
-        cancelled_count = 0
+        # 批量筛选需要撤销的订单（价格超出限制）
+        cancel_ids = []
+        keep_ids = []
         for order in old_orders:
-            # 检查订单价格是否仍在有效范围内
             order_price = D(str(order.price))
             if order_price < lower_limit or order_price > upper_limit:
-                # 价格超出限制，撤销订单
-                order.status = "CANCELLED"
-                order.save(update_fields=["status"])
-                cancelled_count += 1
+                cancel_ids.append(order.id)
             else:
-                # 价格仍在范围内，更新订单轮次保持有效
-                order.round = new_round
-                order.save(update_fields=["round"])
+                keep_ids.append(order.id)
         
-        if cancelled_count > 0:
+        # 批量撤销
+        if cancel_ids:
+            StockOrder.objects.filter(id__in=cancel_ids).update(status="CANCELLED")
             from apps.realtime.emit import emit_resource_changed
             emit_resource_changed("stock-orders", None, competition_id, "bulk")
+        
+        # 批量更新轮次
+        if keep_ids:
+            StockOrder.objects.filter(id__in=keep_ids).update(round=new_round)
+    
     return new_round, candle
 
 
@@ -1394,6 +1395,7 @@ def advance_one_stock(
         lower_limit = current_price * (1 - D(str(stock_config["limitPct"])))
         
         orders = []
+        cancel_ids = []
         for order in all_orders:
             if order.round == stock.round:
                 # 当前轮订单直接保留
@@ -1405,8 +1407,11 @@ def advance_one_stock(
                     orders.append(order)
                 else:
                     # 价格超出限制，标记为撤销
-                    order.status = "CANCELLED"
-                    order.save(update_fields=["status"])
+                    cancel_ids.append(order.id)
+        
+        # 批量撤销超出限制的订单
+        if cancel_ids:
+            StockOrder.objects.filter(id__in=cancel_ids).update(status="CANCELLED")
         # 无任何订单（做市商关闭且无玩家委托）→ 趋势漂移推进：
         # 即使无交易，股价也应随幸福度/碳排放自然波动，避免平盘。
         if not orders:
@@ -1932,15 +1937,27 @@ def advance_round(
             field_map = resolve_field_value_map(competition_id)
             # 一次性批量构建 PE 联动值映射，避免推进轮次时对每只股票逐一查库（H4）
             pb_value_map = _build_pb_value_map(stocks)
+            
+            # 批量获取每只股票的最近3根K线（避免 N+1 查询）
+            stock_ids_list = [s.id for s in stocks]
+            from django.db.models import Subquery, OuterRef
+            recent_candles_map: dict[int, list] = {sid: [] for sid in stock_ids_list}
+            if stock_ids_list:
+                # 获取每只股票最近3轮的K线
+                recent_candles = list(
+                    StockCandle.objects.filter(
+                        stock_id__in=stock_ids_list,
+                        competition_id=competition_id,
+                    ).order_by("stock_id", "-round")
+                )
+                for candle in recent_candles:
+                    if len(recent_candles_map[candle.stock_id]) < 3:
+                        recent_candles_map[candle.stock_id].append(candle)
+            
             with suppress_signals():
                 for stock in stocks:
                     apply_pb_round(stock, pb_value_map)
-                    recent = list(
-                        StockCandle.objects.filter(
-                            stock_id=stock.id, competition_id=competition_id
-                        )
-                        .order_by("-round")[:3]
-                    )
+                    recent = recent_candles_map.get(stock.id, [])
                     up = 0
                     down = 0
                     for c in recent:

@@ -439,17 +439,32 @@ async function reloadAccountData() {
 
 // 竞态保护：记录当前正在加载的股票ID
 let loadingCandlesForId: number | null = null;
+// K线缓存：每只股票的K线数据持久化保存在内存中
+const candlesCache = new Map<number, Candle[]>();
+// 记录每只股票已加载的最后一轮（用于增量查询）
+const lastLoadedRound = new Map<number, number>();
 
 async function loadCandles(id: number) {
   loadingCandlesForId = id;
   loadingCandles.value = true;
   try {
-    const res = await stockApi.candles(id);
+    // 检查缓存：如果有缓存数据，先显示缓存，再增量加载新数据
+    const cached = candlesCache.get(id);
+    const afterRound = cached && cached.length > 0 ? lastLoadedRound.get(id) : undefined;
+    
+    // 如果有缓存，先显示缓存数据
+    if (cached && cached.length > 0) {
+      candles.value = cached;
+      await nextTick();
+      drawChart();
+    }
+    
+    // 增量查询：获取新K线
+    const res = await stockApi.candles(id, afterRound);
     // 竞态检查：如果用户已经切换到其他股票，丢弃本次结果
     if (loadingCandlesForId !== id) return;
-    // 后端 Decimal 出站是字符串（大数精度保留），统一转数字：
-    // 否则 calcMA 的 sum += 会字符串拼接 → NaN → MA5/MA10/MA20 全部断线
-    candles.value = (res.candles || []).map((c: any) => ({
+    // 后端 Decimal 出站是字符串（大数精度保留），统一转数字
+    const newCandles = (res.candles || []).map((c: any) => ({
       ...c,
       open: Number(c.open),
       high: Number(c.high),
@@ -458,6 +473,31 @@ async function loadCandles(id: number) {
       changePct: Number(c.changePct ?? 0),
       volume: Number(c.volume ?? 0),
     }));
+    
+    if (newCandles.length > 0) {
+      if (afterRound) {
+        // 增量模式：追加新K线到缓存
+        const updated = [...(cached || []), ...newCandles];
+        candlesCache.set(id, updated);
+        candles.value = updated;
+      } else {
+        // 首次加载：全量写入缓存
+        candlesCache.set(id, newCandles);
+        candles.value = newCandles;
+      }
+    } else if (!afterRound) {
+      // 首次加载但无数据
+      candlesCache.set(id, newCandles);
+      candles.value = newCandles;
+    }
+    // 增量查询无新数据时保持缓存不变
+    
+    // 记录已加载的最后一轮
+    if (candles.value.length > 0) {
+      const maxRound = Math.max(...candles.value.map(c => c.round));
+      lastLoadedRound.set(id, maxRound);
+    }
+    
     await nextTick();
     drawChart();
   } finally {
@@ -547,7 +587,7 @@ function selectStock(id: number) {
   selectedStockId.value = id;
   const s = stocks.value.find((x) => x.id === id);
   if (s) trade.value.price = s.currentPrice;
-  // 清空旧K线数据，防止切换股票时quoteStats显示混合数据
+  // 切换股票时：先清空当前显示，然后加载（优先使用缓存）
   candles.value = [];
   loadCandles(id);
   reloadAccountData();

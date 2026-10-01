@@ -433,7 +433,11 @@ class ItemView(APIView):
 
 
 class CandlesView(APIView):
-    """GET /stocks/:id/candles — K 线列表。"""
+    """GET /stocks/:id/candles — K 线列表（支持增量查询）。
+
+    查询参数：
+    - afterRound: 仅返回该轮次之后的K线（增量加载，历史数据不变无需重复拉取）
+    """
 
     permission_classes = _PERM_CLASSES
 
@@ -441,7 +445,18 @@ class CandlesView(APIView):
     def get(self, request, pk):
         # 租户隔离修复（C3）：复用 _get_stock_scoped，非超管只能读取自己所属比赛的股票 K 线
         stock = _get_stock_scoped(pk, request)
-        candles = StockCandle.objects.filter(stock_id=pk, competition_id=stock.competition_id).order_by("round")
+        qs = StockCandle.objects.filter(stock_id=pk, competition_id=stock.competition_id)
+        
+        # 增量查询：仅获取指定轮次之后的K线
+        after_round = request.query_params.get("afterRound")
+        if after_round:
+            try:
+                after_round = int(after_round)
+                qs = qs.filter(round__gt=after_round)
+            except (TypeError, ValueError):
+                pass
+        
+        candles = qs.order_by("round")
         result = [
             {
                 "id": c.id,

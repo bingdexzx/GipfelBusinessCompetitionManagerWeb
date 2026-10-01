@@ -404,7 +404,12 @@ export const stockApi = {
     return api.get("/stocks", { params, cache: false });
   },
   get: (id: number) => api.get(`/stocks/${id}`),
-  candles: (id: number) => api.get(`/stocks/${id}/candles`, { cache: false }),
+  /** K线数据：支持增量查询，afterRound 为上次加载的最后一轮，仅返回新K线 */
+  candles: (id: number, afterRound?: number) => {
+    const params: Record<string, unknown> = {};
+    if (afterRound != null) params.afterRound = afterRound;
+    return api.get(`/stocks/${id}/candles`, { params, cache: false });
+  },
   /** PB 联动下拉数据源：返回比赛内公司及其可绑定的数值型产业字段（cache:false 避免过期）。 */
   pbSources: (competitionId?: number) => {
     const params: Record<string, unknown> = {};
