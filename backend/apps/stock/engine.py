@@ -1250,10 +1250,13 @@ def _advance_round_flat(
             drift_data["carbonSaturateRatio"],
         )
         max_move = drift_data["maxMovePct"]
-        # 添加随机性：漂移方向确定，幅度有 ±50% 随机波动
-        drift_with_noise = drift * (1 + random.uniform(-0.5, 0.5))
-        # 计算新价格（仅应用漂移，无买压）
-        theoretical = float(old_price) * (1 + drift_with_noise * max_move)
+        # 趋势漂移：drift 方向确定，幅度有 ±50% 随机波动
+        trend_drift = drift * (1 + random.uniform(-0.5, 0.5))
+        # 基础随机波动：直接作用于价格，±0.3% ~ ±1.5%（模拟市场微观噪声）
+        # 不乘以 maxMovePct，确保即使 drift 接近 0 也有明显波动
+        base_noise_pct = random.uniform(-0.015, 0.015)
+        # 计算新价格：趋势漂移（通过 maxMovePct 缩放）+ 基础噪声（直接作用）
+        theoretical = float(old_price) * (1 + trend_drift * max_move + base_noise_pct)
         # 限幅
         upper = float(old_price) * (1 + limit_pct)
         lower = float(old_price) * (1 - limit_pct)
