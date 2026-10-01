@@ -1370,37 +1370,26 @@ const filteredContracts = computed(() => {
   return contracts.value;
 });
 
-// 当前用户是否可操作合同（新建/执行/审核任一），用于空态引导展示
+// 当前用户是否可操作合同（管理员/超管），用于空态引导展示
 const canOperateContracts = computed(
-  () => authStore.can("contract:manage") || authStore.canAny(["contract:execute", "contract:audit"]),
+  () => authStore.user?.role === "SUPER_ADMIN" || authStore.user?.role === "COMPETITION_ADMIN",
 );
 // 列表中是否存在草稿（决定「暂无草稿可执行」引导是否出现）
 const hasDraft = computed(() => contracts.value.some((c: any) => c.status === "DRAFT"));
 
-// 当前账号对某合同是否具备执行资格（与后端 _assert_execute_scope 对齐）。
-// 超管恒可；其余账号须持有 execute/audit/manage 任一合同权限，且合同的
-// 最后一方参与公司必须在其公司管理范围（companyScopes）内——无该公司
-// 管理权的账号（即使持比赛级 contract:execute）不展示、不可点击执行按钮。
+// 仅管理员/超管可执行合同
 function canExecuteRow(row: any): boolean {
-  if (authStore.isSuperAdmin) return true;
-  if (!authStore.canAny(["contract:execute", "contract:audit", "contract:manage"])) return false;
-  const parties = parseJson(row.parties, []);
-  const real = parties.filter((p: any) => !p.isHost && typeof p.companyId === "number");
-  const lastCo = real.length ? real[real.length - 1].companyId : null;
-  if (lastCo == null) return false;
-  const scopes = authStore.user?.companyScopes ?? [];
-  return scopes.includes(lastCo);
+  const u = authStore.user;
+  if (!u) return false;
+  return u.role === "SUPER_ADMIN" || u.role === "COMPETITION_ADMIN";
 }
 
-// 执行按钮状态（与后端 _assert_execute_scope 保持一致）：
-// - 无 execute/audit/manage 任一合同权限 → 禁用（权限不足）
+// 执行按钮状态：
+// - 选手 → 禁用（无权限）
 // - 已执行/已终止 → 禁用（状态原因）
-// - 超管外一律要求「合同最后一方参与公司在其公司管理范围（companyScopes）内」：
-//   即使持比赛级 contract:execute，没有该公司的管理权也不可执行。
-//   按钮可见性由 canExecuteRow 控制（无公司管理权直接不展示）。
 function executeBtnState(row: any): { disabled: boolean; title: string } {
-  if (!authStore.canAny(["contract:execute", "contract:audit", "contract:manage"])) {
-    return { disabled: true, title: "无合同执行权限" };
+  if (!canExecuteRow(row)) {
+    return { disabled: true, title: "仅管理员可执行合同" };
   }
   if (row.status === "EXECUTED" || row.status === "TERMINATED") {
     return {
@@ -1411,12 +1400,9 @@ function executeBtnState(row: any): { disabled: boolean; title: string } {
           : "合同已终止",
     };
   }
-  if (!canExecuteRow(row)) {
-    return { disabled: true, title: "仅具有合同参与公司管理权的账号可执行" };
-  }
   const tip =
     row.status === "PENDING_EXEC"
-      ? "所有参与方编号已齐全，等待最后一方(乙方/丙方)执行落账"
+      ? "所有参与方编号已齐全，等待执行落账"
       : "参与方编号齐备后可执行落账";
   return { disabled: false, title: tip };
 }
@@ -1768,19 +1754,11 @@ function openDetail(row: any) {
 // - 仅 contract:audit → 仅其 companyScopes 范围内公司的参与方可编辑。
 function canEditParty(row: any): boolean {
   if (row.isHost) return false;
-  if (detailRow.value?.status !== "DRAFT") return false;
   const u = authStore.user;
   if (!u) return false;
-  const perms: string[] = u.permissions || [];
-  const isSuper = u.role === "SUPER_ADMIN";
-  const canManage = isSuper || perms.includes("contract:manage");
-  const canExecute = isSuper || perms.includes("contract:execute");
-  const canAudit = perms.includes("contract:audit");
-  if (canManage || canExecute) return true;
-  if (canAudit) {
-    const scopes: number[] = u.companyScopes || [];
-    return scopes.includes(row.companyId);
-  }
+  // 管理员/超管：不限合同状态，随时可编辑
+  if (u.role === "SUPER_ADMIN" || u.role === "COMPETITION_ADMIN") return true;
+  // 选手：不可编辑合同编号
   return false;
 }
 
@@ -1837,8 +1815,10 @@ async function saveInputs() {
 
 // 列表「执行」：所有非主办方编号齐全后落账；不齐则后端报错提示具体角色
 async function executeContract(row: any) {
-  if (!authStore.canAny(["contract:execute", "contract:audit"])) {
-    ElMessage.warning("无权执行合同");
+  // 仅管理员/超管可执行合同
+  const u = authStore.user;
+  if (!u || (u.role !== "SUPER_ADMIN" && u.role !== "COMPETITION_ADMIN")) {
+    ElMessage.warning("仅管理员可执行合同");
     return;
   }
   if (row.status === "EXECUTED" || row.status === "TERMINATED") {

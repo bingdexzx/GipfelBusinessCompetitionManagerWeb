@@ -349,16 +349,17 @@ class ContractExecuteAPIView(APIView):
 
     permission_classes = _PERM_CLASSES
 
-    @require_permissions(_CONTRACT_AUDIT_PERM)
     def post(self, request, pk):
+        # 仅管理员/超管可执行合同
+        user_role = getattr(request.user, "role", None)
+        if user_role not in ("SUPER_ADMIN", "COMPETITION_ADMIN"):
+            raise BusinessError("仅管理员可执行合同", code=403, status_code=403)
+
         contract = _get_contract(pk, request.user)
         if contract.status == "EXECUTED":
             raise BusinessError("合同已执行，不可重复执行", code=400, status_code=400)
         if contract.status == "TERMINATED":
             raise BusinessError("合同已终止，不可再次执行", code=400, status_code=400)
-
-        # 执行方范围校验（会签模型核心）
-        _assert_execute_scope(request.user, contract)
 
         # 编号分步补全：执行前校验所有非主办方参与方均已填写编号
         parties = parse_json_array(contract.parties)
@@ -447,11 +448,13 @@ class ContractPartyNumbersAPIView(APIView):
 
     permission_classes = _PERM_CLASSES
 
-    @require_permissions(_CONTRACT_AUDIT_PERM)
     def patch(self, request, pk):
+        # 仅管理员/超管可修改合同编号
+        user_role = getattr(request.user, "role", None)
+        if user_role not in ("SUPER_ADMIN", "COMPETITION_ADMIN"):
+            raise BusinessError("仅管理员可修改合同编号", code=403, status_code=403)
+
         contract = _get_contract(pk, request.user)
-        if contract.status == "EXECUTED":
-            raise BusinessError("合同已执行，编号不可再修改", code=400, status_code=400)
 
         party_numbers = request.data.get("partyNumbers") if isinstance(request.data, dict) else None
         if not isinstance(party_numbers, dict):
@@ -469,12 +472,10 @@ class ContractPartyNumbersAPIView(APIView):
             role = p.get("role")
             if role not in party_numbers:
                 continue
-            # 权限隔离：只能改自己审核范围内公司的编号
-            _assert_edit_party_scope(request.user, p.get("companyId"), role)
             v = party_numbers[role]
             p["contractNumber"] = v if (v is not None and str(v).strip()) else None
 
-        # 自动升降 PENDING_EXEC
+        # 自动升降 PENDING_EXEC（仅 DRAFT/PENDING_EXEC 状态）
         new_status = contract.status
         if contract.status in ("DRAFT", "PENDING_EXEC"):
             selectable = [p for p in parties if isinstance(p, dict) and not p.get("isHost")]
