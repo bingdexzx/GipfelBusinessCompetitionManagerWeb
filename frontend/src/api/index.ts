@@ -51,8 +51,9 @@ export default api;
 export const authApi = {
   login: (data: { username: string; password: string }) => api.post("/auth/login", data),
   getProfile: () => api.get("/auth/me"),
+  /** 改密接口：bcrypt 计算耗时较长，延长超时至 2 分钟 */
   changePassword: (data: { oldPassword: string; newPassword: string }) =>
-    api.post("/auth/change-password", data),
+    api.post("/auth/change-password", data, { timeout: 120000 }),
 };
 
 export const usersApi = {
