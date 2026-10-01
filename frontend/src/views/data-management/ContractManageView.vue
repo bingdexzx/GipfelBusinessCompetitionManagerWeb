@@ -160,7 +160,7 @@
         <span>条</span>
       </div>
       <el-pagination
-        v-if="totalContracts > pageSize"
+        v-if="totalContracts > 0"
         v-model:current-page="currentPage"
         :page-size="pageSize"
         :total="totalContracts"
@@ -767,7 +767,7 @@ const searchText = ref("");
 const submitting = ref(false);
 
 // 分页状态
-const pageSizeOptions = [10, 20, 50, 100];
+const pageSizeOptions = [10, 20, 50, 100, 200];
 const pageSize = ref(20);
 const currentPage = ref(1);
 const totalContracts = ref(0);

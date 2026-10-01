@@ -68,7 +68,7 @@
             <span>条</span>
           </div>
           <el-pagination
-            v-if="systemTotal > pageSize"
+            v-if="systemTotal > 0"
             v-model:current-page="systemPage"
             :page-size="pageSize"
             :total="systemTotal"
@@ -140,7 +140,7 @@
               <span>条</span>
             </div>
             <el-pagination
-              v-if="competitionTotal > pageSize"
+              v-if="competitionTotal > 0"
               v-model:current-page="competitionPage"
               :page-size="pageSize"
               :total="competitionTotal"
@@ -261,7 +261,7 @@ const competitionUsers = ref<UserItem[]>([]);
 const loadingUsers = ref(false);
 
 // 分页状态
-const pageSizeOptions = [10, 20, 50, 100];
+const pageSizeOptions = [10, 20, 50, 100, 200];
 const pageSize = ref(20);
 const systemPage = ref(1);
 const systemTotal = ref(0);
