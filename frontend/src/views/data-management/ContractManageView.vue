@@ -152,21 +152,19 @@
     </MobileCards>
 
     <div class="pager" v-if="totalContracts > 0">
-      <div class="pager-size">
-        <span>每页显示</span>
-        <el-select v-model="pageSize" style="width: 70px" @change="handlePageSizeChange">
-          <el-option v-for="s in pageSizeOptions" :key="s" :label="s" :value="s" />
-        </el-select>
-        <span>条</span>
+      <div class="pager-info">
+        <span class="pager-text">共 {{ totalContracts }} 条</span>
       </div>
       <el-pagination
         v-if="totalContracts > 0"
         v-model:current-page="currentPage"
-        :page-size="pageSize"
+        v-model:page-size="pageSize"
         :total="totalContracts"
-        layout="prev, pager, next, total"
+        layout="prev, pager, next, sizes"
         :pager-count="isPhone ? 5 : 9"
+        :page-sizes="pageSizeOptions"
         @current-change="handlePageChange"
+        @size-change="handlePageSizeChange"
       />
     </div>
 
@@ -768,7 +766,7 @@ const submitting = ref(false);
 
 // 分页状态
 const pageSizeOptions = [10, 20, 50, 100, 200];
-const pageSize = ref(20);
+const pageSize = ref(100);
 const currentPage = ref(1);
 const totalContracts = ref(0);
 
@@ -1449,7 +1447,8 @@ function handlePageChange(page: number) {
 }
 
 /** 切换每页显示条数 */
-function handlePageSizeChange() {
+function handlePageSizeChange(val: number) {
+  pageSize.value = val;
   currentPage.value = 1;
   loadContracts();
 }
@@ -2162,10 +2161,12 @@ watch(searchText, () => {
   flex-wrap: wrap;
   gap: 12px;
 }
-.pager-size {
+.pager-info {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.pager-text {
   font-size: 13px;
   color: #606266;
 }
