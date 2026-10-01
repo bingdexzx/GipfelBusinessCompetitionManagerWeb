@@ -57,13 +57,15 @@ export const authApi = {
 };
 
 export const usersApi = {
+  /** 用户列表（分页）。
+   *  normalize:false 保留 {items,total} 分页对象——页面需要 total 展示分页。 */
   list: (params?: { page?: number; pageSize?: number; competitionId?: number | string }) => {
     const query: Record<string, unknown> = {
       page: params?.page ?? 1,
       pageSize: params?.pageSize ?? 20,
     };
     if (params?.competitionId !== undefined) query.competitionId = params.competitionId;
-    return api.get("/users", { params: query });
+    return api.get("/users", { params: query, cache: false, normalize: false });
   },
   get: (id: number) => api.get(`/users/${id}`),
   create: (data: CreateUserInput | Record<string, unknown>) => api.post("/users", data),
