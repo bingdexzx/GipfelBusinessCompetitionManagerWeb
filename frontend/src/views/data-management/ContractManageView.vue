@@ -55,10 +55,10 @@
       <el-table-column label="合同编号" min-width="220">
         <template #default="{ row }">
           <div class="number-tags">
-            <template v-for="(num, idx) in getContractNumbers(row)" :key="idx">
-              <el-tag size="small" type="info">{{ num }}</el-tag>
+            <template v-for="(item, idx) in getContractNumberItems(row)" :key="idx">
+              <el-tag size="small" :type="item.isMyCompany ? 'primary' : 'info'">{{ item.number }}</el-tag>
             </template>
-            <span v-if="getContractNumbers(row).length === 0" class="num-empty">未编号</span>
+            <span v-if="getContractNumberItems(row).length === 0" class="num-empty">未编号</span>
           </div>
         </template>
       </el-table-column>
@@ -129,10 +129,10 @@
     >
       <template #numbers="{ row }">
         <div class="number-tags">
-          <template v-for="(num, idx) in getContractNumbers(row)" :key="idx">
-            <el-tag size="small" type="info">{{ num }}</el-tag>
+          <template v-for="(item, idx) in getContractNumberItems(row)" :key="idx">
+            <el-tag size="small" :type="item.isMyCompany ? 'primary' : 'info'">{{ item.number }}</el-tag>
           </template>
-          <span v-if="getContractNumbers(row).length === 0" class="num-empty">未编号</span>
+          <span v-if="getContractNumberItems(row).length === 0" class="num-empty">未编号</span>
         </div>
       </template>
       <template #type="{ row }">{{ row.contractType?.name || "—" }}</template>
@@ -1385,6 +1385,29 @@ function getContractNumbers(row: any): string[] {
     .filter((p: any) => !p.isHost)
     .map((p: any) => p.contractNumber)
     .filter((n: any) => n != null && String(n).trim() !== "");
+}
+
+// 获取当前用户管理的公司ID列表
+const myCompanyIds = computed(() => {
+  const u = authStore.user;
+  if (!u) return new Set<number>();
+  // 合并所有范围中的公司ID
+  const ids = new Set<number>();
+  (u.companyScopes || []).forEach(id => ids.add(id));
+  (u.viewCompanyScopes || []).forEach(id => ids.add(id));
+  (u.stockCompanyScopes || []).forEach(id => ids.add(id));
+  return ids;
+});
+
+function getContractNumberItems(row: any): { number: string; isMyCompany: boolean }[] {
+  const parties = parseJson(row?.parties, []);
+  return parties
+    .filter((p: any) => !p.isHost)
+    .filter((p: any) => p.contractNumber != null && String(p.contractNumber).trim() !== "")
+    .map((p: any) => ({
+      number: p.contractNumber,
+      isMyCompany: myCompanyIds.value.has(p.companyId),
+    }));
 }
 
 const filteredContracts = computed(() => {
