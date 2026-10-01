@@ -454,6 +454,7 @@ interface Account {
   ownerType: string;
   companyId: number | null;
   userId: number | null;
+  userName?: string | null;
   cashBalance: number;
   // 以下为后端 _serialize_account(with_field_balance=True) 返回
   bindFieldId?: number | null;
@@ -490,6 +491,7 @@ interface AccountOverview {
   companyId: number | null;
   companyName: string | null;
   userId: number | null;
+  userName?: string | null;
   cashBalance: number;
   holdings: OverviewHolding[];
   holdingsMarketValue: number;
