@@ -7,8 +7,9 @@
 #   2. 修改下方数据库密码配置
 #   3. 在项目根目录执行: bash deploy/migrate-to-postgresql.sh
 #
-# 作者：MiMo
-# 版本：v1.1
+# 版本：v2.0
+#   - 改为写入 .env 文件（settings.py 通过 os.environ 读取）
+#   - 保留已有的 JWT_SECRET / SECRET_KEY 等敏感配置
 # ============================================================
 
 set -e
@@ -109,6 +110,12 @@ success "SQLite 备份完成: db.sqlite3.backup.$TIMESTAMP"
 cp "$BACKEND_DIR/backend/settings.py" "$BACKUP_DIR/settings.py.backup.$TIMESTAMP"
 success "配置文件备份完成: settings.py.backup.$TIMESTAMP"
 
+# 备份 .env
+if [ -f "$BACKEND_DIR/backend/.env" ]; then
+    cp "$BACKEND_DIR/backend/.env" "$BACKUP_DIR/.env.backup.$TIMESTAMP"
+    success ".env 备份完成: .env.backup.$TIMESTAMP"
+fi
+
 # 导出数据
 cd "$BACKEND_DIR"
 if [ -d ".venv" ]; then
@@ -160,48 +167,60 @@ pip install psycopg2-binary -q
 success "安装 psycopg2 完成"
 echo ""
 
-# ==================== 5. 修改配置 ====================
-info "修改 Django 配置..."
+# ==================== 5. 写入 .env 配置 ====================
+info "写入 .env 配置..."
 
-# 使用 Python 修改配置文件
-python3 << EOF
-import re
+ENV_FILE="$BACKEND_DIR/backend/.env"
 
-settings_file = '$BACKEND_DIR/backend/settings.py'
+# 保留已有的 JWT_SECRET / SECRET_KEY / LOGVIEWER_SECRET_KEY 等敏感配置
+EXISTING_JWT=""
+EXISTING_SECRET=""
+EXISTING_LVKEY=""
+if [ -f "$ENV_FILE" ]; then
+    EXISTING_JWT=$(grep "^JWT_SECRET=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- || echo "")
+    EXISTING_SECRET=$(grep "^SECRET_KEY=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- || echo "")
+    EXISTING_LVKEY=$(grep "^LOGVIEWER_SECRET_KEY=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- || echo "")
+fi
 
-with open(settings_file, 'r') as f:
-    content = f.read()
+# 生成密钥（仅当不存在时）
+if [ -z "$EXISTING_JWT" ]; then
+    EXISTING_JWT=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))")
+fi
+if [ -z "$EXISTING_SECRET" ]; then
+    EXISTING_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))")
+fi
+if [ -z "$EXISTING_LVKEY" ]; then
+    EXISTING_LVKEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))")
+fi
 
-# 新的数据库配置
-new_db_config = '''# ==================== 数据库 ====================
-# PostgreSQL 配置
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": "$DB_NAME",
-        "USER": "$DB_USER",
-        "PASSWORD": "$DB_PASSWORD",
-        "HOST": "$DB_HOST",
-        "PORT": "$DB_PORT",
-        "OPTIONS": {
-            "connect_timeout": 10,
-            "options": "-c statement_timeout=30000",
-        },
-        "CONN_MAX_AGE": 600,
-    }
-}'''
+# 写入 .env（settings.py 通过 os.environ 读取 DB_ENGINE 等变量）
+cat > "$ENV_FILE" << ENVEOF
+# ============================================================
+# Gipfel 后端配置（由 migrate-to-postgresql.sh 自动生成）
+# ============================================================
 
-# 替换数据库配置
-pattern = r'# ==================== 数据库 ====================.*?(?=# ==================== [^=])'
-content = re.sub(pattern, new_db_config.strip(), content, flags=re.DOTALL)
+# PostgreSQL 数据库配置
+DB_ENGINE=django.db.backends.postgresql
+DB_NAME=$DB_NAME
+DB_USER=$DB_USER
+DB_PASSWORD=$DB_PASSWORD
+DB_HOST=$DB_HOST
+DB_PORT=$DB_PORT
 
-with open(settings_file, 'w') as f:
-    f.write(content)
+# Django 配置
+DEBUG=False
+SECRET_KEY=$EXISTING_SECRET
+JWT_SECRET=$EXISTING_JWT
+LOGVIEWER_SECRET_KEY=$EXISTING_LVKEY
+ALLOWED_HOSTS=localhost,127.0.0.1
 
-print("配置更新完成")
-EOF
+# 路径
+MEDIA_ROOT=$BACKEND_DIR/media
+STATIC_ROOT=$BACKEND_DIR/static
+ENVEOF
 
-success "Django 配置更新完成"
+chmod 600 "$ENV_FILE"
+success ".env 配置已写入（PostgreSQL）"
 echo ""
 
 # ==================== 6. 运行迁移 ====================
@@ -211,6 +230,11 @@ cd "$BACKEND_DIR"
 if [ -d ".venv" ]; then
     source .venv/bin/activate
 fi
+
+# 加载 .env 环境变量（settings.py 从 os.environ 读取）
+set -a
+source "$ENV_FILE" 2>/dev/null
+set +a
 
 python manage.py migrate --noinput
 success "数据库迁移完成"
@@ -334,11 +358,13 @@ echo "备份位置: $BACKUP_DIR/"
 echo "  - SQLite: db.sqlite3.backup.$TIMESTAMP"
 echo "  - 数据: data_export_$TIMESTAMP.json"
 echo "  - 配置: settings.py.backup.$TIMESTAMP"
+echo "  - .env:  .env.backup.$TIMESTAMP"
 echo ""
 echo "数据库信息:"
 echo "  - 主机: $DB_HOST:$DB_PORT"
 echo "  - 数据库: $DB_NAME"
 echo "  - 用户: $DB_USER"
+echo "  - 配置: $ENV_FILE"
 echo ""
 echo "下一步:"
 echo "  1. 测试 API: curl http://127.0.0.1:8000/api/health"
@@ -346,5 +372,6 @@ echo "  2. 压测验证: 使用本地 stress-test.bat"
 echo ""
 echo "如需回滚:"
 echo "  cp $BACKUP_DIR/settings.py.backup.$TIMESTAMP $BACKEND_DIR/backend/settings.py"
+echo "  cp $BACKUP_DIR/.env.backup.$TIMESTAMP $BACKEND_DIR/backend/.env"
 echo "  systemctl restart nginx"
 echo "============================================================"
