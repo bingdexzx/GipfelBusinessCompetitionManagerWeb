@@ -228,6 +228,14 @@ elif [[ -n "$SOURCE_DIR" && -d "$SOURCE_DIR/.git" ]]; then
     rsync -a --delete "$SOURCE_DIR/deploy/"   "$INSTALL_DIR/deploy/"
     # scripts/ 也同步：否则服务器上永远跑旧版更新脚本（masked 自愈等修复无法生效）
     rsync -a --delete "$SOURCE_DIR/scripts/"  "$INSTALL_DIR/scripts/"
+    # ★ 自更新（模式 B）：本模式此前**没有** re-exec，导致「脚本刚被 pull 更新，
+    #   但当前进程仍按旧逻辑跑完整个流程」——修复看似无效的根因。
+    #   这里改用刚同步到 INSTALL_DIR 的新版本重新执行；哨兵防无限递归。
+    if [[ -z "${GIPFEL_UPDATE_REEXEC:-}" && -s "$INSTALL_DIR/scripts/update-from-github.sh" ]]; then
+        export GIPFEL_UPDATE_REEXEC=1
+        log "更新脚本已同步，改用最新版本重新执行"
+        exec bash "$INSTALL_DIR/scripts/update-from-github.sh" "$@"
+    fi
 elif [[ -n "$REPO" ]]; then
     # 模式 C：克隆到 INSTALL_DIR（要求目录为空）
     if [[ -e "$INSTALL_DIR" && -n "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]]; then
@@ -289,26 +297,35 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
     warn "默认管理员密码已自动生成，请查看 .env 中的 SEED_ADMIN_PASSWORD（首次登录后强制修改）"
 fi
 
-# ---------------- PostgreSQL 数据库配置自愈 ----------------
-# 如果 .env 缺少 DB_ENGINE=postgresql，自动写入（保留已有的 JWT_SECRET 等）。
-_PG_NAME="gipfel"; _PG_USER="gipfel"
-# 优先从 .env 读已有密码（之前迁移脚本可能写过），没有则用默认值
-_PG_PASS="$(grep -E '^DB_PASSWORD=' "$INSTALL_DIR/backend/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)"
-if [[ -z "$_PG_PASS" ]]; then _PG_PASS="CHANGE_ME_TO_STRONG_PASSWORD"; fi
-_PG_HOST="localhost"; _PG_PORT="5432"
-if ! grep -q "DB_ENGINE=django.db.backends.postgresql" "$INSTALL_DIR/backend/.env" 2>/dev/null; then
-    log ".env 缺少 PostgreSQL 配置，正在写入..."
-    systemctl start postgresql 2>/dev/null || true
-    systemctl enable postgresql 2>/dev/null || true
-    sleep 1
-    # 创建数据库和用户（幂等），并强制同步密码（防止 .env 与 PostgreSQL 密码不一致）
-    sudo -u postgres psql -c "CREATE DATABASE $_PG_NAME;" 2>/dev/null || true
-    sudo -u postgres psql -c "CREATE USER $_PG_USER WITH PASSWORD '$_PG_PASS';" 2>/dev/null || true
-    sudo -u postgres psql -c "ALTER USER $_PG_USER WITH PASSWORD '$_PG_PASS';" 2>/dev/null || true
-    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $_PG_NAME TO $_PG_USER;" 2>/dev/null || true
-    sudo -u postgres psql -c "ALTER USER $_PG_USER CREATEDB;" 2>/dev/null || true
-    sudo -u postgres psql -c "ALTER DATABASE $_PG_NAME OWNER TO $_PG_USER;" 2>/dev/null || true
-    # 写入 .env（追加，不覆盖已有配置）
+# ---------------- PostgreSQL 数据库配置自愈（幂等重写 + 实测校验） ----------------
+# 历史上两类故障在此根治：
+#   ① .env 的 DB_PASSWORD 与角色实际密码不一致 → migrate 报 password authentication failed；
+#   ② 盲目「追加」DB_* 行 → .env 出现重复/错行，python-dotenv 报 could not parse statement。
+# 做法：先把 DB_* 旧行全部删除再写入唯一一段，然后用 psql 以 Django 相同的方式实测；
+#      校验失败则自动轮换强随机密码并复核，绝不带着坏凭据继续往下跑。
+_PG_NAME="gipfel"; _PG_USER="gipfel"; _PG_HOST="127.0.0.1"; _PG_PORT="5432"
+_PG_ENV="$INSTALL_DIR/backend/.env"
+
+[[ -f "$_PG_ENV" ]] || touch "$_PG_ENV"
+
+# 行尾规范化：CRLF 的 \r 会污染取值并让 python-dotenv 解析失败
+if grep -q $'\r' "$_PG_ENV" 2>/dev/null; then
+    sed -i 's/\r$//' "$_PG_ENV"
+    log ".env 含 CRLF 行尾，已规范化为 LF"
+fi
+
+systemctl start postgresql 2>/dev/null || true
+systemctl enable postgresql 2>/dev/null || true
+sleep 1
+
+# 沿用 .env 中已有密码（取最后一条，避免重复行歧义）；没有则用默认值
+_PG_PASS="$(grep -E '^DB_PASSWORD=' "$_PG_ENV" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' || true)"
+[[ -z "$_PG_PASS" ]] && _PG_PASS="CHANGE_ME_TO_STRONG_PASSWORD"
+
+# 幂等重写 DB_* 段：删旧行 → 追加唯一一段（消除重复与错行）
+_rewrite_db_block() {
+    sed -i -E '/^[[:space:]]*DB_(ENGINE|NAME|USER|PASSWORD|HOST|PORT)=/d' "$_PG_ENV" 2>/dev/null || true
+    sed -i '/# PostgreSQL 数据库配置（由 update-from-github.sh 自动写入）/d' "$_PG_ENV" 2>/dev/null || true
     {
         echo ""
         echo "# PostgreSQL 数据库配置（由 update-from-github.sh 自动写入）"
@@ -318,32 +335,76 @@ if ! grep -q "DB_ENGINE=django.db.backends.postgresql" "$INSTALL_DIR/backend/.en
         echo "DB_PASSWORD=$_PG_PASS"
         echo "DB_HOST=$_PG_HOST"
         echo "DB_PORT=$_PG_PORT"
-    } >> "$INSTALL_DIR/backend/.env"
-    ok "PostgreSQL 配置已写入 .env"
-    # 如果存在 SQLite 数据库，自动迁移
-    if [[ -f "$INSTALL_DIR/backend/db.sqlite3" ]]; then
-        log "检测到 SQLite 数据库，自动迁移数据到 PostgreSQL..."
-        # 导出数据
-        _pg_backup="$INSTALL_DIR/_backup/pg_migration_$(date +%F_%H%M%S)"
-        mkdir -p "$_pg_backup"
-        cp "$INSTALL_DIR/backend/db.sqlite3" "$_pg_backup/db.sqlite3"
-        # 先跑 migrate 建表，再 loaddata 导入
-        set -a; source "$INSTALL_DIR/backend/.env" 2>/dev/null; set +a
-        "$INSTALL_DIR/backend/.venv/bin/python" manage.py migrate --noinput 2>/dev/null || true
-        "$INSTALL_DIR/backend/.venv/bin/python" manage.py dumpdata --indent 2 > "$_pg_backup/data.json" 2>/dev/null || true
-        "$INSTALL_DIR/backend/.venv/bin/python" manage.py loaddata "$_pg_backup/data.json" 2>/dev/null || {
+    } >> "$_PG_ENV"
+}
+
+# 以 TCP 实测凭据——host/port 与 Django 完全一致，避免 ::1 与 127.0.0.1 认证策略差异
+_verify_pg() {
+    PGPASSWORD="$1" psql -h "$_PG_HOST" -p "$_PG_PORT" -U "$_PG_USER" -d "$_PG_NAME" -tAc 'SELECT 1' >/dev/null 2>&1
+}
+
+# 建库/建角色（幂等）
+sudo -u postgres psql -c "CREATE DATABASE $_PG_NAME;" 2>/dev/null || true
+sudo -u postgres psql -c "CREATE USER $_PG_USER WITH PASSWORD '$_PG_PASS';" 2>/dev/null || true
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $_PG_NAME TO $_PG_USER;" 2>/dev/null || true
+sudo -u postgres psql -c "ALTER USER $_PG_USER CREATEDB;" 2>/dev/null || true
+sudo -u postgres psql -c "ALTER DATABASE $_PG_NAME OWNER TO $_PG_USER;" 2>/dev/null || true
+
+# 第一轮：把 .env 里的密码强制写回角色（以 .env 为唯一真源），再实测
+sudo -u postgres psql -c "ALTER USER $_PG_USER WITH PASSWORD '$_PG_PASS';" >/dev/null 2>&1 || true
+_rewrite_db_block
+if _verify_pg "$_PG_PASS"; then
+    ok "PostgreSQL 凭据校验通过（$_PG_USER@$_PG_HOST:$_PG_PORT/$_PG_NAME）"
+else
+    # 第二轮：轮换强随机密码 → 写回角色与 .env → 复核
+    warn "PostgreSQL 凭据校验失败，自动轮换强随机密码..."
+    _PG_PASS="$(head -c 24 /dev/urandom | base64 | tr -d '\n+/=' | head -c 28)"
+    sudo -u postgres psql -c "ALTER USER $_PG_USER WITH PASSWORD '$_PG_PASS';" >/dev/null 2>&1 || true
+    _rewrite_db_block
+    if _verify_pg "$_PG_PASS"; then
+        ok "已轮换密码并通过校验（新密码已写入 .env）"
+    else
+        err "PostgreSQL 凭据校验仍失败（已轮换密码）。请检查 pg_hba.conf 认证方式是否为 scram-sha-256/md5。排查：sudo -u postgres psql -tAc 'SHOW hba_file;' 然后查看该文件的 host 行。"
+    fi
+fi
+chmod 600 "$_PG_ENV" 2>/dev/null || true
+
+# SQLite → PostgreSQL 数据迁移（仅当 db.sqlite3 仍在）
+if [[ -f "$INSTALL_DIR/backend/db.sqlite3" ]]; then
+    log "检测到 SQLite 数据库，自动迁移数据到 PostgreSQL..."
+    _pg_backup="$INSTALL_DIR/_backup/pg_migration_$(date +%F_%H%M%S)"
+    mkdir -p "$_pg_backup"
+    cp "$INSTALL_DIR/backend/db.sqlite3" "$_pg_backup/db.sqlite3"
+    _PY="$INSTALL_DIR/backend/.venv/bin/python"
+
+    # ① 先「从 SQLite」导出——必须在切到 PostgreSQL 之前！
+    #    顺序反了（先 migrate 再 dumpdata）会把 PostgreSQL 的空表当成数据源，
+    #    结果 loaddata 导入 0 行，业务数据全部丢失。
+    #    这里把 DB_* 显式置空：settings.py 的 os.environ.get 取到空值 → 回退 SQLite；
+    #    同时 load_dotenv 对「已存在的变量」不做覆盖，故 .env 里的 PG 配置不会生效。
+    if DB_ENGINE="" DB_NAME="" DB_USER="" DB_PASSWORD="" DB_HOST="" DB_PORT="" \
+        "$_PY" manage.py dumpdata --indent 2 > "$_pg_backup/data.json" 2>/dev/null; then
+        ok "已从 SQLite 导出数据（$(wc -c < "$_pg_backup/data.json" | tr -d ' ') 字节）"
+    else
+        warn "SQLite 导出失败，请手动检查 $_pg_backup/data.json"
+    fi
+
+    # ② 切到 PostgreSQL 建表
+    export DB_ENGINE="django.db.backends.postgresql" DB_NAME="$_PG_NAME" DB_USER="$_PG_USER"
+    export DB_PASSWORD="$_PG_PASS" DB_HOST="$_PG_HOST" DB_PORT="$_PG_PORT"
+    "$_PY" manage.py migrate --noinput >/dev/null 2>&1 || true
+
+    # ③ 把 SQLite 数据导入 PostgreSQL
+    if [[ -s "$_pg_backup/data.json" ]]; then
+        "$_PY" manage.py loaddata "$_pg_backup/data.json" >/dev/null 2>&1 || {
             warn "loaddata 部分失败，数据可能不完整，请检查: $_pg_backup/data.json"
         }
-        mv "$INSTALL_DIR/backend/db.sqlite3" "$INSTALL_DIR/backend/db.sqlite3.migrated" 2>/dev/null || true
-        ok "SQLite 数据已迁移到 PostgreSQL（备份: $_pg_backup/）"
+        ok "SQLite 数据已导入 PostgreSQL"
+    else
+        warn "SQLite 导出为空，跳过导入（请确认源库是否有数据）"
     fi
-else
-    # .env 已有 PostgreSQL 配置，但确保密码与 PostgreSQL 一致（防止密码漂移）
-    _pg_pass_env="$(grep -E '^DB_PASSWORD=' "$INSTALL_DIR/backend/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)"
-    if [[ -n "$_pg_pass_env" ]]; then
-        sudo -u postgres psql -c "ALTER USER $_PG_USER WITH PASSWORD '$_pg_pass_env';" 2>/dev/null || true
-    fi
-    ok ".env 已配置 PostgreSQL，跳过（已同步密码）"
+    mv "$INSTALL_DIR/backend/db.sqlite3" "$INSTALL_DIR/backend/db.sqlite3.migrated" 2>/dev/null || true
+    ok "SQLite 迁移收尾完成（备份: $_pg_backup/）"
 fi
 
 log "更新后端（pip / migrate / collectstatic）"
@@ -475,15 +536,31 @@ if [[ -f "$INSTALL_DIR/backend/.env" ]]; then
     fi
     if [[ ${#AH_ENTRIES[@]} -gt 0 ]]; then
         if grep -q '^DJANGO_ALLOWED_HOSTS=' "$INSTALL_DIR/backend/.env"; then
+            # 先规范化：去引号 → 拆逗号 → 去空白/去重 → 重新加引号。
+            # 历史 bug：追加写在闭合引号之外（"...",域名），python-dotenv 报
+            # could not parse statement，且该行之后的值解析行为不可预期。
+            _ah_now="$(grep -E '^DJANGO_ALLOWED_HOSTS=' "$INSTALL_DIR/backend/.env" | tail -1 | cut -d= -f2-)"
+            _ah_clean="$(printf '%s' "$_ah_now" | tr -d '"' | tr ',' '\n' \
+                | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' \
+                | awk '!seen[$0]++' | paste -sd, -)"
+            if [[ -n "$_ah_clean" && "$_ah_now" != "\"${_ah_clean}\"" ]]; then
+                sed -i "s|^DJANGO_ALLOWED_HOSTS=.*|DJANGO_ALLOWED_HOSTS=\"${_ah_clean}\"|" "$INSTALL_DIR/backend/.env"
+                ok "DJANGO_ALLOWED_HOSTS 已规范化为：\"${_ah_clean}\""
+            fi
             for _ah in "${AH_ENTRIES[@]}"; do
                 if ! grep -E "^DJANGO_ALLOWED_HOSTS=" "$INSTALL_DIR/backend/.env" | grep -qE "(^|,)${_ah}(,|$)"; then
-                    sed -i "s|^DJANGO_ALLOWED_HOSTS=.*|&,${_ah}|" "$INSTALL_DIR/backend/.env"
+                    if grep -qE '^DJANGO_ALLOWED_HOSTS=".*"[[:space:]]*$' "$INSTALL_DIR/backend/.env"; then
+                        # 带引号写法（.env.example 默认）：插到闭合引号**之内**
+                        sed -i "s|^DJANGO_ALLOWED_HOSTS=\"\(.*\)\"[[:space:]]*\$|DJANGO_ALLOWED_HOSTS=\"\1,${_ah}\"|" "$INSTALL_DIR/backend/.env"
+                    else
+                        sed -i "s|^DJANGO_ALLOWED_HOSTS=.*|&,${_ah}|" "$INSTALL_DIR/backend/.env"
+                    fi
                     ok "DJANGO_ALLOWED_HOSTS 已追加公网入口：${_ah}"
                 fi
             done
         else
             _ah_new="$(IFS=,; echo "${AH_ENTRIES[*]}")"
-            echo "DJANGO_ALLOWED_HOSTS=${_ah_new},localhost,127.0.0.1" >> "$INSTALL_DIR/backend/.env"
+            echo "DJANGO_ALLOWED_HOSTS=\"${_ah_new},localhost,127.0.0.1\"" >> "$INSTALL_DIR/backend/.env"
             ok "DJANGO_ALLOWED_HOSTS 已写入：${_ah_new},localhost,127.0.0.1"
         fi
     else
