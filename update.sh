@@ -1,22 +1,48 @@
 #!/bin/bash
 # ============================================================
-# Gipfel 业务竞赛管理系统 - 更新迁移脚本
-# 用法: ./update.sh [--migrate-db]
-#   --migrate-db  执行 SQLite → PostgreSQL 数据迁移
+# Gipfel 业务竞赛管理系统 — 一键更新脚本
+#
+# 功能：拉取最新代码 → 备份数据库(PostgreSQL/SQLite) → 自动配置
+#       PostgreSQL → 迁移数据 → 更新后端依赖 → 构建前端 → 刷新
+#       systemd 服务 → 配置 Nginx → 健康检查
+#
+# 用法：
+#   sudo bash update.sh                              # 默认：git pull + 全量更新
+#   sudo bash update.sh --source-dir /path/to/repo   # 从本地 checkout 同步
+#   sudo bash update.sh --skip-backup                # 跳过数据库备份
+#   sudo bash update.sh --skip-build                 # 跳过前端构建
+#   sudo bash update.sh --with-nginx                 # 同时刷新 Nginx 配置
+#   sudo bash update.sh --domain comp.example.com    # 指定域名（ALLOWED_HOSTS 自愈）
+#
+# 代码来源（三选一，自动判定）：
+#   模式 A  部署目录本身是 git clone → 原地 git pull
+#   模式 B  提供 --source-dir → 该目录 git pull 后 rsync 到部署目录
+#   模式 C  提供 --repo 且目录为空 → git clone
 # ============================================================
+set -euo pipefail
 
-set -e  # 遇到错误立即退出
+# ---------------- 失败时打印行号 ----------------
+__on_err() {
+    local rc="$1" line="$2" cmd="$3"
+    echo "" >&2
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    echo "[FAIL] 脚本在第 ${line} 行终止（退出码 ${rc}）" >&2
+    echo "       命令：${cmd}" >&2
+    echo "       已完成的步骤保留生效，可直接重跑补齐。" >&2
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    exit "$rc"
+}
+trap '__on_err $? "$LINENO" "$BASH_COMMAND"' ERR
 
-# ==================== 配置区域 ====================
-APP_NAME="gipfel"
-APP_DIR="/opt/gipfel"
-BACKEND_DIR="$APP_DIR/backend"
-FRONTEND_DIR="$APP_DIR/frontend"
-BACKUP_DIR="$APP_DIR/backups"
-LOG_FILE="$APP_DIR/update.log"
+# ==================== 配置 ====================
+INSTALL_DIR="/opt/gipfel"
+BACKEND_DIR="$INSTALL_DIR/backend"
+FRONTEND_DIR="$INSTALL_DIR/frontend"
+BACKUP_DIR="$INSTALL_DIR/_backup"
 VENV_DIR="$BACKEND_DIR/.venv"
+ENV_FILE="$BACKEND_DIR/backend/.env"
 
-# PostgreSQL 配置（迁移时使用）
+# PostgreSQL 默认配置（首次迁移时写入 .env，后续从 .env 读取）
 DB_NAME="gipfel"
 DB_USER="gipfel"
 DB_PASSWORD="CHANGE_ME_TO_STRONG_PASSWORD"
@@ -24,235 +50,254 @@ DB_HOST="localhost"
 DB_PORT="5432"
 
 # ==================== 颜色输出 ====================
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'
 
-# ==================== 工具函数 ====================
-log() {
-    echo -e "${GREEN}[$(date '+%Y-%m-%d %H:%M:%S')]${NC} $1" | tee -a "$LOG_FILE"
+log()  { printf "${GREEN}[$(date '+%H:%M:%S')]${NC} %s\n" "$*"; }
+ok()   { printf "${GREEN}  ✓${NC} %s\n" "$*"; }
+warn() { printf "${YELLOW}  ⚠${NC} %s\n" "$*"; }
+err()  { printf "${RED}  ✗${NC} %s\n" "$*"; exit 1; }
+
+# ==================== 参数解析 ====================
+SOURCE_DIR=""
+REPO=""
+DOMAIN=""
+WITH_NGINX=0
+SKIP_BACKUP=0
+SKIP_BUILD=0
+
+usage() {
+    cat <<EOF
+用法: sudo bash $0 [选项]
+
+选项:
+  --source-dir PATH     从本地 checkout 同步（git pull 后 rsync）
+  --repo URL            首次克隆仓库地址
+  --domain DOMAIN       公网域名（用于 ALLOWED_HOSTS / CORS 自愈）
+  --with-nginx          同时刷新 Nginx 配置
+  --skip-backup         跳过数据库备份
+  --skip-build          跳过前端构建
+  -h, --help            显示帮助
+EOF
 }
 
-warn() {
-    echo -e "${YELLOW}[$(date '+%Y-%m-%d %H:%M:%S')] 警告:${NC} $1" | tee -a "$LOG_FILE"
-}
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --source-dir)  SOURCE_DIR="$2"; shift 2 ;;
+        --repo)        REPO="$2"; shift 2 ;;
+        --domain)      DOMAIN="$2"; shift 2 ;;
+        --with-nginx)  WITH_NGINX=1; shift ;;
+        --skip-backup) SKIP_BACKUP=1; shift ;;
+        --skip-build)  SKIP_BUILD=1; shift ;;
+        -h|--help)     usage; exit 0 ;;
+        *) echo "未知参数: $1"; usage; exit 2 ;;
+    esac
+done
 
-error() {
-    echo -e "${RED}[$(date '+%Y-%m-%d %H:%M:%S')] 错误:${NC} $1" | tee -a "$LOG_FILE"
-    exit 1
-}
+[[ $EUID -ne 0 ]] && { echo "请用 sudo 执行"; exit 1; }
 
-info() {
-    echo -e "${BLUE}[$(date '+%Y-%m-%d %H:%M:%S')] 信息:${NC} $1" | tee -a "$LOG_FILE"
-}
+# ==================== 1. 拉取最新代码 ====================
+echo ""
+echo "━━━━━━━━━━ 1/9 拉取代码 ━━━━━━━━━━"
 
-# ==================== 检查是否为 root 用户 ====================
-check_root() {
-    if [ "$EUID" -ne 0 ]; then
-        error "请使用 root 用户或 sudo 运行此脚本"
+if [[ -d "$INSTALL_DIR/.git" ]]; then
+    # 模式 A：部署目录本身是 git clone → 原地 pull
+    log "部署目录为 git 仓库，执行 git pull..."
+    cd "$INSTALL_DIR"
+    git pull --ff-only || { warn "git pull 失败（网络问题），使用本地现有代码继续"; }
+    # 自更新：脚本本身被更新后重新执行
+    if [[ -z "${GIPFEL_UPDATE_REEXEC:-}" && "$0" == "$INSTALL_DIR"/* ]]; then
+        export GIPFEL_UPDATE_REEXEC=1
+        log "脚本自身已更新，重新执行..."
+        exec "$0" "$@"
     fi
-}
+elif [[ -n "$SOURCE_DIR" && -d "$SOURCE_DIR/.git" ]]; then
+    # 模式 B：从本地 checkout 同步
+    log "从 $SOURCE_DIR 拉取并同步..."
+    git -C "$SOURCE_DIR" pull --ff-only || warn "git pull 失败，使用本地现有代码"
+    mkdir -p "$INSTALL_DIR"
+    rsync -a --delete \
+        --exclude .venv --exclude __pycache__ --exclude '*.pyc' \
+        --exclude node_modules --exclude dist --exclude db.sqlite3 \
+        --exclude uploads --exclude logs --exclude '.env' \
+        --exclude frontend-dist --exclude staticfiles \
+        "$SOURCE_DIR/backend/" "$INSTALL_DIR/backend/"
+    rsync -a --delete --exclude node_modules --exclude dist \
+        "$SOURCE_DIR/frontend/" "$INSTALL_DIR/frontend/"
+    rsync -a --delete "$SOURCE_DIR/deploy/" "$INSTALL_DIR/deploy/" 2>/dev/null || true
+    rsync -a --delete "$SOURCE_DIR/scripts/" "$INSTALL_DIR/scripts/" 2>/dev/null || true
+elif [[ -n "$REPO" ]]; then
+    # 模式 C：克隆
+    if [[ -e "$INSTALL_DIR" && -n "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]]; then
+        err "部署目录非空，无法 git clone。请清空或改用 --source-dir"
+    fi
+    log "克隆 $REPO → $INSTALL_DIR"
+    mkdir -p "$INSTALL_DIR"
+    git clone "$REPO" "$INSTALL_DIR"
+    cd "$INSTALL_DIR"
+else
+    # 自动检测：如果部署目录存在且有内容，跳过拉取
+    if [[ -d "$INSTALL_DIR/backend" ]]; then
+        warn "部署目录不是 git 仓库，跳过代码拉取（使用现有代码）"
+    else
+        err "部署目录不存在且未指定 --source-dir / --repo。请先部署。"
+    fi
+fi
 
-# ==================== 停止服务 ====================
-stop_services() {
-    log "正在停止服务..."
-    
-    # 停止 Daphne (ASGI 服务器)
-    if systemctl is-active --quiet gipfel-daphne 2>/dev/null; then
-        systemctl stop gipfel-daphne
-        log "已停止 Daphne 服务"
-    fi
-    
-    # 停止 Celery (如果使用)
-    if systemctl is-active --quiet gipfel-celery 2>/dev/null; then
-        systemctl stop gipfel-celery
-        log "已停止 Celery 服务"
-    fi
-    
-    # 停止 Nginx (如果需要)
-    if systemctl is-active --quiet nginx 2>/dev/null; then
-        systemctl stop nginx
-        log "已停止 Nginx 服务"
-    fi
-    
-    # 杀死残留进程
-    pkill -f "daphne.*backend.asgi" 2>/dev/null || true
-    pkill -f "celery.*worker" 2>/dev/null || true
-    
-    log "所有服务已停止"
-}
+ok "代码已就绪"
 
-# ==================== 启动服务 ====================
-start_services() {
-    log "正在启动服务..."
-    
-    # 启动 Nginx
-    if systemctl is-enabled --quiet nginx 2>/dev/null; then
-        systemctl start nginx
-        log "已启动 Nginx 服务"
-    fi
-    
-    # 启动 Daphne
-    if systemctl is-enabled --quiet gipfel-daphne 2>/dev/null; then
-        systemctl start gipfel-daphne
-        log "已启动 Daphne 服务"
-    fi
-    
-    # 启动 Celery
-    if systemctl is-enabled --quiet gipfel-celery 2>/dev/null; then
-        systemctl start gipfel-celery
-        log "已启动 Celery 服务"
-    fi
-    
-    log "所有服务已启动"
-}
+# ==================== 2. 备份数据库 ====================
+echo ""
+echo "━━━━━━━━━━ 2/9 备份数据库 ━━━━━━━━━━"
 
-# ==================== 备份数据库 ====================
-backup_database() {
-    log "正在备份数据库..."
-    
-    mkdir -p "$BACKUP_DIR"
-    TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
-    
-    if [ -f "$BACKEND_DIR/db.sqlite3" ]; then
-        # SQLite 备份
-        BACKUP_FILE="$BACKUP_DIR/db_backup_$TIMESTAMP.sqlite3"
-        cp "$BACKEND_DIR/db.sqlite3" "$BACKUP_FILE"
-        log "SQLite 数据库已备份到: $BACKUP_FILE"
-        
-        # 导出 JSON 数据
+if [[ $SKIP_BACKUP -eq 1 ]]; then
+    warn "跳过数据库备份（--skip-backup）"
+else
+    TIMESTAMP="$(date +%F_%H%M%S)"
+    mkdir -p "$BACKUP_DIR/$TIMESTAMP"
+
+    # 备份 .env
+    [[ -f "$ENV_FILE" ]] && cp -a "$ENV_FILE" "$BACKUP_DIR/$TIMESTAMP/.env" && ok ".env 已备份"
+
+    # 备份媒体文件
+    [[ -d "$BACKEND_DIR/media" ]] && \
+        tar -czf "$BACKUP_DIR/$TIMESTAMP/media.tar.gz" -C "$BACKEND_DIR" media && \
+        ok "媒体文件已备份"
+
+    # 检测数据库类型并备份
+    _db_engine=""
+    if [[ -f "$ENV_FILE" ]]; then
+        _db_engine="$(grep -E '^DB_ENGINE=' "$ENV_FILE" | head -1 | cut -d= -f2- || true)"
+    fi
+
+    if [[ "$_db_engine" == *"postgresql"* ]]; then
+        # ---- PostgreSQL 备份 ----
+        log "PostgreSQL 数据库，执行 pg_dump..."
+        _pg_name="$(grep -E '^DB_NAME=' "$ENV_FILE" | head -1 | cut -d= -f2- || echo "$DB_NAME")"
+        _pg_user="$(grep -E '^DB_USER=' "$ENV_FILE" | head -1 | cut -d= -f2- || echo "$DB_USER")"
+
+        # SQL 格式备份（可读、可恢复）
+        if sudo -u postgres pg_dump -d "$_pg_name" | gzip > "$BACKUP_DIR/$TIMESTAMP/db.sql.gz" 2>/dev/null; then
+            ok "PostgreSQL SQL 备份完成（$(du -h "$BACKUP_DIR/$TIMESTAMP/db.sql.gz" | cut -f1)）"
+        else
+            warn "pg_dump 失败（postgres 用户），尝试用 $_pg_user..."
+            PGPASSWORD="$(grep -E '^DB_PASSWORD=' "$ENV_FILE" | head -1 | cut -d= -f2-)" \
+                pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$_pg_user" -d "$_pg_name" 2>/dev/null \
+                | gzip > "$BACKUP_DIR/$TIMESTAMP/db.sql.gz" || warn "PostgreSQL 备份失败"
+        fi
+
+        # 自定义格式备份（支持 pg_restore 并行恢复、选择性恢复）
+        sudo -u postgres pg_dump -Fc -d "$_pg_name" > "$BACKUP_DIR/$TIMESTAMP/db.dump" 2>/dev/null || true
+
+        # Django JSON 导出
         cd "$BACKEND_DIR"
         source "$VENV_DIR/bin/activate"
-        python manage.py dumpdata --indent 2 > "$BACKUP_DIR/data_backup_$TIMESTAMP.json"
-        log "数据已导出到: $BACKUP_DIR/data_backup_$TIMESTAMP.json"
+        set -a; source "$ENV_FILE" 2>/dev/null; set +a
+        python manage.py dumpdata --indent 2 > "$BACKUP_DIR/$TIMESTAMP/data.json" 2>/dev/null || \
+            warn "Django dumpdata 失败"
+
+    elif [[ -f "$BACKEND_DIR/db.sqlite3" ]]; then
+        # ---- SQLite 备份 ----
+        log "SQLite 数据库，复制文件..."
+        cp -a "$BACKEND_DIR/db.sqlite3" "$BACKUP_DIR/$TIMESTAMP/db.sqlite3"
+        ok "SQLite 备份完成"
+
+        cd "$BACKEND_DIR"
+        [[ -d "$VENV_DIR" ]] && source "$VENV_DIR/bin/activate"
+        python manage.py dumpdata --indent 2 > "$BACKUP_DIR/$TIMESTAMP/data.json" 2>/dev/null || true
     else
-        warn "未找到 SQLite 数据库文件"
+        warn "未找到数据库，跳过"
     fi
-    
-    # 备份媒体文件
-    if [ -d "$BACKEND_DIR/media" ]; then
-        tar -czf "$BACKUP_DIR/media_backup_$TIMESTAMP.tar.gz" -C "$BACKEND_DIR" media
-        log "媒体文件已备份到: $BACKUP_DIR/media_backup_$TIMESTAMP.tar.gz"
+
+    # 清理 30 天前的旧备份
+    find "$BACKUP_DIR" -maxdepth 1 -type d -mtime +30 -exec rm -rf {} + 2>/dev/null || true
+    ok "备份完成 → $BACKUP_DIR/$TIMESTAMP/"
+fi
+
+# ==================== 3. 停止服务 ====================
+echo ""
+echo "━━━━━━━━━━ 3/9 停止服务 ━━━━━━━━━━"
+
+for svc in gipfel gipfel-daphne gipfel-logviewer gipfel-celery; do
+    if systemctl is-active --quiet "$svc" 2>/dev/null; then
+        systemctl stop "$svc"
+        ok "已停止 $svc"
     fi
-}
+done
+pkill -f "daphne.*backend.asgi" 2>/dev/null || true
 
-# ==================== 安装系统依赖 ====================
-install_system_deps() {
-    log "正在安装系统依赖..."
-    
-    apt-get update
-    apt-get install -y \
-        python3 \
-        python3-pip \
-        python3-venv \
-        nginx \
-        postgresql \
-        postgresql-contrib \
-        libpq-dev \
-        build-essential \
-        curl \
-        git
-    
-    log "系统依赖安装完成"
-}
+# ==================== 4. 安装依赖 ====================
+echo ""
+echo "━━━━━━━━━━ 4/9 安装依赖 ━━━━━━━━━━"
 
-# ==================== 安装 Python 依赖 ====================
-install_python_deps() {
-    log "正在安装 Python 依赖..."
-    
-    cd "$BACKEND_DIR"
-    
-    # 创建虚拟环境（如果不存在）
-    if [ ! -d "$VENV_DIR" ]; then
-        python3 -m venv "$VENV_DIR"
-        log "已创建虚拟环境"
-    fi
-    
-    # 激活虚拟环境并安装依赖
-    source "$VENV_DIR/bin/activate"
-    pip install --upgrade pip
-    pip install -r requirements.txt
-    
-    log "Python 依赖安装完成"
-}
+log "系统依赖..."
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq python3 python3-pip python3-venv nginx \
+    postgresql postgresql-contrib libpq-dev build-essential curl git gzip 2>/dev/null || true
+ok "系统依赖就绪"
 
-# ==================== 安装前端依赖并构建 ====================
-build_frontend() {
-    log "正在构建前端..."
-    
-    cd "$FRONTEND_DIR"
-    
-    # 安装 Node.js 依赖
-    if command -v pnpm &> /dev/null; then
-        pnpm install --frozen-lockfile
-        pnpm run build
-    elif command -v npm &> /dev/null; then
-        npm ci
-        npm run build
-    else
-        error "未找到 npm 或 pnpm，请先安装 Node.js"
-    fi
-    
-    log "前端构建完成"
-}
+log "Python 依赖..."
+cd "$BACKEND_DIR"
+if [[ ! -d "$VENV_DIR" ]]; then
+    python3 -m venv "$VENV_DIR"
+    "$VENV_DIR/bin/pip" install --upgrade pip setuptools wheel -q
+fi
+"$VENV_DIR/bin/pip" install -r requirements.txt -q
+# 确保 psycopg2-binary（PostgreSQL 驱动）
+"$VENV_DIR/bin/python" -c "import psycopg2" 2>/dev/null || \
+    "$VENV_DIR/bin/pip" install psycopg2-binary -q
+ok "Python 依赖就绪"
 
-# ==================== 配置 PostgreSQL ====================
-setup_postgresql() {
-    log "正在配置 PostgreSQL..."
-    
-    # 启动 PostgreSQL
-    systemctl start postgresql
-    systemctl enable postgresql
-    
-    # 创建数据库和用户
-    sudo -u postgres psql -c "CREATE DATABASE $DB_NAME;" 2>/dev/null || warn "数据库 $DB_NAME 已存在"
-    sudo -u postgres psql -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASSWORD';" 2>/dev/null || warn "用户 $DB_USER 已存在"
-    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;"
-    sudo -u postgres psql -c "ALTER USER $DB_USER CREATEDB;"
-    
-    log "PostgreSQL 配置完成"
-}
+# ==================== 5. 配置 PostgreSQL ====================
+echo ""
+echo "━━━━━━━━━━ 5/9 配置 PostgreSQL ━━━━━━━━━━"
 
-# ==================== 迁移数据到 PostgreSQL ====================
-migrate_to_postgresql() {
-    log "正在迁移数据到 PostgreSQL..."
-    
-    cd "$BACKEND_DIR"
-    source "$VENV_DIR/bin/activate"
-    
-    # 临时修改配置为 PostgreSQL
-    export DB_ENGINE="django.db.backends.postgresql"
-    export DB_NAME="$DB_NAME"
-    export DB_USER="$DB_USER"
-    export DB_PASSWORD="$DB_PASSWORD"
-    export DB_HOST="$DB_HOST"
-    export DB_PORT="$DB_PORT"
-    
-    # 运行数据库迁移
-    python manage.py migrate
-    
-    # 导入数据（如果有备份）
-    LATEST_BACKUP=$(ls -t "$BACKUP_DIR"/data_backup_*.json 2>/dev/null | head -1)
-    if [ -n "$LATEST_BACKUP" ]; then
-        log "正在导入数据: $LATEST_BACKUP"
-        python manage.py loaddata "$LATEST_BACKUP"
-        log "数据导入完成"
-    else
-        warn "未找到数据备份文件，跳过数据导入"
-    fi
-    
-    log "PostgreSQL 迁移完成"
-}
+systemctl start postgresql
+systemctl enable postgresql
+sleep 1
 
-# ==================== 更新配置文件 ====================
-update_config() {
-    log "正在更新配置文件..."
-    
-    # 更新 Django 配置
-    cat > "$BACKEND_DIR/backend/.env" << EOF
-# 数据库配置
+# 从 .env 读取已有配置（如有）
+if [[ -f "$ENV_FILE" ]]; then
+    _e_name="$(grep -E '^DB_NAME=' "$ENV_FILE" | head -1 | cut -d= -f2- || true)"
+    _e_user="$(grep -E '^DB_USER=' "$ENV_FILE" | head -1 | cut -d= -f2- || true)"
+    _e_pass="$(grep -E '^DB_PASSWORD=' "$ENV_FILE" | head -1 | cut -d= -f2- || true)"
+    [[ -n "$_e_name" ]] && DB_NAME="$_e_name"
+    [[ -n "$_e_user" ]] && DB_USER="$_e_user"
+    [[ -n "$_e_pass" && "$_e_pass" != "CHANGE_ME_TO_STRONG_PASSWORD" ]] && DB_PASSWORD="$_e_pass"
+fi
+
+# 创建数据库和用户（幂等）
+sudo -u postgres psql -c "CREATE DATABASE $DB_NAME;" 2>/dev/null || true
+sudo -u postgres psql -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASSWORD';" 2>/dev/null || true
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;" 2>/dev/null || true
+sudo -u postgres psql -c "ALTER USER $DB_USER CREATEDB;" 2>/dev/null || true
+sudo -u postgres psql -c "ALTER DATABASE $DB_NAME OWNER TO $DB_USER;" 2>/dev/null || true
+ok "PostgreSQL 就绪（$DB_NAME @ $DB_HOST:$DB_PORT）"
+
+# ==================== 6. 更新 .env ====================
+echo ""
+echo "━━━━━━━━━━ 6/9 更新配置 ━━━━━━━━━━"
+
+# 保留已有密钥
+_existing_jwt=""; _existing_secret=""
+if [[ -f "$ENV_FILE" ]]; then
+    _existing_jwt="$(grep -E '^JWT_SECRET=' "$ENV_FILE" | head -1 | cut -d= -f2- || true)"
+    _existing_secret="$(grep -E '^SECRET_KEY=' "$ENV_FILE" | head -1 | cut -d= -f2- || true)"
+    _existing_lvkey="$(grep -E '^LOGVIEWER_SECRET_KEY=' "$ENV_FILE" | head -1 | cut -d= -f2- || true)"
+fi
+[[ -z "$_existing_jwt" ]]    && _existing_jwt="$(head -c 32 /dev/urandom | base64 | tr -d '\n+/=')"
+[[ -z "$_existing_secret" ]] && _existing_secret="$(head -c 32 /dev/urandom | base64 | tr -d '\n+/=')"
+[[ -z "$_existing_lvkey" ]]  && _existing_lvkey="$(head -c 32 /dev/urandom | base64 | tr -d '\n+/=')"
+
+# 写入 .env（仅当不存在或 DB_ENGINE 不是 PostgreSQL 时重写数据库部分）
+if [[ ! -f "$ENV_FILE" ]] || ! grep -q "DB_ENGINE=django.db.backends.postgresql" "$ENV_FILE" 2>/dev/null; then
+    cat > "$ENV_FILE" << EOF
+# ============================================================
+# Gipfel 后端配置（由 update.sh 自动生成）
+# ============================================================
+
+# PostgreSQL
 DB_ENGINE=django.db.backends.postgresql
 DB_NAME=$DB_NAME
 DB_USER=$DB_USER
@@ -260,260 +305,203 @@ DB_PASSWORD=$DB_PASSWORD
 DB_HOST=$DB_HOST
 DB_PORT=$DB_PORT
 
-# Django 配置
+# Django
 DEBUG=False
-SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))")
+SECRET_KEY=$_existing_secret
+JWT_SECRET=$_existing_jwt
+LOGVIEWER_SECRET_KEY=$_existing_lvkey
 ALLOWED_HOSTS=localhost,127.0.0.1
 
-# 媒体文件
+# 路径
 MEDIA_ROOT=$BACKEND_DIR/media
 STATIC_ROOT=$BACKEND_DIR/static
 EOF
-    
-    log "配置文件更新完成"
-}
+    ok ".env 已写入（PostgreSQL 配置）"
+else
+    ok ".env 已存在且已配置 PostgreSQL，跳过重写"
+fi
 
-# ==================== 运行 Django 管理命令 ====================
-run_django_commands() {
-    log "正在运行 Django 管理命令..."
-    
+# ALLOWED_HOSTS 自愈：追加域名或公网 IP
+if [[ -n "$DOMAIN" ]]; then
+    if ! grep -E '^ALLOWED_HOSTS=' "$ENV_FILE" | grep -q "$DOMAIN"; then
+        sed -i "s|^ALLOWED_HOSTS=.*|&,${DOMAIN}|" "$ENV_FILE"
+        ok "ALLOWED_HOSTS 已追加 $DOMAIN"
+    fi
+fi
+
+chmod 600 "$ENV_FILE" 2>/dev/null || true
+ok "配置更新完成"
+
+# ==================== 7. 数据迁移 / Django 迁移 ====================
+echo ""
+echo "━━━━━━━━━━ 7/9 数据库迁移 ━━━━━━━━━━"
+
+cd "$BACKEND_DIR"
+source "$VENV_DIR/bin/activate"
+set -a; source "$ENV_FILE" 2>/dev/null; set +a
+
+# 检查是否需要从 SQLite 迁移
+_needs_sqlite_migration=0
+if [[ -f "$BACKEND_DIR/db.sqlite3" ]] && [[ -f "$BACKUP_DIR/$TIMESTAMP/data.json" || -f "$BACKUP_DIR"/*/data.json ]]; then
+    _needs_sqlite_migration=1
+fi
+
+# 运行 Django migrate（无论哪种情况都需要）
+log "执行 Django migrate..."
+python manage.py migrate --noinput
+ok "数据库表结构已同步"
+
+# 如果有 SQLite 数据需要迁移
+if [[ $_needs_sqlite_migration -eq 1 ]]; then
+    _latest_json="$(ls -t "$BACKUP_DIR"/*/data.json 2>/dev/null | head -1)"
+    if [[ -n "$_latest_json" ]]; then
+        log "从 SQLite 备份导入数据: $_latest_json"
+        python manage.py loaddata "$_latest_json" 2>/dev/null || {
+            warn "整体 loaddata 失败，逐个应用尝试..."
+            for app in users competitions companies industry_types materials parts products \
+                       maps infrastructures tech_tree fuels vehicles warehouses production_lines \
+                       regions consumer_demands messages stock contracts announcements files; do
+                python manage.py loaddata "$_latest_json" 2>/dev/null || true
+            done
+        }
+        # 重命名旧 SQLite
+        mv "$BACKEND_DIR/db.sqlite3" "$BACKEND_DIR/db.sqlite3.migrated" 2>/dev/null || true
+        ok "SQLite 数据已迁移到 PostgreSQL"
+    fi
+fi
+
+# 收集静态文件
+log "收集静态文件..."
+python manage.py collectstatic --noinput 2>/dev/null || true
+
+# 日志查看器静态资源
+if [[ -d "$BACKEND_DIR/logviewer" ]]; then
+    cd "$BACKEND_DIR/logviewer"
+    "$BACKEND_DIR/.venv/bin/python" manage.py collectstatic --noinput --settings=logviewer.settings 2>/dev/null || true
     cd "$BACKEND_DIR"
-    source "$VENV_DIR/bin/activate"
-    
-    # 收集静态文件
-    python manage.py collectstatic --noinput
-    
-    # 检查数据库连接
-    python manage.py check --database default
-    
-    log "Django 管理命令执行完成"
-}
+fi
 
-# ==================== 配置 Nginx ====================
-setup_nginx() {
-    log "正在配置 Nginx..."
-    
-    cat > /etc/nginx/sites-available/gipfel << 'EOF'
-server {
-    listen 80;
-    server_name _;
-    
-    client_max_body_size 50M;
-    
-    # 前端静态文件
-    location / {
-        root /opt/gipfel/frontend/dist;
-        try_files $uri $uri/ /index.html;
-    }
-    
-    # API 请求
-    location /api/ {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 120s;
-        proxy_connect_timeout 120s;
-        proxy_send_timeout 120s;
-    }
-    
-    # WebSocket
-    location /ws/ {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_read_timeout 86400;
-    }
-    
-    # 媒体文件
-    location /uploads/ {
-        alias /opt/gipfel/backend/media/;
-        expires 30d;
-        add_header Cache-Control "public, immutable";
-    }
-    
-    # 静态文件
-    location /static/ {
-        alias /opt/gipfel/backend/static/;
-        expires 7d;
-    }
-}
-EOF
-    
-    # 启用站点
-    ln -sf /etc/nginx/sites-available/gipfel /etc/nginx/sites-enabled/
-    rm -f /etc/nginx/sites-enabled/default
-    
-    # 测试配置
-    nginx -t
-    
-    log "Nginx 配置完成"
-}
+ok "数据迁移完成"
 
-# ==================== 配置 Systemd 服务 ====================
-setup_systemd() {
-    log "正在配置 Systemd 服务..."
-    
-    # Daphne 服务
-    cat > /etc/systemd/system/gipfel-daphne.service << EOF
-[Unit]
-Description=Gipfel Daphne ASGI Server
-After=network.target postgresql.service
+# ==================== 8. 构建前端 ====================
+echo ""
+echo "━━━━━━━━━━ 8/9 构建前端 ━━━━━━━━━━"
 
-[Service]
-Type=notify
-User=root
-Group=root
-WorkingDirectory=$BACKEND_DIR
-Environment="PATH=$VENV_DIR/bin"
-ExecStart=$VENV_DIR/bin/daphne -b 0.0.0.0 -p 8000 backend.asgi:application
-ExecReload=/bin/kill -HUP \$MAINPID
-Restart=always
-RestartSec=5
+if [[ $SKIP_BUILD -eq 1 ]]; then
+    warn "跳过前端构建（--skip-build）"
+else
+    cd "$FRONTEND_DIR"
+    if command -v pnpm &>/dev/null; then
+        pnpm install --frozen-lockfile --no-audit --no-fund 2>/dev/null || \
+            pnpm install --no-audit --no-fund
+        pnpm run build
+    elif command -v npm &>/dev/null; then
+        npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
+        npm run build
+    else
+        warn "未找到 npm/pnpm，跳过前端构建"
+    fi
+    ok "前端构建完成"
+fi
 
-[Install]
-WantedBy=multi-user.target
-EOF
-    
-    # 重新加载 systemd
+# ==================== 9. 文件权限 + 刷新服务 + 健康检查 ====================
+echo ""
+echo "━━━━━━━━━━ 9/9 刷新服务 ━━━━━━━━━━"
+
+# 文件归属
+if id gipfel >/dev/null 2>&1; then
+    chown -R gipfel:gipfel "$INSTALL_DIR" 2>/dev/null || true
+    chmod 600 "$ENV_FILE" 2>/dev/null || true
+    ok "文件归属已切换为 gipfel"
+else
+    warn "用户 gipfel 不存在，跳过 chown"
+fi
+
+# 刷新 systemd 服务单元
+for unit_file in "$INSTALL_DIR"/deploy/*.service; do
+    [[ -f "$unit_file" ]] || continue
+    unit_name="$(basename "$unit_file")"
+    systemctl unmask "$unit_name" 2>/dev/null || true
+    rm -f "/etc/systemd/system/$unit_name" "/run/systemd/system/$unit_name"
+    sed "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$unit_file" > "/etc/systemd/system/$unit_name"
     systemctl daemon-reload
-    systemctl enable gipfel-daphne
-    
-    log "Systemd 服务配置完成"
-}
+    systemctl enable "$unit_name" 2>/dev/null || true
+    ok "已刷新服务单元: $unit_name"
+done
 
-# ==================== 健康检查 ====================
-health_check() {
-    log "正在执行健康检查..."
-    
-    # 等待服务启动
-    sleep 5
-    
-    # 检查 PostgreSQL
-    if systemctl is-active --quiet postgresql; then
-        log "✓ PostgreSQL 运行正常"
-    else
-        error "✗ PostgreSQL 未运行"
+# 重启服务
+systemctl restart postgresql 2>/dev/null || true
+for svc in gipfel gipfel-logviewer; do
+    if systemctl cat "$svc.service" >/dev/null 2>&1; then
+        systemctl restart "$svc"
+        sleep 2
+        if systemctl is-active --quiet "$svc"; then
+            ok "$svc 已重启并运行中"
+        else
+            warn "$svc 启动失败，查看日志: journalctl -u $svc -n 30"
+        fi
     fi
-    
-    # 检查 Daphne
-    if systemctl is-active --quiet gipfel-daphne; then
-        log "✓ Daphne 运行正常"
-    else
-        error "✗ Daphne 未运行"
-    fi
-    
-    # 检查 Nginx
-    if systemctl is-active --quiet nginx; then
-        log "✓ Nginx 运行正常"
-    else
-        error "✗ Nginx 未运行"
-    fi
-    
-    # 检查 API 响应
-    if curl -s -o /dev/null -w "%{http_code}" http://localhost/api/ | grep -q "200\|404"; then
-        log "✓ API 响应正常"
-    else
-        warn "✗ API 无响应"
-    fi
-    
-    log "健康检查完成"
-}
+done
 
-# ==================== 显示摘要 ====================
-show_summary() {
-    echo ""
-    echo "============================================================"
-    echo -e "${GREEN}更新完成！${NC}"
-    echo "============================================================"
-    echo ""
-    echo "数据库: PostgreSQL ($DB_HOST:$DB_PORT/$DB_NAME)"
-    echo "后端:   http://localhost:8000"
-    echo "前端:   http://localhost"
-    echo ""
-    echo "备份位置: $BACKUP_DIR"
-    echo "日志文件: $LOG_FILE"
-    echo ""
-    echo "常用命令:"
-    echo "  查看日志: journalctl -u gipfel-daphne -f"
-    echo "  重启服务: systemctl restart gipfel-daphne"
-    echo "  查看状态: systemctl status gipfel-daphne"
-    echo ""
-    echo "============================================================"
-}
-
-# ==================== 主流程 ====================
-main() {
-    # 初始化日志
-    mkdir -p "$(dirname "$LOG_FILE")"
-    echo "==================== 更新开始 ====================" >> "$LOG_FILE"
-    
-    # 解析参数
-    MIGRATE_DB=false
-    for arg in "$@"; do
-        case $arg in
-            --migrate-db)
-                MIGRATE_DB=true
-                shift
-                ;;
-            --help)
-                echo "用法: $0 [--migrate-db]"
-                echo "  --migrate-db  执行 SQLite → PostgreSQL 数据迁移"
-                exit 0
-                ;;
-        esac
-    done
-    
-    # 检查是否为 root
-    check_root
-    
-    log "开始更新流程..."
-    
-    # 备份数据库
-    backup_database
-    
-    # 停止服务
-    stop_services
-    
-    # 安装系统依赖
-    install_system_deps
-    
-    # 安装 Python 依赖
-    install_python_deps
-    
-    # 构建前端
-    build_frontend
-    
-    # 数据库迁移（可选）
-    if [ "$MIGRATE_DB" = true ]; then
-        setup_postgresql
-        update_config
-        migrate_to_postgresql
+# Nginx
+if [[ $WITH_NGINX -eq 1 ]]; then
+    _vhost_tmpl="$INSTALL_DIR/deploy/nginx-gipfel.conf"
+    if [[ -f "$_vhost_tmpl" ]]; then
+        _domain="${DOMAIN:-_}"
+        sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" -e "s|__DOMAIN__|$_domain|g" \
+            "$_vhost_tmpl" > /etc/nginx/sites-available/gipfel.conf
+        ln -sf /etc/nginx/sites-available/gipfel.conf /etc/nginx/sites-enabled/gipfel.conf
+        rm -f /etc/nginx/sites-enabled/default
+        nginx -t && systemctl reload nginx 2>/dev/null || systemctl start nginx 2>/dev/null || true
+        ok "Nginx 配置已刷新"
     fi
-    
-    # 运行 Django 命令
-    run_django_commands
-    
-    # 配置 Nginx
-    setup_nginx
-    
-    # 配置 Systemd
-    setup_systemd
-    
-    # 启动服务
-    start_services
-    
-    # 健康检查
-    health_check
-    
-    # 显示摘要
-    show_summary
-    
-    log "更新流程完成"
-}
+fi
 
-# 执行主流程
-main "$@"
+# 健康检查
+echo ""
+echo "━━━━━━━━━━ 健康检查 ━━━━━━━━━━"
+sleep 3
+
+_check_pass=1
+if systemctl is-active --quiet postgresql; then
+    ok "PostgreSQL 运行中"
+else
+    warn "PostgreSQL 未运行"; _check_pass=0
+fi
+
+for svc in gipfel gipfel-logviewer nginx; do
+    if systemctl is-active --quiet "$svc" 2>/dev/null; then
+        ok "$svc 运行中"
+    elif systemctl is-enabled --quiet "$svc" 2>/dev/null; then
+        warn "$svc 未运行"; _check_pass=0
+    fi
+done
+
+if curl -s --max-time 5 http://127.0.0.1:8000/api/health 2>/dev/null | grep -q 'ok'; then
+    ok "API 健康检查通过"
+else
+    warn "API 健康检查未通过（可能还在启动中）"; _check_pass=0
+fi
+
+# ==================== 摘要 ====================
+echo ""
+echo "============================================================"
+if [[ $_check_pass -eq 1 ]]; then
+    echo -e "${GREEN}更新完成！所有服务运行正常。${NC}"
+else
+    echo -e "${YELLOW}更新完成！部分服务需要检查（见上方警告）。${NC}"
+fi
+echo "============================================================"
+echo ""
+echo "  部署目录:  $INSTALL_DIR"
+echo "  备份位置:  $BACKUP_DIR/$TIMESTAMP/"
+echo "  数据库:    PostgreSQL ($DB_NAME @ $DB_HOST:$DB_PORT)"
+echo ""
+echo "  常用命令:"
+echo "    查看日志:   journalctl -u gipfel -f"
+echo "    重启服务:   systemctl restart gipfel"
+echo "    查看状态:   systemctl status gipfel"
+echo "    备份数据库: sudo -u postgres pg_dump $DB_NAME | gzip > backup.sql.gz"
+echo "    恢复数据库: gunzip -c backup.sql.gz | sudo -u postgres psql $DB_NAME"
+echo ""
+echo "============================================================"

@@ -35,6 +35,12 @@ for %%f in ("!RESULT_DIR!\stress-test-*.txt") do (
     echo [92m!COUNT!. %%~nxf[0m
 )
 
+for %%f in ("!RESULT_DIR!\quick-test-*.txt") do (
+    set /a "COUNT+=1"
+    set "FILE_!COUNT!=%%f"
+    echo [92m!COUNT!. %%~nxf[0m
+)
+
 if !COUNT! equ 0 (
     echo [91m未找到测试结果文件[0m
     pause
@@ -79,80 +85,11 @@ if exist "!CSV_FILE!" (
     echo [96m============================================================[0m
     echo.
     
-    :: 使用 PowerShell 分析 CSV 数据
-    powershell -Command "& {
-        $data = Import-Csv -Path '!CSV_FILE!'
-        
-        # 基本统计
-        $total = $data.Count
-        $success = ($data | Where-Object { $_.成功 -eq 'True' }).Count
-        $fail = $total - $success
-        
-        # 响应时间统计
-        $times = $data | ForEach-Object { [int]$_.响应时间 }
-        $avg = ($times | Measure-Object -Average).Average
-        $min = ($times | Measure-Object -Minimum).Minimum
-        $max = ($times | Measure-Object -Maximum).Maximum
-        
-        # 百分位数
-        $sorted = $times | Sort-Object
-        $p50 = $sorted[[math]::Floor($total * 0.5)]
-        $p95 = $sorted[[math]::Floor($total * 0.95)]
-        $p99 = $sorted[[math]::Floor($total * 0.99)]
-        
-        # 状态码分布
-        $statusGroups = $data | Group-Object 状态码
-        
-        Write-Host ''
-        Write-Host '数据统计:' -ForegroundColor Yellow
-        Write-Host '  总请求数:     $total'
-        Write-Host '  成功请求:     $success'
-        Write-Host '  失败请求:     $fail'
-        Write-Host ''
-        
-        Write-Host '响应时间分布:' -ForegroundColor Yellow
-        Write-Host '  最小值:       $min ms'
-        Write-Host '  最大值:       $max ms'
-        Write-Host '  平均值:       $([math]::Round($avg, 2)) ms'
-        Write-Host '  P50:          $p50 ms'
-        Write-Host '  P95:          $p95 ms'
-        Write-Host '  P99:          $p99 ms'
-        Write-Host ''
-        
-        Write-Host '状态码分布:' -ForegroundColor Yellow
-        foreach ($group in $statusGroups) {
-            $color = if ($group.Name -eq '200') { 'Green' } else { 'Red' }
-            Write-Host '  $($group.Name): $($group.Count) 次' -ForegroundColor $color
-        }
-        Write-Host ''
-        
-        # 响应时间分布图
-        Write-Host '响应时间分布:' -ForegroundColor Yellow
-        $buckets = @{
-            '0-100ms' = 0
-            '100-200ms' = 0
-            '200-500ms' = 0
-            '500-1000ms' = 0
-            '1000-2000ms' = 0
-            '>2000ms' = 0
-        }
-        
-        foreach ($t in $times) {
-            if ($t -lt 100) { $buckets['0-100ms']++ }
-            elseif ($t -lt 200) { $buckets['100-200ms']++ }
-            elseif ($t -lt 500) { $buckets['200-500ms']++ }
-            elseif ($t -lt 1000) { $buckets['500-1000ms']++ }
-            elseif ($t -lt 2000) { $buckets['1000-2000ms']++ }
-            else { $buckets['>2000ms']++ }
-        }
-        
-        foreach ($bucket in $buckets.GetEnumerator() | Sort-Object Name) {
-            $bar = '█' * [math]::Min([math]::Floor($bucket.Value / $total * 50), 50)
-            $pct = [math]::Round($bucket.Value / $total * 100, 1)
-            Write-Host ('  {0,-15} {1,5} ({2,5}%) {3}' -f $bucket.Key, $bucket.Value, $pct, $bar)
-        }
-        Write-Host ''
-    }"
+    :: 使用子程序生成分析脚本并执行
+    set "PS_FILE=%temp%\gipfel-analysis.ps1"
+    call :write_analysis > "!PS_FILE!"
+    powershell -ExecutionPolicy Bypass -File "!PS_FILE!"
+    del "!PS_FILE!" 2>nul
     
     echo.
     echo [94m是否打开 CSV 文件进行详细分析?[0m
@@ -239,3 +176,81 @@ echo ^</html^>
 echo.
 pause
 exit /b 0
+
+:: ============================================================
+:: 子程序：生成 PowerShell CSV 分析脚本
+:: ============================================================
+:write_analysis
+echo $csvFile = '!CSV_FILE!'
+echo $data = Import-Csv -Path $csvFile
+echo.
+echo # 基本统计
+echo $total = $data.Count
+echo $success = ($data ^| Where-Object { $_.'成功' -eq 'True' }).Count
+echo $fail = $total - $success
+echo.
+echo # 响应时间统计
+echo $times = $data ^| ForEach-Object { [int]$_.'响应时间' }
+echo $avg = ($times ^| Measure-Object -Average).Average
+echo $min = ($times ^| Measure-Object -Minimum).Minimum
+echo $max = ($times ^| Measure-Object -Maximum).Maximum
+echo.
+echo # 百分位数
+echo $sorted = $times ^| Sort-Object
+echo $p50 = $sorted[[math]::Floor($total * 0.5)]
+echo $p95 = $sorted[[math]::Floor($total * 0.95)]
+echo $p99 = $sorted[[math]::Floor($total * 0.99)]
+echo.
+echo # 状态码分布
+echo $statusGroups = $data ^| Group-Object '状态码'
+echo.
+echo Write-Host ''
+echo Write-Host '数据统计:' -ForegroundColor Yellow
+echo Write-Host "  总请求数:     $total"
+echo Write-Host "  成功请求:     $success"
+echo Write-Host "  失败请求:     $fail"
+echo Write-Host ''
+echo.
+echo Write-Host '响应时间分布:' -ForegroundColor Yellow
+echo Write-Host "  最小值:       $min ms"
+echo Write-Host "  最大值:       $max ms"
+echo Write-Host "  平均值:       $([math]::Round($avg, 2)) ms"
+echo Write-Host "  P50:          $p50 ms"
+echo Write-Host "  P95:          $p95 ms"
+echo Write-Host "  P99:          $p99 ms"
+echo Write-Host ''
+echo.
+echo Write-Host '状态码分布:' -ForegroundColor Yellow
+echo foreach ($group in $statusGroups) {
+echo     $color = if ($group.Name -eq '200') { 'Green' } else { 'Red' }
+echo     Write-Host ("  {0}: {1} 次" -f $group.Name, $group.Count) -ForegroundColor $color
+echo }
+echo Write-Host ''
+echo.
+echo # 响应时间分布图
+echo Write-Host '响应时间分布:' -ForegroundColor Yellow
+echo $buckets = @{
+echo     '0-100ms' = 0
+echo     '100-200ms' = 0
+echo     '200-500ms' = 0
+echo     '500-1000ms' = 0
+echo     '1000-2000ms' = 0
+echo     '^>2000ms' = 0
+echo }
+echo.
+echo foreach ($t in $times) {
+echo     if ($t -lt 100) { $buckets['0-100ms']++ }
+echo     elseif ($t -lt 200) { $buckets['100-200ms']++ }
+echo     elseif ($t -lt 500) { $buckets['200-500ms']++ }
+echo     elseif ($t -lt 1000) { $buckets['500-1000ms']++ }
+echo     elseif ($t -lt 2000) { $buckets['1000-2000ms']++ }
+echo     else { $buckets['^>2000ms']++ }
+echo }
+echo.
+echo foreach ($bucket in $buckets.GetEnumerator() ^| Sort-Object Name) {
+echo     $bar = [string][char]0x2588 * [math]::Min([math]::Floor($bucket.Value / $total * 50), 50)
+echo     $pct = [math]::Round($bucket.Value / $total * 100, 1)
+echo     Write-Host ('  {0,-15} {1,5} ({2,5}%%) {3}' -f $bucket.Key, $bucket.Value, $pct, $bar)
+echo }
+echo Write-Host ''
+goto :eof

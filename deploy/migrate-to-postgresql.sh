@@ -5,10 +5,10 @@
 # 使用方法：
 #   1. 通过 git 拉取最新代码
 #   2. 修改下方数据库密码配置
-#   3. 执行: bash deploy/migrate-to-postgresql.sh
+#   3. 在项目根目录执行: bash deploy/migrate-to-postgresql.sh
 #
 # 作者：MiMo
-# 版本：v1.0
+# 版本：v1.1
 # ============================================================
 
 set -e
@@ -33,8 +33,9 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# 项目路径
-PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# 自动检测项目路径（脚本所在目录的上一级）
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BACKEND_DIR="$PROJECT_DIR/backend"
 BACKUP_DIR="$PROJECT_DIR/backups"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -51,10 +52,12 @@ echo "============================================================"
 echo "  Gipfel PostgreSQL 一键迁移脚本"
 echo "============================================================"
 echo ""
+echo "项目路径: $PROJECT_DIR"
+echo ""
 
 # 检查密码是否修改
 if [ "$DB_PASSWORD" = "YourPassword123!" ]; then
-    error "请先修改脚本中的数据库密码！\n   编辑文件: deploy/migrate-to-postgresql.sh\n   修改第 12 行: DB_PASSWORD=\"你的密码\""
+    error "请先修改脚本中的数据库密码！\n   编辑文件: deploy/migrate-to-postgresql.sh\n   修改第 19 行: DB_PASSWORD=\"你的密码\""
 fi
 
 # ==================== 1. 检查环境 ====================
@@ -324,6 +327,8 @@ echo ""
 echo "============================================================"
 echo "  ✓ 迁移完成！"
 echo "============================================================"
+echo ""
+echo "项目路径: $PROJECT_DIR"
 echo ""
 echo "备份位置: $BACKUP_DIR/"
 echo "  - SQLite: db.sqlite3.backup.$TIMESTAMP"

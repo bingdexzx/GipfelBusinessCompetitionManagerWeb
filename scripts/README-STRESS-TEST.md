@@ -2,36 +2,81 @@
 
 ## 工具说明
 
-本目录包含两个压力测试工具：
+本目录包含四个压力测试工具：
 
-1. **stress-test.bat** - 完整的压力测试工具，支持多种测试场景
-2. **quick-test.bat** - 快速健康检查工具，用于快速验证服务器状态
+1. **stress-test.bat** - 完整的压力测试工具，支持多种测试场景和 API 端点
+2. **quick-test.bat** - 快速高并发检查工具，带性能评分和优化建议
+3. **simple-test.bat** - 简单连通性测试，快速验证服务器状态
+4. **test-simple.bat** - 快速连通性测试，检查多个端点是否可达
+5. **view-results.bat** - 查看和分析历史测试结果
 
 ## 快速开始
 
-### 1. 快速健康检查
+### 1. 快速连通性测试
+
+```batch
+scripts\test-simple.bat
+```
+
+输入服务器地址，自动检查健康检查、版本信息、首页三个端点。
+
+### 2. 简单压力测试
+
+```batch
+scripts\simple-test.bat
+```
+
+输入服务器地址，使用 curl（或 PowerShell 后备）发送 10 个请求。
+
+### 3. 快速高并发检查
 
 ```batch
 scripts\quick-test.bat
 ```
 
-输入服务器地址即可快速检查：
-- 健康检查端点
-- 首页访问
-- API 响应
-- 响应时间测试
-- 简单并发测试
+按提示选择：
+1. 测试端点（健康检查/比赛列表/股票数据等）
+2. 是否需要认证（Bearer Token）
+3. 测试级别（快速/中等/高并发/超高并发）
 
-### 2. 完整压力测试
+### 4. 完整压力测试
 
 ```batch
 scripts\stress-test.bat
 ```
 
 按提示选择：
-1. 测试类型（快速/标准/压力/极限/自定义）
-2. 测试端点（健康检查/登录/比赛列表等）
-3. 是否需要认证
+1. 测试类型（快速/标准/压力/极限）
+2. 测试端点（9 个可选端点）
+3. 是否需要认证（Bearer Token）
+4. POST 登录凭据（如选择登录端点）
+
+## 测试端点
+
+| 端点 | 说明 | 方法 | 认证 | 负载级别 |
+|------|------|------|------|----------|
+| /api/health | 健康检查 | GET | 无需 | 轻量级 |
+| /api/version | 版本信息 | GET | 无需 | 轻量级 |
+| /api/auth/login | 用户登录 | POST | 无需 | 中等 |
+| /api/competitions | 比赛列表 | GET | 需要 | 中等（数据库查询） |
+| /api/companies | 公司列表 | GET | 需要 | 中等（关联查询） |
+| /api/materials | 原料列表 | GET | 需要 | 中等 |
+| /api/regions | 区域列表 | GET | 需要 | 中等 |
+| /api/stocks | 股票数据 | GET | 需要 | 较高（复杂查询） |
+| /api/maps/full | 地图数据 | GET | 需要 | 较高（大数据量） |
+
+### 认证说明
+
+需要认证的端点（4-9）需要提供 Bearer Token。获取方式：
+
+1. 在浏览器中打开前端页面并登录
+2. 打开开发者工具（F12）→ Network 面板
+3. 刷新页面，找到任意 API 请求
+4. 在请求头中复制 `Authorization` 字段的值（`Bearer ` 后面的部分）
+
+### POST 请求说明
+
+选择 `/api/auth/login` 端点时，会提示输入用户名和密码，自动生成 POST 请求体。
 
 ## 测试类型说明
 
@@ -43,24 +88,16 @@ scripts\stress-test.bat
 | 极限测试 | 200 | 2000 | 极限压力 |
 | 自定义 | 用户输入 | 用户输入 | 特定场景 |
 
-## 测试端点
-
-| 端点 | 说明 | 负载级别 |
-|------|------|----------|
-| /api/health | 健康检查 | 轻量级 |
-| /api/auth/login | 用户登录 | 中等（含认证） |
-| /api/competitions | 比赛列表 | 中等（数据库查询） |
-| /api/companies | 公司列表 | 中等（关联查询） |
-| /api/stocks | 股票数据 | 较高（复杂查询） |
-
 ## 测试结果
 
-测试完成后会生成两个文件：
+测试完成后会生成报告文件：
 
-1. **stress-test-YYYYMMDD-HHMMSS.txt** - 测试报告摘要
-2. **stress-test-YYYYMMDD-HHMMSS.csv** - 详细数据（可用于 Excel 分析）
+- **stress-test-YYYYMMDD-HHMMSS.txt** - 测试报告摘要
+- **quick-test-YYYYMMDD-HHMMSS.txt** - 快速测试报告
 
 结果保存在 `scripts\test-results\` 目录。
+
+使用 `view-results.bat` 查看历史测试结果。
 
 ## 性能评分标准
 
@@ -83,13 +120,21 @@ scripts\stress-test.bat
 
 ## 常见问题
 
-### Q: 测试时出现大量错误？
+### Q: 测试时出现大量 401 错误？
+
+A: 需要认证的端点必须提供有效的 Bearer Token。请从浏览器开发者工具复制。
+
+### Q: 测试时出现大量 400 错误？
+
+A: 如果测试登录端点，请确保提供了正确的用户名和密码。
+
+### Q: 测试时出现大量连接失败？
 
 A: 可能原因：
 1. 服务器地址错误
 2. 服务器未启动
-3. 端点不存在
-4. 防火墙阻止
+3. 防火墙阻止
+4. 端点路径错误
 
 ### Q: RPS 很低？
 
@@ -106,10 +151,6 @@ A: 检查以下方面：
 2. 是否有慢查询日志
 3. 服务器资源是否充足
 4. 网络延迟
-
-### Q: 如何测试需要登录的接口？
-
-A: 在测试时选择"需要认证"，然后输入 Bearer Token。
 
 ## 优化建议
 
@@ -142,45 +183,20 @@ bash deploy/migrate-to-postgresql.sh
 - 使用连接池
 - 启用 Gzip 压缩
 
-## 监控命令
-
-测试期间，可以使用以下命令监控服务器状态：
-
-```bash
-# 查看 CPU 和内存使用
-htop
-
-# 查看网络连接
-ss -s
-
-# 查看 Daphne 进程
-ps aux | grep daphne
-
-# 查看 Nginx 状态
-systemctl status nginx
-
-# 查看数据库连接
-# SQLite
-lsof db.sqlite3
-
-# PostgreSQL
-sudo -u postgres psql -d gipfel -c "SELECT count(*) FROM pg_stat_activity;"
-```
-
 ## 测试脚本示例
 
 ### 快速检查（每天）
 
 ```batch
-scripts\quick-test.bat
+scripts\test-simple.bat
 ```
 
 ### 标准测试（每周）
 
 ```batch
-scripts\stress-test.bat
-# 选择: 2 (标准测试)
-# 端点: 1 (健康检查)
+scripts\quick-test.bat
+# 选择: /api/health (健康检查)
+# 级别: 2 (中等检查)
 ```
 
 ### 压力测试（部署后）
@@ -188,7 +204,8 @@ scripts\stress-test.bat
 ```batch
 scripts\stress-test.bat
 # 选择: 3 (压力测试)
-# 端点: 3 (比赛列表)
+# 端点: 4 (比赛列表)
+# 输入 Bearer Token
 ```
 
 ### 极限测试（优化验证）
@@ -196,20 +213,26 @@ scripts\stress-test.bat
 ```batch
 scripts\stress-test.bat
 # 选择: 4 (极限测试)
-# 端点: 5 (股票数据)
+# 端点: 8 (股票数据)
+# 输入 Bearer Token
 ```
 
 ## 结果分析
 
-### 查看 CSV 数据
+### 查看测试结果
 
-1. 打开 Excel
-2. 导入 CSV 文件
-3. 分析响应时间分布
-4. 绘制图表
+```batch
+scripts\view-results.bat
+```
+
+选择要查看的测试结果，可以：
+- 查看测试报告
+- 打开 CSV 数据（如有）
+- 导出为 HTML 报告
 
 ### 关键指标
 
+- **RPS**：每秒请求数，衡量服务器吞吐能力
 - **P50 响应时间**：50% 的请求在此时间内完成
 - **P95 响应时间**：95% 的请求在此时间内完成
 - **P99 响应时间**：99% 的请求在此时间内完成
@@ -222,14 +245,7 @@ scripts\stress-test.bat
 3. **RPS 高 + 响应时间长**：数据库查询慢
 4. **错误率高**：服务器配置问题或资源不足
 
-## 联系支持
-
-如果测试过程中遇到问题，请提供：
-1. 测试脚本的完整输出
-2. 测试结果文件（.txt 和 .csv）
-3. 服务器监控截图
-4. 服务器日志
-
 ## 更新日志
 
+- v2.0 (2025): 支持多 API 端点测试、Bearer Token 认证、POST 请求、状态码分布统计
 - v1.0 (2024-10-02): 初始版本，支持基本压力测试

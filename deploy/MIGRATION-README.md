@@ -5,7 +5,13 @@
 ### 第 1 步：拉取最新代码
 
 ```bash
+# 进入你的项目目录（根据你的实际路径）
 cd /opt/gipfel
+
+# 或者如果你的项目在其他位置，进入对应目录
+# cd /path/to/your/project
+
+# 拉取最新代码
 git pull origin main
 ```
 
@@ -16,7 +22,7 @@ git pull origin main
 nano deploy/migrate-to-postgresql.sh
 ```
 
-找到第 12 行，修改密码：
+找到第 19 行，修改密码：
 
 ```bash
 DB_PASSWORD="YourPassword123!"  # ← 改成你的密码
@@ -27,6 +33,7 @@ DB_PASSWORD="YourPassword123!"  # ← 改成你的密码
 ### 第 3 步：执行迁移
 
 ```bash
+# 在项目根目录执行（确保当前目录包含 deploy 文件夹）
 sudo bash deploy/migrate-to-postgresql.sh
 ```
 
@@ -59,7 +66,7 @@ sudo bash deploy/migrate-to-postgresql.sh
 curl http://127.0.0.1:8000/api/health
 
 # 检查数据库
-cd /opt/gipfel/backend
+cd backend
 source .venv/bin/activate
 python manage.py dbshell -c "SELECT count(*) FROM users;"
 
@@ -75,7 +82,7 @@ ps aux | grep daphne
 
 ### Q: 报错 "请先修改脚本中的数据库密码"
 
-**解决**：编辑 `deploy/migrate-to-postgresql.sh`，修改第 12 行的密码。
+**解决**：编辑 `deploy/migrate-to-postgresql.sh`，修改第 19 行的密码。
 
 ### Q: 报错 "请使用 root 用户运行"
 
@@ -92,17 +99,32 @@ sudo apt update
 sudo apt install -y postgresql postgresql-client libpq-dev python3-dev
 ```
 
+### Q: 报错 "项目目录不存在"
+
+**解决**：确保在项目根目录执行脚本：
+```bash
+# 查看当前目录
+pwd
+
+# 确保目录包含 deploy 文件夹
+ls -la deploy/
+
+# 如果不在项目根目录，进入项目目录
+cd /opt/gipfel  # 或你的项目路径
+sudo bash deploy/migrate-to-postgresql.sh
+```
+
 ### Q: 如何回滚到 SQLite？
 
 **解决**：
 ```bash
 # 1. 恢复配置
-cp /opt/gipfel/backups/settings.py.backup.* /opt/gipfel/backend/backend/settings.py
+cp backups/settings.py.backup.* backend/backend/settings.py
 
 # 2. 重启服务
 sudo systemctl restart nginx
 pkill -f daphne
-cd /opt/gipfel/backend
+cd backend
 source .venv/bin/activate
 nohup daphne -b 127.0.0.1 -p 8000 backend.asgi:application &
 ```
@@ -159,7 +181,7 @@ bash deploy/start-daphne-workers.sh
 1. 查看脚本输出的错误信息
 2. 检查备份文件是否完整
 3. 查看 PostgreSQL 日志：`/var/log/postgresql/`
-4. 查看 Django 日志：`/opt/gipfel/backend/logs/`
+4. 查看 Django 日志：`backend/logs/`
 
 ---
 

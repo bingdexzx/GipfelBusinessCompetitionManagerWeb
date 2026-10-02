@@ -1,11 +1,22 @@
 #!/bin/bash
 # Gipfel 服务监控脚本
 # 用于检查优化效果和排查问题
+#
+# 使用方法：在项目根目录执行
+#   bash deploy/monitor.sh
 
-echo "=========================================="
+# 自动检测项目路径
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+BACKEND_DIR="$PROJECT_DIR/backend"
+
+echo ""
+echo "============================================================"
 echo "  Gipfel 服务状态监控"
 echo "  $(date '+%Y-%m-%d %H:%M:%S')"
-echo "=========================================="
+echo "============================================================"
+echo ""
+echo "项目路径: $PROJECT_DIR"
 echo ""
 
 # 1. 系统资源
@@ -36,8 +47,6 @@ echo ""
 echo "【Nginx 状态】"
 if systemctl is-active --quiet nginx; then
     echo "状态: ✓ 运行中"
-    echo "活跃连接:"
-    curl -s http://127.0.0.1/nginx_status 2>/dev/null || echo "  (nginx_status 未启用)"
 else
     echo "状态: ✗ 未运行"
 fi
@@ -45,43 +54,43 @@ echo ""
 
 # 4. 数据库状态
 echo "【数据库状态】"
-cd /opt/gipfel/backend 2>/dev/null || cd backend
-source .venv/bin/activate 2>/dev/null
-
-# 检查 SQLite WAL 模式
-if [ -f "db.sqlite3" ]; then
-    echo "SQLite 数据库: ✓ 存在"
-    echo "数据库大小: $(du -h db.sqlite3 | cut -f1)"
-    
-    # 检查 WAL 模式
-    WAL_MODE=$(python manage.py dbshell -c "PRAGMA journal_mode;" 2>/dev/null | head -1)
-    if [ "$WAL_MODE" = "wal" ]; then
-        echo "WAL 模式: ✓ 已启用"
-    else
-        echo "WAL 模式: ✗ 未启用 (当前: $WAL_MODE)"
-    fi
-else
-    echo "SQLite 数据库: ✗ 不存在"
+cd "$BACKEND_DIR" 2>/dev/null || cd backend
+if [ -d ".venv" ]; then
+    source .venv/bin/activate 2>/dev/null
 fi
 
-# 检查 MySQL（如果配置了）
-if grep -q "django.db.backends.mysql" backend/settings.py 2>/dev/null; then
-    echo "MySQL: 已配置"
-    if systemctl is-active --quiet mysql; then
-        echo "MySQL 服务: ✓ 运行中"
+# 检查数据库类型
+if grep -q "django.db.backends.postgresql" "$BACKEND_DIR/backend/settings.py" 2>/dev/null; then
+    echo "数据库: PostgreSQL"
+    if systemctl is-active --quiet postgresql; then
+        echo "PostgreSQL 服务: ✓ 运行中"
+        # 查询连接数
+        sudo -u postgres psql -d gipfel -c "SELECT count(*) as connections FROM pg_stat_activity;" 2>/dev/null || echo "  (无法查询连接数)"
     else
-        echo "MySQL 服务: ✗ 未运行"
+        echo "PostgreSQL 服务: ✗ 未运行"
     fi
+elif [ -f "$BACKEND_DIR/db.sqlite3" ]; then
+    echo "数据库: SQLite"
+    echo "数据库文件: $BACKEND_DIR/db.sqlite3"
+    echo "数据库大小: $(du -h "$BACKEND_DIR/db.sqlite3" 2>/dev/null | cut -f1 || echo '未知')"
+    
+    # 检查 WAL 模式
+    if command -v python3 &> /dev/null && [ -d ".venv" ]; then
+        WAL_MODE=$(python manage.py dbshell -c "PRAGMA journal_mode;" 2>/dev/null | head -1 || echo "未知")
+        echo "WAL 模式: $WAL_MODE"
+    fi
+else
+    echo "数据库: 未找到"
 fi
 echo ""
 
 # 5. 网络连接
 echo "【网络连接】"
 echo "TCP 连接统计:"
-ss -s | grep -A 2 "TCP:"
+ss -s 2>/dev/null | grep -A 2 "TCP:" || echo "  (无法获取)"
 echo ""
 echo "监听端口:"
-ss -tlnp | grep -E "8000|8001|8002|8003|80" | awk '{print "  "$4}'
+ss -tlnp 2>/dev/null | grep -E "8000|8001|8002|8003|80" | awk '{print "  "$4}' || echo "  (无法获取)"
 echo ""
 
 # 6. 最近错误日志
@@ -101,26 +110,24 @@ echo ""
 echo "【性能建议】"
 if [ $DAPHNE_COUNT -lt 4 ]; then
     echo "⚠ Daphne worker 数量不足，建议启动 4 个"
-fi
-
-if [ $(free | grep Mem | awk '{print $7}') -lt 2000000 ]; then
-    echo "⚠ 可用内存不足 2GB，考虑减少 worker 数量"
+    echo "  运行: bash deploy/start-daphne-workers.sh"
 fi
 
 LOAD=$(cat /proc/loadavg | awk '{print $1}')
 CORES=$(nproc)
-if (( $(echo "$LOAD > $CORES" | bc -l) )); then
+if (( $(echo "$LOAD > $CORES" | bc -l 2>/dev/null || echo 0) )); then
     echo "⚠ 系统负载过高 ($LOAD > $CORES 核心)"
 fi
 
 echo ""
-echo "=========================================="
+echo "============================================================"
 echo "  监控完成"
-echo "=========================================="
+echo "============================================================"
 echo ""
-echo "常用命令："
-echo "  - 实时监控: watch -n 2 '$0'"
+echo "常用命令:"
+echo "  - 实时监控: watch -n 2 'bash deploy/monitor.sh'"
 echo "  - 查看日志: tail -f /var/log/daphne/*.log"
-echo "  - 重启服务: systemctl restart gipfel-daphne"
-echo "  - 性能测试: ab -n 1000 -c 200 http://localhost/api/health"
+echo "  - 重启服务: bash deploy/start-daphne-workers.sh"
+echo "  - 快速优化: sudo bash deploy/quick-optimize.sh"
+echo "  - 数据库迁移: sudo bash deploy/migrate-to-postgresql.sh"
 echo ""

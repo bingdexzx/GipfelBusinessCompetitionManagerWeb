@@ -310,16 +310,37 @@ ASGI_APPLICATION = "backend.asgi.application"
 
 
 # ==================== 数据库 ====================
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-        # SQLite 超时设置：默认5秒太短，股票推进等重写操作容易触发 "database is locked"
-        "OPTIONS": {
-            "timeout": 60,  # 等待锁的秒数
-        },
+# 优先从环境变量读取 PostgreSQL 配置（服务器 .env），本地开发无 .env 时回退 SQLite。
+# 迁移脚本 migrate_to_postgresql.sh 会在 .env 中写入 DB_ENGINE / DB_NAME 等变量。
+_db_engine = os.environ.get("DB_ENGINE", "").strip()
+if _db_engine:
+    # ---- PostgreSQL（服务器 / 已迁移） ----
+    DATABASES = {
+        "default": {
+            "ENGINE": _db_engine,
+            "NAME": os.environ.get("DB_NAME", "gipfel"),
+            "USER": os.environ.get("DB_USER", "gipfel"),
+            "PASSWORD": os.environ.get("DB_PASSWORD", ""),
+            "HOST": os.environ.get("DB_HOST", "localhost"),
+            "PORT": os.environ.get("DB_PORT", "5432"),
+            "CONN_MAX_AGE": 600,
+            "OPTIONS": {
+                "connect_timeout": 10,
+            },
+        }
     }
-}
+else:
+    # ---- SQLite（本地开发） ----
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+            # SQLite 超时设置：默认5秒太短，股票推进等重写操作容易触发 "database is locked"
+            "OPTIONS": {
+                "timeout": 60,
+            },
+        }
+    }
 
 
 # ==================== 密码哈希 ====================
