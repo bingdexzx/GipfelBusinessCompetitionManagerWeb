@@ -291,18 +291,20 @@ fi
 
 # ---------------- PostgreSQL 数据库配置自愈 ----------------
 # 如果 .env 缺少 DB_ENGINE=postgresql，自动写入（保留已有的 JWT_SECRET 等）。
-# 修复历史：deploy/migrate-to-postgresql.sh 的 .env 路径 bug 导致配置从未写入。
-_PG_NAME="gipfel"; _PG_USER="gipfel"; _PG_PASS="CHANGE_ME_TO_STRONG_PASSWORD"
+_PG_NAME="gipfel"; _PG_USER="gipfel"
+# 优先从 .env 读已有密码（之前迁移脚本可能写过），没有则用默认值
+_PG_PASS="$(grep -E '^DB_PASSWORD=' "$INSTALL_DIR/backend/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+if [[ -z "$_PG_PASS" ]]; then _PG_PASS="CHANGE_ME_TO_STRONG_PASSWORD"; fi
 _PG_HOST="localhost"; _PG_PORT="5432"
 if ! grep -q "DB_ENGINE=django.db.backends.postgresql" "$INSTALL_DIR/backend/.env" 2>/dev/null; then
     log ".env 缺少 PostgreSQL 配置，正在写入..."
-    # 确保 PostgreSQL 运行
     systemctl start postgresql 2>/dev/null || true
     systemctl enable postgresql 2>/dev/null || true
     sleep 1
-    # 创建数据库和用户（幂等）
+    # 创建数据库和用户（幂等），并强制同步密码（防止 .env 与 PostgreSQL 密码不一致）
     sudo -u postgres psql -c "CREATE DATABASE $_PG_NAME;" 2>/dev/null || true
     sudo -u postgres psql -c "CREATE USER $_PG_USER WITH PASSWORD '$_PG_PASS';" 2>/dev/null || true
+    sudo -u postgres psql -c "ALTER USER $_PG_USER WITH PASSWORD '$_PG_PASS';" 2>/dev/null || true
     sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $_PG_NAME TO $_PG_USER;" 2>/dev/null || true
     sudo -u postgres psql -c "ALTER USER $_PG_USER CREATEDB;" 2>/dev/null || true
     sudo -u postgres psql -c "ALTER DATABASE $_PG_NAME OWNER TO $_PG_USER;" 2>/dev/null || true
@@ -336,7 +338,12 @@ if ! grep -q "DB_ENGINE=django.db.backends.postgresql" "$INSTALL_DIR/backend/.en
         ok "SQLite 数据已迁移到 PostgreSQL（备份: $_pg_backup/）"
     fi
 else
-    ok ".env 已配置 PostgreSQL，跳过"
+    # .env 已有 PostgreSQL 配置，但确保密码与 PostgreSQL 一致（防止密码漂移）
+    _pg_pass_env="$(grep -E '^DB_PASSWORD=' "$INSTALL_DIR/backend/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+    if [[ -n "$_pg_pass_env" ]]; then
+        sudo -u postgres psql -c "ALTER USER $_PG_USER WITH PASSWORD '$_pg_pass_env';" 2>/dev/null || true
+    fi
+    ok ".env 已配置 PostgreSQL，跳过（已同步密码）"
 fi
 
 log "更新后端（pip / migrate / collectstatic）"
