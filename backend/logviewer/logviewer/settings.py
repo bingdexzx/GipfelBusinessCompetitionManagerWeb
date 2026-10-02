@@ -1,7 +1,8 @@
 """日志查看器服务配置。
 
 刻意保持精简独立：
-- 复用同一 db.sqlite3（读取 django.contrib.auth.User，校验 is_superuser）
+- 复用主服务同一个数据库（读取 django.contrib.auth.User，校验 is_superuser；
+  引擎由 .env 的 DB_ENGINE 决定：生产 PostgreSQL / 本地 SQLite）
 - 不接入主服务的 JWT / 业务 users 表，仅认「Django 后台超级管理员」
 - 会话使用 signed_cookies，无需 django_session 表，也无需自身 migrate
 """
@@ -115,13 +116,33 @@ else:
 LOG_VIEWER_PORT = int(os.environ.get("LOG_VIEWER_PORT", "8120"))
 
 # 复用主服务数据库（含 django.contrib.auth_user）
+# ★ 必须与主服务同库、同引擎：日志查看器用 django.contrib.auth.User 校验超管，
+#   两库不一致会导致「密码正确但登录失败」。
+#   与主服务 settings.py 同规则：由 .env 的 DB_ENGINE 决定（生产=PostgreSQL），
+#   未设置时回退 SQLite（本地开发）。此前这里硬编码 SQLite，迁移到 PostgreSQL 后
+#   会被 rsync 还原成读一个已不存在的 db.sqlite3。
 DB_PATH = MAIN_DIR / "db.sqlite3"
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": str(DB_PATH),
+_db_engine = os.environ.get("DB_ENGINE", "").strip()
+if _db_engine:
+    DATABASES = {
+        "default": {
+            "ENGINE": _db_engine,
+            "NAME": os.environ.get("DB_NAME", "gipfel"),
+            "USER": os.environ.get("DB_USER", "gipfel"),
+            "PASSWORD": os.environ.get("DB_PASSWORD", ""),
+            "HOST": os.environ.get("DB_HOST", "127.0.0.1"),
+            "PORT": os.environ.get("DB_PORT", "5432"),
+            "CONN_MAX_AGE": 600,
+            "OPTIONS": {"connect_timeout": 10},
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": str(DB_PATH),
+        }
+    }
 
 # 日志目录：默认指向主服务写入的 backend/logs（与主服务 LOG_DIR 默认一致）。
 # .env 里的相对路径（如 ./logs）按主服务目录（backend/）锚定——主服务的 cwd 是

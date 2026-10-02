@@ -50,7 +50,11 @@ LockPersonality=true
 # 被 RestrictAddressFamilies 以 EAFNOSUPPORT（Errno 97）拒绝导致服务无法启动。
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 CapabilityBoundingSet=
-ReadWritePaths=__INSTALL_DIR__/backend/uploads __INSTALL_DIR__/backend/logs __INSTALL_DIR__/backend/db.sqlite3 /run/gipfel /var/log/gipfel
+# ★ 绝不要把 db.sqlite3 列进来！ReadWritePaths 里出现不存在的路径会让 systemd 在
+#   挂载命名空间步骤直接失败（status=226/NAMESPACE），表现为服务无限重启。
+#   迁移到 PostgreSQL 后该文件消失 → 正是本服务此前重启计数器飙到 229 的原因。
+#   ProtectSystem=full 只保护 /usr、/boot、/efi、/etc，/opt 本身可写，无需为 SQLite 列白名单。
+ReadWritePaths=__INSTALL_DIR__/backend/uploads __INSTALL_DIR__/backend/logs /run/gipfel /var/log/gipfel
 
 [Install]
 WantedBy=multi-user.target
