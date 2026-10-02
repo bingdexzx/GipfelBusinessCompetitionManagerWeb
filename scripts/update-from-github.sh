@@ -288,6 +288,57 @@ if [[ ! -f "$INSTALL_DIR/backend/.env" ]]; then
     warn "已生成 .env；公网访问入口（DJANGO_ALLOWED_HOSTS/CORS/CSRF）将在下方自愈块按域名/公网 IP 补全"
     warn "默认管理员密码已自动生成，请查看 .env 中的 SEED_ADMIN_PASSWORD（首次登录后强制修改）"
 fi
+
+# ---------------- PostgreSQL 数据库配置自愈 ----------------
+# 如果 .env 缺少 DB_ENGINE=postgresql，自动写入（保留已有的 JWT_SECRET 等）。
+# 修复历史：deploy/migrate-to-postgresql.sh 的 .env 路径 bug 导致配置从未写入。
+_PG_NAME="gipfel"; _PG_USER="gipfel"; _PG_PASS="CHANGE_ME_TO_STRONG_PASSWORD"
+_PG_HOST="localhost"; _PG_PORT="5432"
+if ! grep -q "DB_ENGINE=django.db.backends.postgresql" "$INSTALL_DIR/backend/.env" 2>/dev/null; then
+    log ".env 缺少 PostgreSQL 配置，正在写入..."
+    # 确保 PostgreSQL 运行
+    systemctl start postgresql 2>/dev/null || true
+    systemctl enable postgresql 2>/dev/null || true
+    sleep 1
+    # 创建数据库和用户（幂等）
+    sudo -u postgres psql -c "CREATE DATABASE $_PG_NAME;" 2>/dev/null || true
+    sudo -u postgres psql -c "CREATE USER $_PG_USER WITH PASSWORD '$_PG_PASS';" 2>/dev/null || true
+    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $_PG_NAME TO $_PG_USER;" 2>/dev/null || true
+    sudo -u postgres psql -c "ALTER USER $_PG_USER CREATEDB;" 2>/dev/null || true
+    sudo -u postgres psql -c "ALTER DATABASE $_PG_NAME OWNER TO $_PG_USER;" 2>/dev/null || true
+    # 写入 .env（追加，不覆盖已有配置）
+    {
+        echo ""
+        echo "# PostgreSQL 数据库配置（由 update-from-github.sh 自动写入）"
+        echo "DB_ENGINE=django.db.backends.postgresql"
+        echo "DB_NAME=$_PG_NAME"
+        echo "DB_USER=$_PG_USER"
+        echo "DB_PASSWORD=$_PG_PASS"
+        echo "DB_HOST=$_PG_HOST"
+        echo "DB_PORT=$_PG_PORT"
+    } >> "$INSTALL_DIR/backend/.env"
+    ok "PostgreSQL 配置已写入 .env"
+    # 如果存在 SQLite 数据库，自动迁移
+    if [[ -f "$INSTALL_DIR/backend/db.sqlite3" ]]; then
+        log "检测到 SQLite 数据库，自动迁移数据到 PostgreSQL..."
+        # 导出数据
+        _pg_backup="$INSTALL_DIR/_backup/pg_migration_$(date +%F_%H%M%S)"
+        mkdir -p "$_pg_backup"
+        cp "$INSTALL_DIR/backend/db.sqlite3" "$_pg_backup/db.sqlite3"
+        # 先跑 migrate 建表，再 loaddata 导入
+        set -a; source "$INSTALL_DIR/backend/.env" 2>/dev/null; set +a
+        "$INSTALL_DIR/backend/.venv/bin/python" manage.py migrate --noinput 2>/dev/null || true
+        "$INSTALL_DIR/backend/.venv/bin/python" manage.py dumpdata --indent 2 > "$_pg_backup/data.json" 2>/dev/null || true
+        "$INSTALL_DIR/backend/.venv/bin/python" manage.py loaddata "$_pg_backup/data.json" 2>/dev/null || {
+            warn "loaddata 部分失败，数据可能不完整，请检查: $_pg_backup/data.json"
+        }
+        mv "$INSTALL_DIR/backend/db.sqlite3" "$INSTALL_DIR/backend/db.sqlite3.migrated" 2>/dev/null || true
+        ok "SQLite 数据已迁移到 PostgreSQL（备份: $_pg_backup/）"
+    fi
+else
+    ok ".env 已配置 PostgreSQL，跳过"
+fi
+
 log "更新后端（pip / migrate / collectstatic）"
 cd "$INSTALL_DIR/backend"
 if [[ ! -d .venv ]]; then

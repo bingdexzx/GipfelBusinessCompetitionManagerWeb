@@ -113,7 +113,7 @@ create_django_config() {
     SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))")
     
     # 创建 .env 文件
-    cat > "$BACKEND_DIR/backend/.env" << EOF
+    cat > "$BACKEND_DIR/.env" << EOF
 # PostgreSQL 数据库配置
 DB_ENGINE=django.db.backends.postgresql
 DB_NAME=$DB_NAME
@@ -514,7 +514,7 @@ main() {
     echo "备份:   $BACKUP_DIR"
     echo ""
     echo "下一步:"
-    echo "  1. 检查配置文件: $BACKEND_DIR/backend/.env"
+    echo "  1. 检查配置文件: $BACKEND_DIR/.env"
     echo "  2. 启动服务: systemctl start gipfel-daphne"
     echo "  3. 访问系统: http://localhost"
     echo ""

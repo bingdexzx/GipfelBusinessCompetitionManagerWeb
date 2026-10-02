@@ -111,8 +111,8 @@ cp "$BACKEND_DIR/backend/settings.py" "$BACKUP_DIR/settings.py.backup.$TIMESTAMP
 success "配置文件备份完成: settings.py.backup.$TIMESTAMP"
 
 # 备份 .env
-if [ -f "$BACKEND_DIR/backend/.env" ]; then
-    cp "$BACKEND_DIR/backend/.env" "$BACKUP_DIR/.env.backup.$TIMESTAMP"
+if [ -f "$BACKEND_DIR/.env" ]; then
+    cp "$BACKEND_DIR/.env" "$BACKUP_DIR/.env.backup.$TIMESTAMP"
     success ".env 备份完成: .env.backup.$TIMESTAMP"
 fi
 
@@ -170,7 +170,7 @@ echo ""
 # ==================== 5. 写入 .env 配置 ====================
 info "写入 .env 配置..."
 
-ENV_FILE="$BACKEND_DIR/backend/.env"
+ENV_FILE="$BACKEND_DIR/.env"
 
 # 保留已有的 JWT_SECRET / SECRET_KEY / LOGVIEWER_SECRET_KEY 等敏感配置
 EXISTING_JWT=""
@@ -372,6 +372,6 @@ echo "  2. 压测验证: 使用本地 stress-test.bat"
 echo ""
 echo "如需回滚:"
 echo "  cp $BACKUP_DIR/settings.py.backup.$TIMESTAMP $BACKEND_DIR/backend/settings.py"
-echo "  cp $BACKUP_DIR/.env.backup.$TIMESTAMP $BACKEND_DIR/backend/.env"
+echo "  cp $BACKUP_DIR/.env.backup.$TIMESTAMP $BACKEND_DIR/.env"
 echo "  systemctl restart nginx"
 echo "============================================================"
