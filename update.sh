@@ -443,6 +443,19 @@ fi
 
 # 重启服务
 systemctl restart postgresql 2>/dev/null || true
+
+# 强制释放 8000 端口（旧 gipfel-daphne 或手动启动的 daphne 可能占用）
+_port_holder=$(ss -lntp 2>/dev/null | grep ':8000' | grep -oP 'pid=\K[0-9]+' | sort -u || true)
+if [[ -n "$_port_holder" ]]; then
+    for _pid in $_port_holder; do
+        kill "$_pid" 2>/dev/null || true
+        ok "已终止占用 8000 端口的进程 (PID: $_pid)"
+    done
+    sleep 2
+fi
+pkill -f "daphne.*backend.asgi" 2>/dev/null || true
+sleep 1
+
 for svc in gipfel gipfel-logviewer; do
     if systemctl cat "$svc.service" >/dev/null 2>&1; then
         systemctl restart "$svc"
