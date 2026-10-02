@@ -1,0 +1,33 @@
+[Unit]
+Description=Gipfel Business Competition Manager - Daphne ASGI Server
+After=network.target mysql.service
+Requires=mysql.service
+
+[Service]
+Type=forking
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/gipfel/backend
+Environment="PATH=/opt/gipfel/backend/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=/opt/gipfel/backend/.env
+
+# 启动 4 个 worker 进程
+ExecStart=/opt/gipfel/deploy/start-daphne-workers.sh
+ExecStop=/usr/bin/pkill -f "daphne.*backend.asgi"
+ExecReload=/bin/kill -HUP $MAINPID
+
+# 重启策略
+Restart=always
+RestartSec=5
+
+# 资源限制
+LimitNOFILE=65535
+LimitNPROC=4096
+
+# 日志
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gipfel-daphne
+
+[Install]
+WantedBy=multi-user.target
