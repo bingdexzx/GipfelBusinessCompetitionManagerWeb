@@ -417,17 +417,29 @@ else
     warn "用户 gipfel 不存在，跳过 chown"
 fi
 
-# 刷新 systemd 服务单元
-for unit_file in "$INSTALL_DIR"/deploy/*.service; do
-    [[ -f "$unit_file" ]] || continue
-    unit_name="$(basename "$unit_file")"
-    systemctl unmask "$unit_name" 2>/dev/null || true
-    rm -f "/etc/systemd/system/$unit_name" "/run/systemd/system/$unit_name"
-    sed "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$unit_file" > "/etc/systemd/system/$unit_name"
+# 刷新 systemd 服务单元（只安装正确的服务，不装旧的 gipfel-daphne）
+install_unit() {
+    local src="$1" name="$2"
+    [[ -f "$src" ]] || { warn "找不到服务模板 $src，跳过 $name"; return 0; }
+    systemctl unmask "$name" 2>/dev/null || true
+    rm -f "/etc/systemd/system/$name" "/run/systemd/system/$name"
+    sed "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$src" > "/etc/systemd/system/$name"
     systemctl daemon-reload
-    systemctl enable "$unit_name" 2>/dev/null || true
-    ok "已刷新服务单元: $unit_name"
-done
+    systemctl enable "$name" 2>/dev/null || true
+    ok "已刷新服务单元: $name"
+}
+
+install_unit "$INSTALL_DIR/deploy/gipfel.service"    gipfel.service
+install_unit "$INSTALL_DIR/deploy/logviewer.service" gipfel-logviewer.service
+
+# 清理旧的 gipfel-daphne.service（已废弃，由 gipfel.service 替代）
+if systemctl cat gipfel-daphne.service >/dev/null 2>&1; then
+    systemctl stop gipfel-daphne 2>/dev/null || true
+    systemctl disable gipfel-daphne 2>/dev/null || true
+    rm -f /etc/systemd/system/gipfel-daphne.service /run/systemd/system/gipfel-daphne.service
+    systemctl daemon-reload
+    ok "已移除废弃服务 gipfel-daphne.service"
+fi
 
 # 重启服务
 systemctl restart postgresql 2>/dev/null || true
