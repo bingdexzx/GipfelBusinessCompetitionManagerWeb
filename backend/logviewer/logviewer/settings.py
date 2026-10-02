@@ -124,6 +124,16 @@ LOG_VIEWER_PORT = int(os.environ.get("LOG_VIEWER_PORT", "8120"))
 DB_PATH = MAIN_DIR / "db.sqlite3"
 _db_engine = os.environ.get("DB_ENGINE", "").strip()
 if _db_engine:
+    # CONN_MAX_AGE 与主服务保持一致的语义：它只在「请求开始/结束」时检查
+    # **当前线程自己那条**连接是否超龄，不是定时器。取 0 表示请求结束即归还，
+    # 否则本进程的每条线程都会长期占着一条 PostgreSQL 连接。
+    # 与主服务共用 max_connections（默认 100，应用可用 97），日志查看器轮询日志
+    # 同样会占用连接，绝不能在这里设成 600。
+    try:
+        _lv_conn_max_age = int((os.environ.get("DB_CONN_MAX_AGE") or "").strip() or 0)
+    except ValueError:
+        _lv_conn_max_age = 0
+
     DATABASES = {
         "default": {
             "ENGINE": _db_engine,
@@ -132,7 +142,8 @@ if _db_engine:
             "PASSWORD": os.environ.get("DB_PASSWORD", ""),
             "HOST": os.environ.get("DB_HOST", "127.0.0.1"),
             "PORT": os.environ.get("DB_PORT", "5432"),
-            "CONN_MAX_AGE": 600,
+            "CONN_MAX_AGE": _lv_conn_max_age,
+            "CONN_HEALTH_CHECKS": True,
             "OPTIONS": {"connect_timeout": 10},
         }
     }

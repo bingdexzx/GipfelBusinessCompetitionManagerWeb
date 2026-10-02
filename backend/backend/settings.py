@@ -319,22 +319,25 @@ _db_engine = os.environ.get("DB_ENGINE", "").strip()
 if _db_engine:
     # ---- PostgreSQL（服务器 / 已迁移） ----
     #
-    # ★ CONN_MAX_AGE 与连接槽（真实事故：压测后登录页 500）
-    #   Django 的持久连接是「每个线程一条、存活 CONN_MAX_AGE 秒」。
-    #   ASGI 下同步视图跑在线程池里，线程数随并发增长 → 连接数也随并发增长，
-    #   而且请求结束后仍要继续占用 CONN_MAX_AGE 秒才释放。
+    # ★ CONN_MAX_AGE 的真实语义（真实事故：压测后登录页 500）
+    #   它**不是定时器**。Django 只在「请求开始 / 请求结束」这两个时刻，
+    #   检查**当前线程自己那条**连接是否超龄（close_at = 建连时刻 + CONN_MAX_AGE）：
+    #     · 0    → 请求结束即关闭（close_at 已过期）—— 连接数 ≈ 同时在处理的请求数
+    #     · N>0  → 只有该线程**下次再接到请求**时才会关闭重建；
+    #              线程若不再被使用，那条连接会一直挂着（实测出现 51 条 idle、
+    #              最长闲置 73 秒仍未释放）
+    #     · None → 永不自动关闭
+    #   故本部署默认 0：连接用完即还，不做持久复用。
     #   PostgreSQL 默认 max_connections=100，其中 superuser_reserved_connections=3
-    #   只留给超级用户，应用实际只能用 97 条。打满后新请求报：
+    #   只留给超级用户，应用实际只能用 97 条；打满后报：
     #     FATAL: remaining connection slots are reserved for
     #            non-replication superuser connections
-    #   症状是「压测当时看着还行，压测结束后登录接口 500」。
-    #   故默认取 60 秒（而非 600），把占用时间缩短一个数量级。
-    #   要压更高并发请上 PgBouncer 做真正的连接池，而不是无限放大这个值——
-    #   它只会把「连接打满」推迟到更高的并发而已。
+    #   需要用持久连接来省下建连开销时，正确做法是上 PgBouncer（transaction 模式，
+    #   几百个客户端复用十几条真连接），而不是把这里调大。
     try:
-        _conn_max_age = int((os.environ.get("DB_CONN_MAX_AGE") or "").strip() or 60)
+        _conn_max_age = int((os.environ.get("DB_CONN_MAX_AGE") or "").strip() or 0)
     except ValueError:
-        _conn_max_age = 60
+        _conn_max_age = 0
 
     DATABASES = {
         "default": {
