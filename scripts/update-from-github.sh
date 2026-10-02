@@ -442,6 +442,21 @@ cp -a dist/. "$INSTALL_DIR/frontend-dist/"
 # ---------------- 4. 文件归属与权限 ----------------
 # 所有步骤以 root 身份写入（.venv / db.sqlite3 / uploads / logs / frontend-dist），
 # 统一归属运行用户 gipfel，否则 systemd 以 gipfel 启动时无写权限。
+#
+# ★ 先确保服务单元 ReadWritePaths 引用的目录存在：
+#   ReadWritePaths 指向不存在的路径会让 systemd 在 NAMESPACE 步骤硬失败
+#   （status=226/NAMESPACE，服务无限重启），与密码/代码无关，极难从报错看出。
+mkdir -p "$INSTALL_DIR/backend/uploads" "$INSTALL_DIR/backend/logs"
+# 同步清理：历史上服务单元把 db.sqlite3 列进了 ReadWritePaths，
+# 迁移到 PostgreSQL 后该文件消失 → 命名空间挂载失败。这里主动移除残留引用。
+for _unit in /etc/systemd/system/gipfel.service /etc/systemd/system/gipfel-daphne.service; do
+    [[ -f "$_unit" ]] || continue
+    if grep -q 'ReadWritePaths=.*db\.sqlite3' "$_unit" 2>/dev/null; then
+        sed -i -E 's#([[:space:]])[^[:space:]]*db\.sqlite3##g' "$_unit"
+        warn "已从 $_unit 的 ReadWritePaths 中移除 db.sqlite3（迁移后该文件不存在）"
+    fi
+done
+
 chown -R gipfel:gipfel "$INSTALL_DIR"
 chmod 600 "$INSTALL_DIR/backend/.env" 2>/dev/null || true
 ok "文件归属已切换为 gipfel，.env 权限收紧为 600"

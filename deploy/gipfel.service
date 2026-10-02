@@ -49,7 +49,14 @@ LockPersonality=true
 # 创建套接字，daphne 任一监听失败即整体退出，服务无限重启。
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 CapabilityBoundingSet=
-ReadWritePaths=__INSTALL_DIR__/backend/uploads __INSTALL_DIR__/backend/logs __INSTALL_DIR__/backend/db.sqlite3 /run/gipfel /var/log/gipfel
+# ★ 绝不要把 db.sqlite3 列进来！
+#   ReadWritePaths 里出现**不存在的路径**时，systemd 会在挂载命名空间步骤直接失败：
+#     Failed to set up mount namespacing: .../db.sqlite3: No such file or directory
+#     status=226/NAMESPACE
+#   迁移到 PostgreSQL 后该文件会被重命名/删除 → 服务无限重启（真实事故）。
+#   ProtectSystem=full 只保护 /usr、/boot、/efi、/etc，/opt 本身可写，
+#   因此无需为 SQLite 单独列白名单；uploads/logs 由下方脚本保证存在。
+ReadWritePaths=__INSTALL_DIR__/backend/uploads __INSTALL_DIR__/backend/logs /run/gipfel /var/log/gipfel
 
 [Install]
 WantedBy=multi-user.target
