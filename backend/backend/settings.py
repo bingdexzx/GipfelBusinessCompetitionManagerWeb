@@ -318,6 +318,24 @@ ASGI_APPLICATION = "backend.asgi.application"
 _db_engine = os.environ.get("DB_ENGINE", "").strip()
 if _db_engine:
     # ---- PostgreSQL（服务器 / 已迁移） ----
+    #
+    # ★ CONN_MAX_AGE 与连接槽（真实事故：压测后登录页 500）
+    #   Django 的持久连接是「每个线程一条、存活 CONN_MAX_AGE 秒」。
+    #   ASGI 下同步视图跑在线程池里，线程数随并发增长 → 连接数也随并发增长，
+    #   而且请求结束后仍要继续占用 CONN_MAX_AGE 秒才释放。
+    #   PostgreSQL 默认 max_connections=100，其中 superuser_reserved_connections=3
+    #   只留给超级用户，应用实际只能用 97 条。打满后新请求报：
+    #     FATAL: remaining connection slots are reserved for
+    #            non-replication superuser connections
+    #   症状是「压测当时看着还行，压测结束后登录接口 500」。
+    #   故默认取 60 秒（而非 600），把占用时间缩短一个数量级。
+    #   要压更高并发请上 PgBouncer 做真正的连接池，而不是无限放大这个值——
+    #   它只会把「连接打满」推迟到更高的并发而已。
+    try:
+        _conn_max_age = int((os.environ.get("DB_CONN_MAX_AGE") or "").strip() or 60)
+    except ValueError:
+        _conn_max_age = 60
+
     DATABASES = {
         "default": {
             "ENGINE": _db_engine,
@@ -326,7 +344,11 @@ if _db_engine:
             "PASSWORD": os.environ.get("DB_PASSWORD", ""),
             "HOST": os.environ.get("DB_HOST", "localhost"),
             "PORT": os.environ.get("DB_PORT", "5432"),
-            "CONN_MAX_AGE": 600,
+            "CONN_MAX_AGE": _conn_max_age,
+            # 复用连接前先探活：否则数据库重启、或连接被 pg_terminate_backend
+            # 清理之后，复用到已死的连接会抛
+            # 「server closed the connection unexpectedly」而不是安静地重连。
+            "CONN_HEALTH_CHECKS": True,
             "OPTIONS": {
                 "connect_timeout": 10,
             },

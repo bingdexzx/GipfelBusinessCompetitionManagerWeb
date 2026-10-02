@@ -1,0 +1,38 @@
+# ============================================================
+#  Git 行尾与文本属性规范
+#
+#  背景（真实事故）：scripts/*.bat 曾以 LF 行尾提交，Windows 上 cmd.exe
+#  会从行中间拆开语句，报出 `'xxx' is not recognized` 与
+#  `-eq was unexpected at this time` 这类与真实原因无关的错误，极难定位。
+#
+#  规则：
+#    - 批处理/启动器必须是 CRLF（cmd.exe 的硬要求）
+#    - PowerShell 脚本固定 CRLF，且必须带 UTF-8 BOM
+#      （Windows PowerShell 5.1 无 BOM 时按 ANSI/GBK 解码，中文会变乱码）
+#    - Linux shell 脚本必须是 LF（CRLF 会让 bash 报 $'\r': command not found）
+#    - 其余文本默认交给 git 自动处理
+# ============================================================
+
+# ---- Windows 批处理：必须 CRLF ----
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# ---- PowerShell：锁定 CRLF ----
+# 仓库内存 LF、检出为 CRLF；UTF-8 BOM 属于文件内容，git 不会改动它。
+*.ps1   text eol=crlf
+
+# ---- Linux shell：必须 LF ----
+*.sh    text eol=lf
+
+# ---- 二进制/资源：不做任何转换 ----
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.zip   binary
+*.gz    binary
+*.sqlite3 binary

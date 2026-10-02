@@ -35,9 +35,49 @@ class Command(BaseCommand):
             help="临时覆盖端口（默认用 settings.PORT，即 .env 的 PORT）",
         )
 
+    @staticmethod
+    def _port_in_use(bind: str, port: int) -> bool:
+        """探测端口是否已有服务在监听。
+
+        用「连接探测」而不是「bind 探测」：SO_REUSEADDR 会让通配地址与具体地址
+        之间的占用关系变得不可靠，而能否连上则精确反映「已经有人在服务」。
+        通配地址（0.0.0.0/::）统一按回环连接判断——无论占用方绑的是通配还是回环，
+        从 127.0.0.1 都能连上，两个方向都能覆盖。
+        """
+        import socket
+
+        host = "127.0.0.1" if bind in ("0.0.0.0", "::", "") else bind
+        family = socket.AF_INET6 if ":" in host else socket.AF_INET
+        probe = socket.socket(family, socket.SOCK_STREAM)
+        probe.settimeout(0.5)
+        try:
+            probe.connect((host, port))
+            return True
+        except OSError:
+            return False
+        finally:
+            probe.close()
+
     def handle(self, *args, **options):
         bind = options["bind"]
         port = options["port"] or settings.PORT
+
+        # 快速失败：端口被占用时 daphne 只打印一行 "Address already in use"；
+        # 若由 systemd/supervisor 托管，就变成无限重启，真实原因极难看出。
+        # 这里提前探测并直接说明「谁最可能占着它、该怎么办」。
+        if self._port_in_use(bind, port):
+            self.stderr.write(
+                self.style.ERROR(
+                    f"端口 {port} 已被占用，无法绑定 {bind}:{port}。\n"
+                    "最常见的原因：systemd 的 gipfel.service 已在运行（它绑 127.0.0.1:8000）。\n"
+                    f"  · 查看占用者：  sudo ss -lntp | grep ':{port}'\n"
+                    "  · 查看服务状态：sudo systemctl status gipfel --no-pager\n"
+                    "  · 仅本地调试：  python manage.py rundaphne --port 9000\n"
+                    "  · 或先停服务：  sudo systemctl stop gipfel"
+                )
+            )
+            sys.exit(1)
+
         # 把实际绑定端口写入环境变量，使 daphne 子进程导入 settings 时读到该值，
         # 从而 /api/version 下发的 port 与真实监听端口一致（即使通过 --port 覆盖也成立）。
         os.environ["PORT"] = str(port)
