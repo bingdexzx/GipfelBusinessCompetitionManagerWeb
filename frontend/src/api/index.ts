@@ -611,3 +611,27 @@ export const preparationApi = {
       },
     ),
 };
+
+// ===================== 系统管理（仅超管） =====================
+export interface RateLimitConfig {
+  enabled: boolean;
+  requests: number;
+  window: number;
+}
+
+export interface RateLimitResponse {
+  config: Record<string, RateLimitConfig>;
+  usage: Record<string, { currentRequests: number; maxRequests: number }>;
+}
+
+export const systemApi = {
+  /** 获取流量限制配置 */
+  getRateLimit: (): Promise<RateLimitResponse> =>
+    api.get("/system/rate-limit", { cache: false }),
+  /** 更新流量限制配置 */
+  updateRateLimit: (role: string, config: Partial<RateLimitConfig>) =>
+    api.put("/system/rate-limit", { role, config }),
+  /** 重置流量限制 */
+  resetRateLimit: (action: "config" | "records" | "all" = "config") =>
+    api.post("/system/rate-limit/reset", { action }),
+};

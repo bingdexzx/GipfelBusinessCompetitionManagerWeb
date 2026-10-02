@@ -15,6 +15,7 @@
       <h3>后端管理</h3>
       <el-button type="danger" @click="openAdmin">后端管理界面</el-button>
       <el-button type="warning" @click="openLogViewer">日志查看器</el-button>
+      <el-button @click="openRateLimit">流量限制设置</el-button>
     </div>
     <div class="settings-section" v-if="isSuperAdmin">
       <h3>系统管理</h3>
@@ -131,6 +132,55 @@
         <el-button @click="wpDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <!-- 流量限制设置弹窗 -->
+    <el-dialog v-model="rateLimitVisible" title="流量限制设置" width="600px" append-to-body destroy-on-close>
+      <div v-loading="rateLimitLoading">
+        <el-alert type="info" :closable="false" style="margin-bottom: 16px">
+          设置各角色的 API 请求频率限制。限制生效后，超过阈值的请求将被拒绝（返回429）。
+        </el-alert>
+
+        <div v-for="(config, role) in rateLimitConfig" :key="role" class="rate-limit-item">
+          <div class="rate-limit-header">
+            <el-tag :type="roleTagType(role)">{{ roleLabel(role) }}</el-tag>
+            <el-switch
+              v-model="config.enabled"
+              @change="handleRateLimitChange(role, { enabled: config.enabled })"
+            />
+          </div>
+          <div v-if="config.enabled" class="rate-limit-body">
+            <el-form label-width="100px" size="small">
+              <el-form-item label="请求数限制">
+                <el-input-number
+                  v-model="config.requests"
+                  :min="1"
+                  :max="10000"
+                  @change="handleRateLimitChange(role, { requests: config.requests })"
+                />
+                <span class="form-hint">次</span>
+              </el-form-item>
+              <el-form-item label="时间窗口">
+                <el-input-number
+                  v-model="config.window"
+                  :min="1"
+                  :max="3600"
+                  @change="handleRateLimitChange(role, { window: config.window })"
+                />
+                <span class="form-hint">秒</span>
+              </el-form-item>
+            </el-form>
+          </div>
+        </div>
+
+        <div style="margin-top: 16px; text-align: right">
+          <el-button @click="resetRateLimit('config')">重置为默认值</el-button>
+          <el-button type="warning" @click="resetRateLimit('records')">清空限制记录</el-button>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="rateLimitVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -139,7 +189,7 @@ import { ref, computed } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { clearCurrentAccountCache } from "@/api/cache";
 import { resetRequestMemo } from "@/api/request";
-import api, { announcementsApi, type AnnouncementItem, widgetPackagesApi, type WidgetPackageItem } from "@/api";
+import api, { announcementsApi, type AnnouncementItem, widgetPackagesApi, type WidgetPackageItem, systemApi, type RateLimitConfig } from "@/api";
 import { removeAccountItem } from "@/utils/accountStorage";
 import { useVersionStore } from "@/stores/version";
 import { useAuthStore } from "@/stores/auth";
@@ -318,6 +368,76 @@ async function openLogViewer() {
   }
 }
 
+// ===== 流量限制设置 =====
+const rateLimitVisible = ref(false);
+const rateLimitLoading = ref(false);
+const rateLimitConfig = ref<Record<string, RateLimitConfig>>({});
+
+async function openRateLimit() {
+  rateLimitVisible.value = true;
+  await fetchRateLimitConfig();
+}
+
+async function fetchRateLimitConfig() {
+  rateLimitLoading.value = true;
+  try {
+    const res = await systemApi.getRateLimit();
+    rateLimitConfig.value = res.config || {};
+  } catch {
+    rateLimitConfig.value = {};
+  } finally {
+    rateLimitLoading.value = false;
+  }
+}
+
+async function handleRateLimitChange(role: string, config: Partial<RateLimitConfig>) {
+  try {
+    await systemApi.updateRateLimit(role, config);
+    ElMessage.success("配置已更新");
+  } catch {
+    ElMessage.error("更新失败");
+    await fetchRateLimitConfig(); // 刷新恢复
+  }
+}
+
+async function resetRateLimit(action: "config" | "records" | "all") {
+  const labels = { config: "配置", records: "限制记录", all: "全部" };
+  try {
+    await ElMessageBox.confirm(
+      `确定重置流量限制${labels[action]}吗？`,
+      "重置确认",
+      { type: "warning" }
+    );
+  } catch {
+    return;
+  }
+  try {
+    await systemApi.resetRateLimit(action);
+    ElMessage.success("已重置");
+    await fetchRateLimitConfig();
+  } catch {
+    ElMessage.error("重置失败");
+  }
+}
+
+function roleLabel(role: string): string {
+  const map: Record<string, string> = {
+    SUPER_ADMIN: "超级管理员",
+    COMPETITION_ADMIN: "管理员",
+    PLAYER: "选手",
+  };
+  return map[role] || role;
+}
+
+function roleTagType(role: string): string {
+  const map: Record<string, string> = {
+    SUPER_ADMIN: "danger",
+    COMPETITION_ADMIN: "warning",
+    PLAYER: "info",
+  };
+  return map[role] || "info";
+}
+
 // ===== 管理控件包 =====
 const wpDialogVisible = ref(false);
 const wpLoading = ref(false);
@@ -408,5 +528,26 @@ async function handleDeleteWidget(id: number) {
   .settings-section .el-button:last-child {
     margin-bottom: 0;
   }
+}
+.rate-limit-item {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.rate-limit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.rate-limit-body {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #f0f0f0;
+}
+.form-hint {
+  margin-left: 8px;
+  font-size: 13px;
+  color: #8c8c8c;
 }
 </style>

@@ -9,6 +9,7 @@ from django.urls import include, path, re_path
 from django.views.static import serve as static_serve
 
 from apps.auth.views import HealthView, VersionView
+from apps.common.rate_limit_views import RateLimitConfigView, RateLimitResetView
 
 urlpatterns = [
     # 管理后台（Django admin）：仅用于临时排查/修数，业务管理仍走前端 Vue 界面
@@ -20,6 +21,9 @@ urlpatterns = [
     path("api/auth/", include("apps.auth.urls")),
     # users 挂在 api/ 下（与 competitions 一致），子路由非空，避免 POST /api/users 触发尾随斜杠重定向
     path("api/", include("apps.users.urls")),
+    # 系统管理（仅超管）
+    path("api/system/rate-limit", RateLimitConfigView.as_view(), name="rate-limit-config"),
+    path("api/system/rate-limit/reset", RateLimitResetView.as_view(), name="rate-limit-reset"),
     # 业务模块（保持原 NestJS Controller 前缀）
     path("api/", include("apps.competitions.urls")),
     path("api/", include("apps.materials.urls")),
