@@ -40,7 +40,7 @@ BACKEND_DIR="$INSTALL_DIR/backend"
 FRONTEND_DIR="$INSTALL_DIR/frontend"
 BACKUP_DIR="$INSTALL_DIR/_backup"
 VENV_DIR="$BACKEND_DIR/.venv"
-ENV_FILE="$BACKEND_DIR/backend/.env"
+ENV_FILE="$BACKEND_DIR/.env"
 
 # PostgreSQL 默认配置（首次迁移时写入 .env，后续从 .env 读取）
 DB_NAME="gipfel"
