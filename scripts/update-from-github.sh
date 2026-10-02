@@ -615,6 +615,24 @@ refresh_unit "$INSTALL_DIR/deploy/gipfel.service" gipfel.service || UNIT_REFRESH
 refresh_unit "$INSTALL_DIR/deploy/logviewer.service" gipfel-logviewer.service || UNIT_REFRESH_FAILED=1
 systemctl daemon-reload
 
+# 清理错误路径的 .env（历史 bug 产物：backend/backend/.env 会干扰 load_dotenv()）
+if [[ -f "$INSTALL_DIR/backend/backend/.env" ]]; then
+    rm -f "$INSTALL_DIR/backend/backend/.env"
+    warn "已删除错误路径的 .env（$INSTALL_DIR/backend/backend/.env），正确路径为 $INSTALL_DIR/backend/.env"
+fi
+
+# 强制释放 8000 端口（旧 daphne 进程可能残留）
+_port_pids=$(ss -lntp 2>/dev/null | grep ':8000' | grep -oP 'pid=\K[0-9]+' | sort -u || true)
+if [[ -n "$_port_pids" ]]; then
+    for _pid in $_port_pids; do
+        kill -9 "$_pid" 2>/dev/null || true
+    done
+    warn "已强制终止占用 8000 端口的进程: $_port_pids"
+    sleep 1
+fi
+pkill -9 -f "daphne.*backend.asgi" 2>/dev/null || true
+sleep 1
+
 if [[ "$UNIT_REFRESH_FAILED" == 1 ]]; then
     warn "服务单元未能正常启用（masked 等问题未解除），本次跳过全部重启，避免用旧状态误判。"
     warn "请按上方诊断处理模板/软链后执行：sudo systemctl daemon-reload && sudo systemctl restart gipfel gipfel-logviewer"

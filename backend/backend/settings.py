@@ -12,7 +12,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # 加载 .env（与原 NestJS dotenv/config 等价）
-load_dotenv()
+# 显式指定路径：.env 位于 backend/ 根目录（manage.py 同级），
+# 不能用 load_dotenv() 自动搜索——它会从 settings.py 所在目录（backend/backend/）开始找，
+# 误读到 backend/backend/.env（历史 bug 产物），导致 PermissionError 或配置错误。
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
 # ==================== 路径常量 ====================
