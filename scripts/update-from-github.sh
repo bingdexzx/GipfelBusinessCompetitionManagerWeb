@@ -108,6 +108,11 @@ Usage: $0 [options]
 EOF
 }
 
+# ★ 必须在参数解析前保存原始参数：下面的 while 循环会用 shift 把 $@ 吃空，
+#   而自更新 re-exec 需要把同样的参数传给新版本，否则重跑会退化成「无参数」形态
+#   （真实故障：模式 B re-exec 后报「无法确定代码来源…也未提供 --source-dir」）。
+ORIG_ARGS=("$@")
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --install-dir)      INSTALL_DIR="$2"; shift 2 ;;
@@ -209,7 +214,7 @@ if [[ -d "$INSTALL_DIR/.git" ]]; then
     if [[ -z "${GIPFEL_UPDATE_REEXEC:-}" && "$0" == "$INSTALL_DIR"/* ]]; then
         export GIPFEL_UPDATE_REEXEC=1
         log "更新脚本自身已更新，重新执行新版本"
-        exec "$0" "$@"
+        exec "$0" "${ORIG_ARGS[@]}" --install-dir "$INSTALL_DIR"
     fi
 elif [[ -n "$SOURCE_DIR" && -d "$SOURCE_DIR/.git" ]]; then
     # 模式 B：从本地 source checkout pull 后 rsync 到 INSTALL_DIR（同 deploy-linux.sh 模型）
@@ -234,7 +239,7 @@ elif [[ -n "$SOURCE_DIR" && -d "$SOURCE_DIR/.git" ]]; then
     if [[ -z "${GIPFEL_UPDATE_REEXEC:-}" && -s "$INSTALL_DIR/scripts/update-from-github.sh" ]]; then
         export GIPFEL_UPDATE_REEXEC=1
         log "更新脚本已同步，改用最新版本重新执行"
-        exec bash "$INSTALL_DIR/scripts/update-from-github.sh" "$@"
+        exec bash "$INSTALL_DIR/scripts/update-from-github.sh" "${ORIG_ARGS[@]}" --install-dir "$INSTALL_DIR"
     fi
 elif [[ -n "$REPO" ]]; then
     # 模式 C：克隆到 INSTALL_DIR（要求目录为空）
