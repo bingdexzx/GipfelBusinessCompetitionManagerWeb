@@ -112,11 +112,18 @@ export function isValidNumberString(s: string | number | null | undefined): bool
 
 /**
  * ISO 时间去秒截断（与全局 $formatTime 完全一致）。
- * 空值或非法日期返回 "-"；否则按 UTC 截断到秒（YYYY-MM-DD HH:mm:ss）。
+ * 空值或非法日期返回 "-"；否则按本地时区截断到秒（YYYY-MM-DD HH:mm:ss）。
  */
 export function formatTime(val: string | Date | null | undefined): string {
   if (!val) return "-";
   const d = typeof val === "string" ? new Date(val) : val;
   if (isNaN(d.getTime())) return "-";
-  return d.toISOString().replace("T", " ").substring(0, 19);
+  // 使用本地时区格式化，而非 UTC
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const hours = String(d.getHours()).padStart(2, "0");
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  const seconds = String(d.getSeconds()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }

@@ -307,10 +307,16 @@ class ContractItemAPIView(APIView):
 
     @require_permissions(_CONTRACT_MANAGE_PERM)
     def delete(self, request, pk):
-        # 删除为高危操作：仅超级管理员可执行
-        if getattr(request.user, "role", None) != "SUPER_ADMIN":
-            raise BusinessError("仅超级管理员可删除合同", code=403, status_code=403)
+        user_role = getattr(request.user, "role", None)
         contract = _get_contract(pk, request.user)
+        
+        # 管理员可删除草稿和待执行状态的合同；超管可删除任意状态
+        if user_role == "COMPETITION_ADMIN":
+            if contract.status not in ("DRAFT", "PENDING_EXEC"):
+                raise BusinessError("管理员只能删除草稿和待执行状态的合同", code=403, status_code=403)
+        elif user_role != "SUPER_ADMIN":
+            raise BusinessError("仅管理员可删除合同", code=403, status_code=403)
+        
         raw = request.query_params.get("competitionId")
         try:
             competition_id = int(raw) if raw else None

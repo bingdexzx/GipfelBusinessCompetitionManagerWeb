@@ -103,14 +103,14 @@
             >执行</el-button
           >
           <el-button
-            v-if="authStore.isSuperAdmin"
+            v-if="canDeleteContract(row)"
             size="small"
             type="danger"
             @click="handleDelete(row)"
             >删除</el-button
           >
           <el-button
-            v-if="authStore.isSuperAdmin"
+            v-if="authStore.isSuperAdmin && row.status === 'EXECUTED'"
             size="small"
             type="danger"
             @click="handleDeleteWithoutRollback(row)"
@@ -164,14 +164,14 @@
           >执行</el-button
         >
         <el-button
-          v-if="authStore.isSuperAdmin"
+          v-if="canDeleteContract(row)"
           size="small"
           type="danger"
           @click="handleDelete(row)"
           >删除</el-button
         >
         <el-button
-          v-if="authStore.isSuperAdmin"
+          v-if="authStore.isSuperAdmin && row.status === 'EXECUTED'"
           size="small"
           type="danger"
           @click="handleDeleteWithoutRollback(row)"
@@ -1427,6 +1427,18 @@ function canExecuteRow(row: any): boolean {
   const u = authStore.user;
   if (!u) return false;
   return u.role === "SUPER_ADMIN" || u.role === "COMPETITION_ADMIN";
+}
+
+// 管理员/超管可删除未执行和草稿状态的合同
+function canDeleteContract(row: any): boolean {
+  const u = authStore.user;
+  if (!u) return false;
+  // 超管可删除任意状态；管理员可删除草稿和待执行状态
+  if (u.role === "SUPER_ADMIN") return true;
+  if (u.role === "COMPETITION_ADMIN") {
+    return row.status === "DRAFT" || row.status === "PENDING_EXEC";
+  }
+  return false;
 }
 
 // 执行按钮状态：
