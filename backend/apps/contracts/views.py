@@ -501,6 +501,69 @@ class ContractPartyNumbersAPIView(APIView):
         return Response(_serialize_contract(contract))
 
 
+class ContractRecalculateAPIView(APIView):
+    """POST /api/contracts/:id/recalculate —— 重算合同（回滚后重新执行）。
+
+    仅超级管理员可执行。
+    1. 回滚已执行的字段效果
+    2. 使用当前输入数据和合同类型效果重新执行
+    """
+
+    permission_classes = _PERM_CLASSES
+
+    def post(self, request, pk):
+        # 仅超级管理员可重算
+        if getattr(request.user, "role", None) != "SUPER_ADMIN":
+            raise BusinessError("仅超级管理员可重算合同", code=403, status_code=403)
+
+        contract = _get_contract(pk, request.user)
+        if contract.status != "EXECUTED":
+            raise BusinessError("只能重算已执行的合同", code=400, status_code=400)
+
+        # 回滚已执行的效果
+        effect_count = ContractFieldEffect.objects.filter(contract_id=contract.id).count()
+        with transaction.atomic():
+            if effect_count > 0:
+                engine_dict = _contract_to_engine_dict(contract)
+                _engine.revert_contract(engine_dict)
+
+            # 重新执行引擎
+            engine_dict = _contract_to_engine_dict(contract)
+            engine_result = _engine.execute(engine_dict)
+
+            # 更新合同的执行日志和结果
+            executed_at = timezone.now()
+            Contract.objects.filter(pk=pk).update(
+                execution_log=dumps_json_safe(engine_result["log"], ensure_ascii=False),
+                execution_result=dumps_json_safe(engine_result["result"], ensure_ascii=False),
+                executed_at=executed_at,
+                updated_at=timezone.now(),
+            )
+
+        # 同步内存对象
+        contract.execution_log = dumps_json_safe(engine_result["log"], ensure_ascii=False)
+        contract.execution_result = dumps_json_safe(engine_result["result"], ensure_ascii=False)
+        contract.executed_at = executed_at
+        contract.updated_at = timezone.now()
+
+        # 级联重算计算字段 + 广播刷新
+        affected_companies = set()
+        for key in (engine_result.get("result") or {}).get("fields", {}):
+            try:
+                cid = int(key.split(":")[0])
+                if cid:
+                    affected_companies.add(cid)
+            except (ValueError, TypeError):
+                pass
+        for cid in affected_companies:
+            _recompute_calc_fields_safe(cid)
+            emit_resource_changed("company-field", cid, contract.competition_id, "updated")
+
+        emit_resource_changed("contracts", contract.id, contract.competition_id, "updated")
+
+        return Response(_serialize_contract(contract))
+
+
 class ContractPrecheckAPIView(APIView):
     """POST /api/contracts/:id/precheck —— 预检条件（不落账）。"""
 

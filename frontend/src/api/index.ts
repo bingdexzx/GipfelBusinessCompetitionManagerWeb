@@ -257,6 +257,8 @@ export const contractsApi = {
   updateInputs: (id: number, inputs: Record<string, any>) =>
     api.patch(`/contracts/${id}`, { inputs }),
   execute: (id: number, data?: Record<string, unknown>) => api.post(`/contracts/${id}/execute`, data || {}),
+  /** 重算合同（回滚后重新执行，仅超管） */
+  recalculate: (id: number) => api.post(`/contracts/${id}/recalculate`),
   // 分步补全合同编号：传入 { [role]: 编号 }，仅更新指定参与方
   updatePartyNumbers: (id: number, partyNumbers: Record<string, string>) =>
     api.patch(`/contracts/${id}/party-numbers`, { partyNumbers }),

@@ -90,7 +90,7 @@
       <el-table-column label="创建时间" min-width="160">
         <template #default="{ row }">{{ $formatTime(row.createdAt) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="280" fixed="right">
+      <el-table-column label="操作" width="360" fixed="right">
         <template #default="{ row }">
           <el-button size="small" @click="openDetail(row)">详情</el-button>
           <el-button
@@ -108,6 +108,13 @@
             type="danger"
             @click="handleDelete(row)"
             >删除</el-button
+          >
+          <el-button
+            v-if="authStore.isSuperAdmin && row.status === 'EXECUTED'"
+            size="small"
+            type="warning"
+            @click="handleRecalculate(row)"
+            >重算</el-button
           >
           <el-button
             v-if="authStore.isSuperAdmin && row.status === 'EXECUTED'"
@@ -169,6 +176,13 @@
           type="danger"
           @click="handleDelete(row)"
           >删除</el-button
+        >
+        <el-button
+          v-if="authStore.isSuperAdmin && row.status === 'EXECUTED'"
+          size="small"
+          type="warning"
+          @click="handleRecalculate(row)"
+          >重算</el-button
         >
         <el-button
           v-if="authStore.isSuperAdmin && row.status === 'EXECUTED'"
@@ -1992,6 +2006,28 @@ async function handleDeleteWithoutRollback(row: any) {
     loadContracts();
   } catch (e) {
     console.error(e);
+  }
+}
+
+async function handleRecalculate(row: any) {
+  await ElMessageBox.confirm(
+    `确定重算合同「${row.name}」吗？这将回滚已执行的效果并重新执行。`,
+    "重算确认",
+    {
+      type: "warning",
+      confirmButtonText: "确定重算",
+      cancelButtonText: "取消",
+    },
+  );
+  submitting.value = true;
+  try {
+    await contractsApi.recalculate(row.id);
+    ElMessage.success("合同已重算");
+    loadContracts();
+  } catch (e: any) {
+    showExecuteError(e);
+  } finally {
+    submitting.value = false;
   }
 }
 
