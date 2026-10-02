@@ -1088,12 +1088,22 @@ class AdvanceRoundView(APIView):
 
         from .engine import advance_round
 
-        result = advance_round(
-            competition_id=cid,
-            stock_ids=data.get("stockIds"),
-            market_maker=data.get("marketMaker"),
-            stock_config=data.get("stockConfig"),
-        )
+        try:
+            result = advance_round(
+                competition_id=cid,
+                stock_ids=data.get("stockIds"),
+                market_maker=data.get("marketMaker"),
+                stock_config=data.get("stockConfig"),
+            )
+        except Exception as e:
+            # SQLite 数据库锁定时给出友好提示
+            if "database is locked" in str(e).lower():
+                raise BusinessError(
+                    "数据库繁忙，请稍后重试",
+                    code=503,
+                    status_code=503,
+                )
+            raise
         # 单次 bulk 广播已在 engine.advance_round 内发出（stocks/stock-orders/stock-holdings），
         # 前端据此刷新行情与账户，无需额外事件（原 stock:round-advanced 无订阅方，已移除）。
         return Response(result)

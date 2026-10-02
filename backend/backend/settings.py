@@ -312,6 +312,10 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "db.sqlite3",
+        # SQLite 超时设置：默认5秒太短，股票推进等重写操作容易触发 "database is locked"
+        "OPTIONS": {
+            "timeout": 60,  # 等待锁的秒数
+        },
     }
 }
 
