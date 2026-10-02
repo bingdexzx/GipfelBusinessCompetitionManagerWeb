@@ -346,41 +346,41 @@ def compute_init_price(
 # ==================== StockConfig ====================
 DEFAULT_STOCK_CONFIG: dict = {
     "limitPct": 0.1,
-    "maxMovePct": 0.05,
-    "happinessImpact": 0.2,
-    "carbonImpact": 0.2,
-    "mmDepthPct": 0.0005,  # 减小深度占比：从0.001降到0.0005
-    "mmMinQty": 500,       # 减小最小数量：从1000降到500
-    "mmMaxQty": 50000,     # 减小最大数量：从100000降到50000
-    "mmSpreadPct": 0.015,  # 减小点差：从0.02降到0.015
-    "mmSkewPct": 0.015,    # 减小偏置：从0.02降到0.015
+    "maxMovePct": 0.08,    # 增大最大移动：从0.05升到0.08（允许更大波动）
+    "happinessImpact": 0.3, # 增大幸福度影响：从0.2升到0.3
+    "carbonImpact": 0.3,   # 增大碳排放影响：从0.2升到0.3
+    "mmDepthPct": 0.0005,
+    "mmMinQty": 500,
+    "mmMaxQty": 50000,
+    "mmSpreadPct": 0.02,   # 增大点差：从0.015升到0.02
+    "mmSkewPct": 0.02,     # 增大偏置：从0.015升到0.02
     "interventionMode": "regression",
-    "regressionPct": 0.015, # 减小回归偏移：从0.02降到0.015
+    "regressionPct": 0.02,  # 增大回归偏移：从0.015升到0.02
     "tradePriceWeight": 0.7,
     "carbonSaturateRatio": 2,
-    # 做市商自成交配置：当没有人工订单时，做市商主动制造价格波动
-    "mmSelfTradeEnabled": True,  # 是否启用做市商自成交
-    "mmSelfTradePct": 0.003,     # 减小自成交偏移：从0.005降到0.003
-    "mmSelfTradeQtyPct": 0.05,   # 减小自成交数量：从0.1降到0.05
+    # 做市商自成交配置
+    "mmSelfTradeEnabled": True,
+    "mmSelfTradePct": 0.005,    # 增大自成交偏移：从0.003升到0.005
+    "mmSelfTradeQtyPct": 0.05,
     # 做市商随机事件配置
-    "mmBadNewsProb": 0.03,       # 减小利空概率：从0.05降到0.03
-    "mmGoodNewsProb": 0.02,      # 减小利好概率：从0.03降到0.02
-    "mmBadNewsImpact": 0.06,     # 减小利空影响：从0.10降到0.06
-    "mmGoodNewsImpact": 0.04,    # 减小利好影响：从0.065降到0.04
+    "mmBadNewsProb": 0.05,      # 增大利空概率：从0.03升到0.05
+    "mmGoodNewsProb": 0.04,     # 增大利好概率：从0.02升到0.04
+    "mmBadNewsImpact": 0.08,    # 增大利空影响：从0.06升到0.08
+    "mmGoodNewsImpact": 0.06,   # 增大利好影响：从0.04升到0.06
     # 估值回归配置
-    "mmRegressionThreshold": 0.25, # 提高回归阈值：从0.2升到0.25
-    "mmRegressionStrength": 0.3,   # 减小回归强度：从0.5降到0.3
+    "mmRegressionThreshold": 0.3, # 提高回归阈值：从0.25升到0.3（更晚触发回归）
+    "mmRegressionStrength": 0.2,  # 降低回归强度：从0.3降到0.2（回归更温和）
     # 市场自然波动配置
-    "mmCallbackEnabled": True,     # 是否启用市场自然波动机制
+    "mmCallbackEnabled": True,
 }
 
-# 防连板因子：上一轮已封板时，本轮同侧限幅收紧到 94%。
-# 默认 10% × 0.94 = 9.4% < 9.9%（封板判定线），连续封板在数学上不可能。
-_ANTI_STREAK_FACTOR = 0.94
+# 防连板因子：上一轮已封板时，本轮同侧限幅收紧到 96%（更宽松）。
+# 默认 10% × 0.96 = 9.6% < 9.9%（封板判定线），连续封板在数学上不可能。
+_ANTI_STREAK_FACTOR = 0.96
 # 防连板绝对上限：与封板判定线（advance_round 中 |change_pct| ≥ 9.9 判板）挂钩。
-# 对 limitPct > 10.5% 的高限幅配置，仅按 94% 收缩仍可能 ≥ 9.9%（如 15%×0.94=14.1%），
-# 故同侧限幅取 min(limitPct×0.94, 9.4%)，保证任意配置下连板都不可能。
-_ANTI_STREAK_CAP_PCT = 0.094
+# 对 limitPct > 10.5% 的高限幅配置，仅按 96% 收缩仍可能 ≥ 9.9%（如 15%×0.96=14.4%），
+# 故同侧限幅取 min(limitPct×0.96, 9.6%)，保证任意配置下连板都不可能。
+_ANTI_STREAK_CAP_PCT = 0.096
 
 
 def resolve_stock_config(input_: dict | None) -> dict:
@@ -1250,11 +1250,11 @@ def _advance_round_flat(
             drift_data["carbonSaturateRatio"],
         )
         max_move = drift_data["maxMovePct"]
-        # 趋势漂移：drift 方向确定，幅度有 ±50% 随机波动
-        trend_drift = drift * (1 + random.uniform(-0.5, 0.5))
-        # 基础随机波动：直接作用于价格，±0.3% ~ ±1.5%（模拟市场微观噪声）
+        # 趋势漂移：drift 方向确定，幅度有 ±60% 随机波动（增加随机性）
+        trend_drift = drift * (1 + random.uniform(-0.6, 0.6))
+        # 基础随机波动：直接作用于价格，±0.5% ~ ±2%（增加波动幅度）
         # 不乘以 maxMovePct，确保即使 drift 接近 0 也有明显波动
-        base_noise_pct = random.uniform(-0.015, 0.015)
+        base_noise_pct = random.uniform(-0.02, 0.02)
         # 计算新价格：趋势漂移（通过 maxMovePct 缩放）+ 基础噪声（直接作用）
         theoretical = float(old_price) * (1 + trend_drift * max_move + base_noise_pct)
         # 限幅
@@ -1523,41 +1523,35 @@ def advance_one_stock(
                     else:
                         break
                 
-                # 基于多种因素计算回调概率
-                base_prob = 0.05  # 基础回调概率5%
+                # 基于多种因素计算回调概率（降低概率，减少压制）
+                base_prob = 0.03  # 基础回调概率3%（从5%降到3%）
                 
                 # 因素1：连续上涨轮数（非线性）
-                if candle_consec_up >= 3:
-                    # 连续上涨3轮以上，概率增加
-                    up_factor = min(0.2, (candle_consec_up - 2) * 0.05)
+                if candle_consec_up >= 4:  # 提高触发门槛：从3轮提高到4轮
+                    up_factor = min(0.15, (candle_consec_up - 3) * 0.04)
                     base_prob += up_factor
                 
                 # 因素2：近期平均涨幅（涨幅越大，回调概率越大）
-                if avg_change > 1.0:  # 平均涨幅超过1%
-                    change_factor = min(0.15, (avg_change - 1.0) * 0.05)
+                if avg_change > 1.5:  # 提高触发门槛：从1.0%提高到1.5%
+                    change_factor = min(0.1, (avg_change - 1.5) * 0.04)
                     base_prob += change_factor
                 
-                # 因素3：随机市场情绪（10%概率出现市场情绪变化）
-                if random.random() < 0.1:
-                    # 市场情绪变化：可能大涨也可能大跌
+                # 因素3：随机市场情绪（15%概率出现市场情绪变化，增加波动）
+                if random.random() < 0.15:
                     sentiment = random.choice([-1, 1])
-                    sentiment_pct = random.uniform(0.005, 0.02)  # 0.5%~2%
+                    sentiment_pct = random.uniform(0.008, 0.025)  # 0.8%~2.5%
                     final_price = final_price * (1 + Decimal(str(sentiment * sentiment_pct)))
                     logger.info(f"[stock] 市场情绪变化: stock={stock.code}, "
                                f"{'上涨' if sentiment > 0 else '下跌'}{sentiment_pct*100:.1f}%")
                 
-                # 因素4：技术性回调（基于概率）
+                # 因素4：技术性回调（基于概率，降低幅度）
                 if random.random() < base_prob:
-                    # 回调幅度：基于近期涨幅，涨幅越大回调可能越大
-                    if avg_change > 1.5:
-                        # 大涨后可能大跌
-                        callback_pct = random.uniform(0.015, 0.04)  # 1.5%~4%
-                    elif avg_change > 1.0:
-                        # 中等涨幅后回调
-                        callback_pct = random.uniform(0.01, 0.025)  # 1%~2.5%
+                    if avg_change > 2.0:  # 提高触发门槛
+                        callback_pct = random.uniform(0.01, 0.03)  # 1%~3%（降低）
+                    elif avg_change > 1.5:
+                        callback_pct = random.uniform(0.008, 0.02)  # 0.8%~2%（降低）
                     else:
-                        # 小幅回调
-                        callback_pct = random.uniform(0.005, 0.015)  # 0.5%~1.5%
+                        callback_pct = random.uniform(0.005, 0.012)  # 0.5%~1.2%（降低）
                     
                     final_price = final_price * (1 - Decimal(str(callback_pct)))
                     logger.info(f"[stock] 技术性回调: stock={stock.code}, "
